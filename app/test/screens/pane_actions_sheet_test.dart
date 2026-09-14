@@ -10,12 +10,12 @@ library;
 import 'package:flutter/widgets.dart'
     show
         EdgeInsets,
-        Icon,
         MediaQuery,
         MediaQueryData,
         Offset,
         Size,
         TextScaler,
+        ValueChanged,
         VoidCallback;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/pane_actions_sheet.dart';
@@ -26,8 +26,6 @@ import 'package:material_ui/material_ui.dart'
 /// Every row R-03-101 removed from the sheet. Not one of them may come back under any state.
 const List<String> _removedRows = <String>[
   'Send a prompt to claude',
-  'Split right',
-  'Split down',
   'Zoom this pane',
   'Rename pane',
   'Copy the whole screen',
@@ -50,6 +48,7 @@ Future<void> _openSheet(
   PaneActionsLinkState linkState = PaneActionsLinkState.normal,
   VoidCallback? onOpenPluginActions,
   VoidCallback? onClosePane,
+  ValueChanged<String>? onSplit,
 }) async {
   await tester.pumpWidget(
     MediaQuery(
@@ -68,6 +67,7 @@ Future<void> _openSheet(
                 linkState: linkState,
                 onOpenPluginActions: onOpenPluginActions,
                 onClosePane: onClosePane,
+                onSplit: onSplit,
               ),
               child: const Text('open'),
             ),
@@ -81,6 +81,56 @@ Future<void> _openSheet(
 }
 
 void main() {
+  for (final direction in ['right', 'down']) {
+    testWidgets('Split $direction closes the sheet and calls back once', (
+      tester,
+    ) async {
+      final directions = <String>[];
+      await _openSheet(
+        tester,
+        mediaQueryData: const MediaQueryData(size: Size(400, 1200)),
+        onSplit: directions.add,
+      );
+      final rows = [
+        'Plugin actions',
+        'Split right',
+        'Split down',
+        'Close pane',
+      ];
+      for (var index = 1; index < rows.length; index++) {
+        expect(
+          tester.getTopLeft(find.text(rows[index])).dy,
+          greaterThan(tester.getTopLeft(find.text(rows[index - 1])).dy),
+        );
+      }
+      expect(directions, isEmpty);
+      await tester.tap(find.text('Split $direction'));
+      await tester.pumpAndSettle();
+      expect(directions, [direction]);
+      expect(find.byType(PaneActionsSheet), findsNothing);
+    });
+  }
+
+  for (final state in [
+    PaneActionsLinkState.offline,
+    PaneActionsLinkState.hostInUse,
+  ]) {
+    testWidgets('$state disables both split directions', (tester) async {
+      final directions = <String>[];
+      await _openSheet(
+        tester,
+        mediaQueryData: const MediaQueryData(size: Size(400, 1200)),
+        linkState: state,
+        onSplit: directions.add,
+      );
+      await tester.tap(find.text('Split right'));
+      await tester.tap(find.text('Split down'));
+      await tester.pumpAndSettle();
+      expect(directions, isEmpty);
+      expect(find.byType(PaneActionsSheet), findsOneWidget);
+    });
+  }
+
   testWidgets(
     'on an agent pane with a screen reader on, the sheet holds Plugin actions, Read the last '
     '20 lines and Close pane, and none of the rows R-03-101 removed (R-31-10-03)',
@@ -168,13 +218,6 @@ void main() {
       onClosePane: () {},
     );
 
-    expect(
-      find.byType(Icon),
-      findsNWidgets(3),
-      reason:
-          'each action has one leading icon, and the one row that opens a screen '
-          '(Plugin actions) also carries the chevron; none is a permission indicator',
-    );
     expect(find.byIcon(Symbols.extension_rounded), findsOneWidget);
     expect(find.byIcon(Symbols.chevron_right_rounded), findsOneWidget);
     // `Close pane, destructive` takes its R-32-401 glyph.

@@ -1,23 +1,7 @@
-/// The pane action sheet (`docs/90-implementation-plan.md` `WP-16-c`'s owned path,
-/// `docs/31-mockups/10-pane-actions.md`, R-90-010): the grab handle, the header, the action
-/// groups and `Cancel` of section 7.16's bottom sheet anatomy, the host-in-use and offline
-/// states (R-90-011) and the real `Read the last 20 lines` announcement (R-30-713, R-30-742).
-///
-/// R-03-101 (2026-09-09) fixes what the sheet holds: `Plugin actions`, `Close pane`, and
-/// `Read the last 20 lines` while a screen reader is on. The prompt composer, `Split right`,
-/// `Split down`, `Zoom this pane`, `Rename pane` and `Copy the whole screen` left the sheet
-/// that day: the live terminal of R-03-054 is the prompt, a phone has no use for a desktop
-/// layout task, and the copy path is text selection in the grid (`terminal_view_widget.dart`,
-/// R-21-042). With them went the in-sheet mutation states this file used to draw (the per-row
-/// spinner, the error strip, the outcome-unknown block, the rename field): no row left sends
-/// a `host_action` from inside the sheet.
-///
-/// This file draws every state; it sends nothing itself. `Plugin actions` (callout 5,
-/// R-03-055) closes the sheet and fires `onOpenPluginActions`; the caller pushes
-/// `/hosts/:hostId/panes/:paneId/actions`. `Close pane` is a plain fire-and-close signal: per
-/// R-31-10-01 "the sheet MUST close before the dialog opens", so this file pops the sheet,
-/// shows the R-33-074 confirmation, and only then calls `onClosePane`; the caller sends
-/// `pane.close`.
+/// The pane action sheet offers plugin actions, split actions, and `Close pane` (R-03-134).
+/// It also offers `Read last 20 lines` when a screen reader is on.
+/// Split actions close this sheet and report the direction to the terminal screen.
+/// `Close pane` opens a confirmation dialog before it reports the action.
 library;
 
 import 'dart:async' show unawaited;
@@ -60,6 +44,7 @@ import 'package:flutter/widgets.dart'
         TextDirection,
         TextOverflow,
         View,
+        ValueChanged,
         VoidCallback,
         Widget;
 import 'package:material_symbols_icons/symbols.dart';
@@ -138,6 +123,7 @@ Future<void> showPaneActionsSheet(
   String? linkStateDetail,
   VoidCallback? onTapDiagnostics,
   VoidCallback? onOpenPluginActions,
+  ValueChanged<String>? onSplit,
   VoidCallback? onClosePane,
 }) async {
   final double bottomInset = MediaQuery.viewPaddingOf(context).bottom;
@@ -176,6 +162,7 @@ Future<void> showPaneActionsSheet(
           linkStateDetail: linkStateDetail,
           onTapDiagnostics: onTapDiagnostics,
           onOpenPluginActions: onOpenPluginActions,
+          onSplit: onSplit,
           onClosePane: onClosePane,
         ),
       ),
@@ -197,6 +184,7 @@ class PaneActionsSheet extends StatelessWidget {
     this.linkStateDetail,
     this.onTapDiagnostics,
     this.onOpenPluginActions,
+    this.onSplit,
     this.onClosePane,
   });
 
@@ -214,6 +202,7 @@ class PaneActionsSheet extends StatelessWidget {
   final String? linkStateDetail;
   final VoidCallback? onTapDiagnostics;
   final VoidCallback? onOpenPluginActions;
+  final ValueChanged<String>? onSplit;
   final VoidCallback? onClosePane;
 
   /// Pops the sheet, then fires [callback]. Per the mockup's Navigation section, "every other
@@ -349,9 +338,18 @@ class PaneActionsSheet extends StatelessWidget {
         ),
       _ActionGroup(
         children: <Widget>[
-          // Callout 6: `treat.destructive`, alone in its group (R-32-527, R-32-506). The one
-          // row that acts on the computer, so the one row R-30-807 disables while the link is
-          // not `normal`.
+          for (final (String direction, String label, IconData icon) in [
+            ('right', 'Split right', Symbols.splitscreen_right_rounded),
+            ('down', 'Split down', Symbols.splitscreen_bottom_rounded),
+          ])
+            _ActionRow(
+              label: label,
+              icon: icon,
+              enabled: linkState == PaneActionsLinkState.normal,
+              onTap: onSplit == null
+                  ? null
+                  : () => _actAndClose(context, () => onSplit!(direction)),
+            ),
           _ActionRow(
             label: 'Close pane',
             icon: Symbols.delete_outline_rounded,

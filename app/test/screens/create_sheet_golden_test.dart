@@ -1,7 +1,5 @@
-/// Golden tests for `CreateSheet` (`app/lib/screens/create_sheet.dart`, `WP-18-d`), the
-/// `Default` row of `docs/31-mockups/17-create.md`'s `## States` table (R-90-011): a pane is
-/// open on the connected computer, so the third wireframe's every row is enabled and named,
-/// rendered in both Selenized dark and light (R-32-012).
+/// Golden tests for the create menu in dark and light themes.
+/// The menu offers workspace and tab creation, without pane actions.
 ///
 /// `CreateSheet` is stateful and talks to `pane_actions.dart` through the `messages`,
 /// `connectionState` and `send` constructor arguments, so this file reuses
@@ -52,9 +50,7 @@ class _Harness {
   }
 }
 
-/// One pane, open in one workspace, so every row of the `Default` state's third wireframe is
-/// enabled and named: `New space`, `New tab in herdr-relay`, `Split pane claude right` and
-/// `Split pane claude down`.
+/// A workspace with a pane. Pane context does not add create actions.
 const _snapshot = TreeSnapshot(
   workspaces: [
     WorkspaceSummary(workspaceId: 'ws-1', name: 'herdr-relay', focused: true),
@@ -112,7 +108,6 @@ void main() {
                   context,
                   hostName: 'patrick-desk',
                   snapshot: _snapshot,
-                  currentPaneId: 'pane-1',
                   messages: harness.messages.stream,
                   connectionState: harness.connectionState.stream,
                   send: harness.send,
@@ -132,8 +127,6 @@ void main() {
       expect(find.text('Create on patrick-desk'), findsOneWidget);
       expect(find.text('New space'), findsOneWidget);
       expect(find.text('New tab in herdr-relay'), findsOneWidget);
-      expect(find.text('Split pane claude right'), findsOneWidget);
-      expect(find.text('Split pane claude down'), findsOneWidget);
       expect(find.text('Cancel'), findsOneWidget);
 
       await expectLater(

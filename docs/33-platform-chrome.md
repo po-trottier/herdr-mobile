@@ -328,12 +328,13 @@ and no glyph.
   The fourth reason is a **refusal** of a review finding, recorded here so that it is not reopened
   as an oversight. The finding asked for an iOS `Add` pull-down menu, and Apple does name an `Add`
   button as a pull-down example. The widget also exists: `cupertino_ui` ships `CupertinoMenuAnchor`
-  and `CupertinoMenuItem`, and `CupertinoMenuItem` carries a `subtitle`, so the disabled row and its
-  reason of `R-31-17-05` would survive. The pattern still fails, because this menu waits for a
-  network round trip and a pull-down menu does not wait. Apple's own length guidance points the same
-  way: it asks for at least three items, and in the no-pane state of `R-31-17-05` only one row is
-  enabled. This rule MUST be revisited only if `UxSpec` retires `R-31-17-07` and moves the pending
-  state off the menu surface. Until then the sheet is correct on both platforms.
+  and `CupertinoMenuItem`. The pattern still fails, because this menu waits for a network round
+  trip and a pull-down menu does not wait. Apple's own length guidance points the same way: it
+  asks for at least three items, and since 2026-09-14 the menu holds two, `New space` and
+  `New tab` (`R-03-134` moved the split rows to the pane action sheet; until then this paragraph
+  argued from the retired no-pane row of `R-31-17-05`). This rule MUST be revisited only if
+  `UxSpec` retires `R-31-17-07` and moves the pending state off the menu surface. Until then the
+  sheet is correct on both platforms.
 - **R-33-038** The app MUST use the widget that the platform's own design library ships, which is
   `cupertino_ui` on iOS and the Material library that `docs/20-mobile-framework.md` pins on
   Android. It MUST NOT re-implement that widget in Dart, and it MUST NOT host a native control in a

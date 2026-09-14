@@ -274,6 +274,7 @@ class _Harness {
 
   /// The pane id the switcher sheet handed to `onSwitchPane`, or `null`.
   String? switchedTo;
+  String? splitTo;
 
   void emit(Message message) => messages.add(message);
 
@@ -302,6 +303,7 @@ class _Harness {
       onBack: () => backTapped = true,
       onDiagnostics: () => diagnosticsTapped = true,
       onSwitchPane: (String paneId) => switchedTo = paneId,
+      onSplit: (String paneId) => splitTo = paneId,
       now: now,
     ),
   );
@@ -1299,7 +1301,7 @@ void main() {
   });
 
   testWidgets(
-    'the overflow opens the pane action sheet with Plugin actions and Close pane only, and '
+    'the overflow opens pane actions with split actions, and '
     'a confirmed Close pane sends one host_action close (R-03-101, R-31-10-01, R-11-202)',
     (tester) async {
       final harness = _Harness();
@@ -1314,10 +1316,10 @@ void main() {
 
       expect(find.text('Plugin actions'), findsOneWidget);
       expect(find.text('Close pane'), findsOneWidget);
+      expect(find.text('Split right'), findsOneWidget);
+      expect(find.text('Split down'), findsOneWidget);
       for (final String removed in <String>[
         'Send a prompt to claude',
-        'Split right',
-        'Split down',
         'Zoom this pane',
         'Rename pane',
         'Copy the whole screen',
@@ -1354,6 +1356,47 @@ void main() {
     },
   );
 
+  testWidgets(
+    'a refused split shows the Host error and keeps the current pane',
+    (tester) async {
+      final harness = _Harness();
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness);
+      await tester.tap(_overflow());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Split down'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final hostActions = harness.sent.whereType<MessageHostAction>().toList();
+      expect(hostActions, hasLength(1));
+      expect(hostActions.single.payload.action, HostActionKind.paneSplit);
+      expect(hostActions.single.payload.paneId, _paneId);
+      expect(hostActions.single.payload.params, {
+        'focus': false,
+        'direction': 'down',
+      });
+      expect(harness.splitTo, isNull);
+      harness.emit(
+        const Message.error(
+          ErrorMessage(
+            code: ErrorCode.internalError,
+            fatal: false,
+            message: 'Pane cannot split.',
+          ),
+        ),
+      );
+      await _pumpAlert(tester);
+
+      expect(find.byType(PaneActionsSheet), findsNothing);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('Could not split pane.'), findsOneWidget);
+      expect(find.text('Pane cannot split.'), findsOneWidget);
+      expect(harness.splitTo, isNull);
+      expect(harness.sent.whereType<MessageHostAction>(), hasLength(1));
+    },
+  );
   testWidgets('a pane.closed tree_update raises the R-03-119 alert once, the Material AlertDialog over the '
       'dimmed grid: `This pane closed.`, one action `Back to agents` that leaves through onBack; '
       'neither the barrier nor the back gesture closes it', (tester) async {

@@ -1,14 +1,5 @@
-/// Tests `create_sheet.dart` (`WP-18-d`) against `docs/31-mockups/17-create.md`: `New space`
-/// sending `workspace.create` and routing a successful `host_action_ack` to `onCreated`
-/// (R-31-17-02, R-31-17-03), the `Error` state's raw text and re-enabled rows (R-30-803,
-/// R-30-804), and the `Outcome unknown` state's two sentences with no `treat.error`, resolved
-/// by `Check now` (R-30-518, R-31-17-07). Also covers the exact three-action menu with no
-/// fourth action (R-30-950), no confirmation on create (R-30-953), no close-workspace,
-/// close-tab or stop-server control in any phase (R-30-955), navigation from the ack's own id
-/// alone with no `tree_request` (R-30-956), the no-pane `Split a pane` collapse (R-31-17-05),
-/// and the absence of zoom/rename/resize/copy/close-pane rows (R-31-17-06). The last two tests
-/// cover the scrim-tap dismissal gate of R-31-17-07: a scrim tap closes an idle sheet and does
-/// nothing while a create is in flight.
+/// Tests workspace and tab creation, acknowledgements, refusal, and connection loss.
+/// The create menu does not offer pane actions.
 library;
 
 import 'dart:async';
@@ -100,7 +91,6 @@ Future<void> _openSheet(
   WidgetTester tester,
   _Harness harness, {
   required TreeSnapshot snapshot,
-  String? currentPaneId,
   required void Function(CreateResult) onCreated,
 }) async {
   await tester.pumpWidget(
@@ -112,7 +102,6 @@ Future<void> _openSheet(
               context,
               hostName: 'patrick-desk',
               snapshot: snapshot,
-              currentPaneId: currentPaneId,
               messages: harness.messages.stream,
               connectionState: harness.connectionState.stream,
               send: harness.send,
@@ -223,11 +212,10 @@ void main() {
         tester,
         harness,
         snapshot: _snapshot(workspaces: [_workspace()], panes: [_pane()]),
-        currentPaneId: 'pane-1',
         onCreated: (value) => result = value,
       );
 
-      await tester.tap(find.text('Split pane claude right'));
+      await tester.tap(find.text('New space'));
       await tester.pump();
 
       harness.connectionState.add(const RelayDisconnected());
@@ -254,38 +242,27 @@ void main() {
       );
 
       expect(find.text('This phone did not get an answer.'), findsNothing);
-      expect(find.text('Split pane claude right'), findsOneWidget);
+      expect(find.text('New space'), findsOneWidget);
       expect(result, isNull);
     },
   );
 
-  testWidgets(
-    'the action list offers exactly the three documented actions - New space, New tab and the '
-    'two split directions - with no fourth action row (R-30-950)',
-    (WidgetTester tester) async {
-      final harness = _Harness();
-      addTearDown(harness.dispose);
-
-      await _openSheet(
-        tester,
-        harness,
-        snapshot: _snapshot(workspaces: [_workspace()], panes: [_pane()]),
-        currentPaneId: 'pane-1',
-        onCreated: (_) {},
-      );
-      expect(find.text('New space'), findsOneWidget);
-      expect(find.text('New tab in herdr-relay'), findsOneWidget);
-      expect(find.text('Split pane claude right'), findsOneWidget);
-      expect(find.text('Split pane claude down'), findsOneWidget);
-      expect(
-        find.byType(AppListRow),
-        findsNWidgets(4),
-        reason:
-            'only New space, New tab and the two split directions may render; a fifth row '
-            'would mean a fourth action was added',
-      );
-    },
-  );
+  testWidgets('the create menu offers only space and tab actions', (
+    tester,
+  ) async {
+    final harness = _Harness();
+    addTearDown(harness.dispose);
+    await _openSheet(
+      tester,
+      harness,
+      snapshot: _snapshot(workspaces: [_workspace()], panes: [_pane()]),
+      onCreated: (_) {},
+    );
+    expect(find.text('New space'), findsOneWidget);
+    expect(find.text('New tab in herdr-relay'), findsOneWidget);
+    expect(find.byType(AppListRow), findsNWidgets(2));
+    expect(find.textContaining('Split'), findsNothing);
+  });
 
   testWidgets(
     'tapping New space raises no confirmation dialog - creating is not destructive (R-30-953)',
@@ -388,24 +365,6 @@ void main() {
     );
   });
 
-  testWidgets('with no current pane, Split collapses into one disabled Split a pane row rather than two '
-      'disabled direction rows (R-31-17-05)', (WidgetTester tester) async {
-    final harness = _Harness();
-    addTearDown(harness.dispose);
-
-    await _openSheet(
-      tester,
-      harness,
-      snapshot: _snapshot(workspaces: [_workspace()]),
-      onCreated: (_) {},
-    );
-
-    expect(find.text('Split a pane'), findsOneWidget);
-    expect(find.text('Open a pane first'), findsOneWidget);
-    expect(find.textContaining('right'), findsNothing);
-    expect(find.textContaining('down'), findsNothing);
-  });
-
   testWidgets(
     'the create menu offers no zoom, rename, resize, copy or close-pane rows (R-31-17-06)',
     (WidgetTester tester) async {
@@ -416,7 +375,6 @@ void main() {
         tester,
         harness,
         snapshot: _snapshot(workspaces: [_workspace()], panes: [_pane()]),
-        currentPaneId: 'pane-1',
         onCreated: (_) {},
       );
 

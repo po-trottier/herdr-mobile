@@ -62,6 +62,7 @@ Future<void> _openSheet(
               onTapDiagnostics: noOp,
               onOpenPluginActions: noOp,
               onClosePane: noOp,
+              onSplit: (_) {},
             ),
             child: const Text('open'),
           ),
@@ -91,16 +92,10 @@ class _Case {
   final bool screenReaderOn;
 }
 
-/// One entry per state this file covers: the default agent-pane sheet (the mockup's first
-/// wireframe: `Plugin actions`, `Close pane`, `Cancel`), the screen-reader sheet (the second
-/// wireframe, with `Read the last 20 lines`), and the two persistent unavailable-action states
-/// the mockup names (`Host in use`, `Offline`), each disabling `Close pane` at
-/// `opacity.disabled` per R-30-807 while `Plugin actions` (callout 5, R-03-055) stays enabled
-/// because it only opens a screen. `Another phone is using this pane.` and `No route to the
-/// relay.` are `terminal_view_widget.dart`'s and `key_row.dart`'s own exact R-30-940/R-30-808
-/// sentences for this same pane-scoped feature family, reused rather than invented here, per
-/// `PaneActionsSheet.linkStateDetail`'s own doc comment: "A caller composes the exact wording;
-/// this file only draws it."
+/// The sheet offers plugin actions, splits, and close on an agent pane.
+/// A screen reader adds Read last 20 lines.
+/// Offline and host-in-use states disable the split and close actions.
+/// Plugin actions stays enabled because it only opens a screen.
 const _cases = <_Case>[
   _Case(
     'default_agent_pane',
@@ -165,6 +160,8 @@ void main() {
             find.text('Read the last 20 lines'),
             findsNWidgets(testCase.screenReaderOn ? 1 : 0),
           );
+          expect(find.text('Split right'), findsOneWidget);
+          expect(find.text('Split down'), findsOneWidget);
           expect(find.text('Close pane'), findsOneWidget);
           expect(find.text('Cancel'), findsOneWidget);
           expect(find.text('Send a prompt to claude'), findsNothing);

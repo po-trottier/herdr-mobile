@@ -48,14 +48,14 @@ the hosted relay, **Device** is the phone.
 | 07 | Notifications | `/hosts/:hostId/notifications` | List the agent status changes of this session and let a person read, remove or open them | Bottom navigation, the `pane closed` case of `R-30-511` | Terminal | `31-mockups/07-notifications.md` |
 | 08 | Terminal view | `/hosts/:hostId/panes/:paneId` | Render one pane at full fidelity | Agent list row, notification row, notification tap | Back to the caller, pane actions | `31-mockups/08-terminal.md` |
 | 09 | Terminal input bar | part of `/hosts/:hostId/panes/:paneId` | Edit terminal input and supply keys absent from the phone keyboard | The bar stays visible on the terminal view | The key panel (opened by `+`), per R-03-133 | `31-mockups/09-key-row.md` |
-| 10 | Pane action sheet | modal on `/hosts/:hostId/panes/:paneId` | Open the plugin actions of this pane, close the pane, read the last lines aloud (amended 2026-09-09 per `R-03-101`: was split, zoom, close, rename, resize, copy and the prompt composer) | Overflow on the terminal, long press on a list row | Plugin actions, or back to the caller | `31-mockups/10-pane-actions.md` |
+| 10 | Pane action sheet | modal on `/hosts/:hostId/panes/:paneId` | Open plugin actions, split right or down, close the pane, read the last lines aloud; amended 2026-09-14 per `R-03-134` | Terminal overflow or long press on an agent row | Plugin actions, new pane after split, or caller | `31-mockups/10-pane-actions.md` |
 | 11 | Agent prompt composer, retired 2026-09-09 per `R-03-101` | none; was `/hosts/:hostId/agents/:agentId/prompt` | none; a person types to the agent in the pane, per `R-03-054` | none | none | `31-mockups/11-prompt-composer.md`, kept as the record of its rule ids |
 | 12 | Notification settings | `/settings/notifications` | Choose what earns a local notification and when | `/settings` | `/settings` | `31-mockups/12-notifications.md` |
 | 13 | Connection status and diagnostics | `/hosts/:hostId/diagnostics` | Show which leg is broken and prove compression works | `/settings`, any offline strip | The caller | `31-mockups/13-connection.md` |
 | 14 | Paired Device management | `/hosts/:hostId/devices` | List phones, open one, remove one, remove every one | `/settings` | `/hosts` after a revoke, `/welcome` when none is left, else `/settings` | `31-mockups/14-devices.md` |
 | 15 | Settings: appearance, haptics, this phone's name, relay address | `/settings` | Set theme, terminal text size, haptics, this phone's name and the relay address | Bottom navigation | Notifications, devices, diagnostics, about | `31-mockups/15-appearance.md` |
 | 16 | Host plugin popup pane | not a route, Herdr popup pane entrypoint `relay` | Show the QR and the six words, list phones, pair, remove all, stop | `herdr plugin pane open`, or a `config.toml` key | `q` or `esc` | `31-mockups/16-host-popup.md` |
-| 17 | Create menu | not a route, sheet or popover from the create control | Create a space, a tab or a pane | The platform create control, per `R-33-034` | Navigates to the new thing, or dismiss | `31-mockups/17-create.md` |
+| 17 | Create menu | sheet on `/hosts/:hostId/agents` | Create a space or tab only, per `R-03-134` | Create control, per `R-33-034` | Dismiss and remain on `Agents` | `31-mockups/17-create.md` |
 | 18 | Host actions | `/hosts/:hostId/panes/:paneId/actions` | Show the computer's plugin actions as buttons, scoped to the pane on screen | The `Plugin actions` row of the pane action sheet, per `R-31-18-01` (amended 2026-09-09 per `R-03-055`) | Back to the terminal | `31-mockups/18-actions.md` |
 | 19 | About: version and licences | `/settings/about` | Show the app version, the Herdr protocol this build targets and the licence list | `/settings` | `/settings` | `31-mockups/19-about.md` |
 | 20 | Status colours | `/settings/status-colours` | Explain the colour of every state bar: one row per state, the states that share a hue together (added 2026-09-09 per `R-03-106`) | `/settings` | `/settings` | `31-mockups/20-status-legend.md` |
@@ -765,7 +765,8 @@ app the operating system has stopped. `docs/22-platform-integration.md` owns the
   seconds MUST notify once. The app MUST hold a 30 second settle window per agent.
 - **R-30-508** The app MUST show the attention count as an exact number. It MUST NOT show a plus
   sign or a cap such as `9+`, because the count is small by nature.
-  The `Notifications` destination MUST count only unread rows in the current Host's notification log.
+  The `Notifications` destination MUST count only unread rows in the current Host's notification
+  log.
   It MUST read that count from the same list the screen draws, so the badge and the list cannot
   disagree and a row removed on the screen also leaves the count.
   The badge MUST hide at zero, including after a Host switch.
@@ -957,7 +958,7 @@ words.
 
 - **R-30-900** The app MUST accept exactly one pairing URI form, the one `docs/11-relay-protocol.md`
   defines. This is the only worked example any screen in this repository shows:
-  `herdr-remote://pair?v=1&r=https%3A%2F%2Frelay.example.com&h=n6Loxf94CfyIO6hOxlaHvA&p=remedy-tapestry-hubcap-oversleep-jailbird-kinetic`
+`herdr-remote://pair?v=1&r=https%3A%2F%2Frelay.example.com&h=n6Loxf94CfyIO6hOxlaHvA&p=remedy-tapestry-hubcap-oversleep-jailbird-kinetic`
 - **R-30-901** The QR path and the by hand path MUST converge on one identical pairing input record.
   The app MUST NOT hold two pairing code paths that can drift apart.
 - **R-30-902** The interface MUST NOT show a numeric pairing code anywhere. There is no digit field,
@@ -969,7 +970,8 @@ words.
   else. Six fields make the word count visible without counting.
 - **R-30-904** Each word field MUST use `type.mono.phrase` and MUST offer autocomplete against the
   EFF long word list after the second character, showing at most six suggestions in a strip docked
-  above the keyboard. `R-30-519` owns the inset the strip rides on. Autocomplete MUST propose only an
+  above the keyboard. `R-30-519` owns the inset the strip rides on. Autocomplete MUST propose only
+  an
   exact prefix match.
 - **R-30-905** Each word field MUST raise a plain ASCII text keyboard with autocorrect off,
   autocapitalisation off, predictive text off and smart punctuation off. A word list entry is not
@@ -1210,26 +1212,28 @@ another.
     difference is intent: a person who left on purpose is not waiting for that grid to return.
   - Until 2026-09-09 this rule kept an unsent prompt draft per agent across the switch.
     `R-03-101` retired that prompt composer. The native composer from `R-03-130` sends
-    every edit immediately. The app MUST discard its field content when the person changes computers.
+    every edit immediately. The app MUST discard its field content when the person changes
+    computers.
 
 ## Create
 
-One control, one menu, three actions. Because every parameter is optional except
-`pane.split` `direction`, each action is a single call with no form.
+One control opens one menu with two actions, per `R-03-134` (amended 2026-09-14).
+Each action uses one call and has no form.
 
 | Menu item | Herdr method | Available when |
 | --- | --- | --- |
-| `New space` | `workspace.create` | always |
-| `New tab` | `tab.create` with the current `workspace_id` | a workspace is in context |
-| `Split this pane` | `pane.split` with a required `direction` and `target_pane_id` | a pane is open |
+| `New space` | `workspace.create` | Always while connected |
+| `New tab` | `tab.create` with `workspace_id` | A workspace exists; context or the picker selects it, per `R-31-17-02` |
 
-- **R-30-950** The create control MUST offer exactly the three actions in the
-  table above. The control itself is platform-native, per `R-30-040` and
-  `R-33-034`.
-- **R-30-951** An unavailable action MUST be disabled with a reason, never
-  hidden. The reason is shown as a caption under the disabled item:
-  `Open a pane first` for `Split this pane`, and `Open a workspace first` for
-  `New tab`. `New space` is always available and never disabled.
+- **R-30-950** Amended 2026-09-14 per `R-03-134`: the create control MUST offer exactly `New space`
+  and `New tab`.
+  Pane splitting belongs in the pane action sheet. `R-30-040` and `R-33-034` own the create control.
+
+- **R-30-951** Amended 2026-09-14 per `R-03-134`: an unavailable `New tab` MUST stay visible and
+  disabled.
+  Its caption MUST read `Open a workspace first`. `New space` needs no workspace context.
+  `R-30-807` still disables both actions when the computer is unavailable.
+
 - **R-30-952** `focus` MUST be `false` on every create call. A phone MUST NOT
   steal focus on the workstation, because a person may be sitting at that desk.
   The phone navigates to the new thing itself; the workstation does not jump.
@@ -1706,7 +1710,7 @@ Three permission rules follow from those measurements, and every screen MUST obe
 - https://api.flutter.dev/flutter/services/HapticFeedback-class.html - the published method list.
 - The `HapticFeedback` source on the Flutter `stable` branch declares the three notification
   methods. This is the evidence for `R-30-280`:
-  https://github.com/flutter/flutter/blob/stable/packages/flutter/lib/src/services/haptic_feedback.dart
+https://github.com/flutter/flutter/blob/stable/packages/flutter/lib/src/services/haptic_feedback.dart
 - https://api.flutter.dev/flutter/widgets/MediaQuery-class.html - `textScalerOf`,
   `boldTextOf`, `disableAnimationsOf`, `accessibleNavigationOf`, `viewInsetsOf` and
   `supportsAnnounceOf`. `viewInsets` is the part of the display the keyboard obscures, which is the
@@ -1918,13 +1922,13 @@ Three permission rules follow from those measurements, and every screen MUST obe
 
 ### 10 Pane action sheet
 
-- [ ] Build the sheet with the grab handle, the header, the `Plugin actions` group, the
-  `Read the last 20 lines` group with the screen reader on, and the `Close pane` group (amended
-  2026-09-09 per `R-03-101`: was four groups).
-- [ ] Wire `pane.close`. The sheet sends no `pane.split`, `pane.zoom` or `pane.rename`, per
-  `R-03-101`, and no screen sends `pane.resize`.
+- [ ] Build the header, grab handle, `Plugin actions`, `Split right`, `Split down` and `Close pane`
+  rows.
+- [ ] Keep `Read the last 20 lines` in its separate group when the screen reader is on.
+- [ ] Wire `pane.split` and `pane.close`, per `R-03-101`, amended 2026-09-14 per `R-03-134`.
 - [ ] Confirm only `Close pane`, per `R-31-10-01`.
-- [ ] Add the host in use and offline states.
+- [ ] Apply the loading, disabled, offline and refusal states, per `R-31-10-13`.
+- [ ] Replace the terminal with the new pane after the split acknowledgement, per `R-31-10-14`.
 
 ### 11 Agent prompt composer
 
@@ -2010,7 +2014,7 @@ are gone; `docs/31-mockups/11-prompt-composer.md` keeps the rule ids. Nothing to
 
 - [ ] Build the platform-native create control, per `R-33-034`, and wire it to a menu or a
   popover, per `R-33-037` and `31-mockups/17-create.md`.
-- [ ] Offer exactly three actions: `New space`, `New tab` and `Split this pane`, per `R-30-950`.
+- [ ] Offer exactly two actions: `New space` and `New tab`, per `R-30-950`.
 - [ ] Show each unavailable action as disabled with its reason caption, never hide it, per
   `R-30-951`.
 - [ ] Set `focus` to `false` on every create call and navigate the phone to the new thing, per

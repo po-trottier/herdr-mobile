@@ -93,7 +93,7 @@ import 'screens/agent_list_screen.dart';
 import 'screens/app_shell.dart';
 import 'screens/connection_screen.dart';
 import 'screens/create_sheet.dart'
-    show CreatedPane, CreatedWorkspace, CreateResult, showCreateSheet;
+    show CreatedWorkspace, CreateResult, showCreateSheet;
 import 'screens/device_list_screen.dart' show DeviceListScreen;
 import 'screens/host_list_screen.dart';
 import 'screens/lock_screen.dart';
@@ -794,9 +794,6 @@ final GoRouter appRouter = GoRouter(
         );
         final String hostId = state.pathParameters['hostId']!;
         final String paneId = state.pathParameters['paneId']!;
-        // R-31-17-02: the pane this phone opened last is the split target the
-        // create menu offers on the `Agents` screen, where no pane is on screen.
-        _lastOpenedPaneId = paneId;
         return TerminalScreen(
           hostId: hostId,
           paneId: paneId,
@@ -818,6 +815,9 @@ final GoRouter appRouter = GoRouter(
           // so the terminal route is replaced, never stacked.
           onSwitchPane: (String switchedPaneId) =>
               context.pushReplacement('/hosts/$hostId/panes/$switchedPaneId'),
+          // The new terminal requests the tree once after the split acknowledgement.
+          onSplit: (String newPaneId) =>
+              context.pushReplacement('/hosts/$hostId/panes/$newPaneId'),
           // R-03-055: the pane action sheet's `Plugin actions` row (mockup 10
           // callout 5) opens this pane's plugin actions, the nested route below.
           onOpenPluginActions: () =>
@@ -1680,13 +1680,7 @@ Future<void> _handleHostRevoked({
   context.go(noneLeft ? '/welcome' : '/hosts');
 }
 
-/// R-31-17-02's two session-scoped contexts for the create menu: the pane this phone opened
-/// last on the connected computer (the split target) and the workspace it created last (the
-/// `New tab` target). Session scope is exactly what the rule asks for, so a cold start offers
-/// no split and a plain variable is the whole mechanism. A pane that has since closed is
-/// harmless: `CreateSheet` resolves the id against the fresh snapshot and shows the disabled
-/// row when it is gone.
-String? _lastOpenedPaneId;
+/// R-31-17-02: the last workspace created during this session.
 String? _lastCreatedWorkspaceId;
 
 /// `AgentListScreen`'s `New` action (the `add` glyph in its app bar on both platforms since
@@ -1731,7 +1725,6 @@ Future<void> _openCreateSheet(BuildContext context) async {
     context,
     hostName: hostInfo.hostName,
     snapshot: result.value,
-    currentPaneId: _lastOpenedPaneId,
     lastCreatedWorkspaceId: _lastCreatedWorkspaceId,
     messages: conn.messages,
     connectionState: conn.connectionState,
@@ -1750,11 +1743,6 @@ Future<void> _openCreateSheet(BuildContext context) async {
       unawaited(_refreshTreeAfterCreate(context, conn));
       if (created is CreatedWorkspace) {
         _lastCreatedWorkspaceId = created.workspaceId;
-      }
-      if (created is CreatedPane && context.mounted) {
-        unawaited(
-          context.push('/hosts/${hostInfo.hostId}/panes/${created.paneId}'),
-        );
       }
     },
   );

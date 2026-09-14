@@ -6,14 +6,11 @@
 | Surface | Device, Android and iOS |
 | Spec | `docs/30-ux-spec.md` |
 
-Every action here is available to any paired phone. `docs/03-product-decisions.md` grants full
-control, so this sheet holds no permission check and no grant badge. What it does hold is one row
-that opens the plugin actions of the computer, scoped to this pane, per `R-03-055`, and one
-confirmation on the one action that destroys work. `R-03-101` (decided 2026-09-09) fixes that this
-is all the sheet holds: the prompt composer, `Split right`, `Split down`, `Zoom this pane`,
-`Rename pane` and `Copy the whole screen` left the sheet that day. The live terminal of `R-03-054`
-is the prompt, a phone has no use for a desktop layout task, and the copy path is text selection in
-the grid, which `08-terminal.md` owns. The `## Retired rules` section holds the notes.
+Every action is available on any paired phone. The sheet has no permission check or grant badge.
+It offers plugin actions, two split directions and `Close pane`, plus a row for the screen reader.
+`R-03-101`, amended 2026-09-14 per `R-03-134`, restores the split rows.
+The sheet still excludes the prompt composer, zoom, rename and whole-screen copy.
+The terminal accepts input and supports text selection, per `08-terminal.md`.
 
 ## Wireframe
 
@@ -26,6 +23,8 @@ the grid, which `08-terminal.md` owns. The `## Retired rules` section holds the 
 | claude  -  working 12s               |
 +--------------------------------------+
 | Plugin actions                     > |
+| Split right                          |
+| Split down                           |
 +--------------------------------------+
 | Close pane                           |
 +--------------------------------------+
@@ -44,6 +43,8 @@ the grid, which `08-terminal.md` owns. The `## Retired rules` section holds the 
 | claude  -  working 12s               |
 +--------------------------------------+
 | Plugin actions                     > |
+| Split right                          |
+| Split down                           |
 +--------------------------------------+
 | Read the last 20 lines               |
 +--------------------------------------+
@@ -53,7 +54,7 @@ the grid, which `08-terminal.md` owns. The `## Retired rules` section holds the 
 +--------------------------------------+
 ```
 
-This is the tallest the sheet ever is: three rows and `Cancel`. `R-31-10-09` holds what happens
+This is the tallest the sheet ever is: five rows and `Cancel`. `R-31-10-09` holds what happens
 when that does not fit.
 
 ## Wireframe, the close confirmation
@@ -104,15 +105,15 @@ The sheet is gone in this wireframe, not behind the dialog. `R-31-10-01` holds w
    a local row: it stays enabled in the `Host in use` and `Offline` states, because the screen it
    opens reports the link state itself, per `R-30-807`. Until 2026-09-09 this row was callout 5a,
    beside the `Send a prompt` row that `R-03-101` retired.
-6. `Close pane` calls `pane.close`, after the confirmation of callout 10, and it is the one row
-   that acts on the computer. Label uses `treat.destructive`. It sits alone in its own group,
+6. `Close pane` calls `pane.close`, after the confirmation of callout 10, and it is the only row
+   that destroys work. Label uses `treat.destructive`. It sits alone in its own group,
    separated by a divider, so a mis-tap does not reach it from the group above. It is disabled in
    the `Host in use` and `Offline` states, per `R-30-807`.
 7. `Read the last 20 lines`. Present only while the platform screen reader is on, which
    `MediaQuery.accessibleNavigationOf(context)` reports. It announces the last twenty non empty
    lines of the visible grid through the mechanism `R-30-742` names, with `TextDirection.ltr`,
    then closes the sheet. It sends nothing to the pane and changes nothing on the computer. It
-   sits in its own group, between the row that opens a screen and the row that destroys.
+   sits in its own group, after the split rows and before `Close pane`.
 8. `Cancel`. The cancel row of section 7.16, centred, label `type.body.strong` in
    `color.fg.secondary`. It MUST stay visible, per `R-31-10-09`.
 9. Row. The sheet action row of section 7.16. Label `type.body`. Each row leads with its own
@@ -126,10 +127,11 @@ The sheet is gone in this wireframe, not behind the dialog. `R-31-10-01` holds w
 
 ## Which actions destroy something
 
-One of the three rows changes the computer. It destroys work, so it asks.
+Three rows change the computer. Only `Close pane` destroys work and requires confirmation.
 
 | Action | Effect on the computer | Confirmation |
 | --- | --- | --- |
+| `Split right`, `Split down` | Send `split`, per `R-31-10-12`. | No. |
 | `Close pane` | The pane and its scrollback are gone. Anything running in it stops. | Yes, the dialog of `R-33-074`, with the title, the body and the roles that `R-31-10-01` fixes. |
 | `Plugin actions`, `Read the last 20 lines` | Nothing. One opens a screen, the other speaks on the phone. `Plugin actions` opens the screen of `18-actions.md`, and that screen owns what a tap there does. | No. |
 
@@ -144,20 +146,21 @@ platform's own edit menu copies it, per `R-31-08-22` and the gesture table of `d
 | Default, plain pane | Opened over a shell pane. | The same sheet without the second header line. |
 | Screen reader on | `MediaQuery.accessibleNavigationOf(context)` is true. | The second wireframe, with `Read the last 20 lines` in its own group. |
 | Too tall to fit | The rows, the header and `Cancel` need more than the safe height, because the phone is small, the text scale is large, or the keyboard the grid raised is still up. | The action region scrolls and the handle, the header and `Cancel` stay put, per `R-31-10-09`. |
-| Host in use | The relay answered `host_in_use`. | `Close pane` is disabled at `opacity.disabled`. `Plugin actions` and `Read the last 20 lines` stay enabled, because both are local and `R-30-807` disables only what needs the network. A line under the header carries the words of `R-30-940`, because the opaque surface of `R-31-10-10` covers that banner. |
+| Host in use | The relay answered `host_in_use`. | `Split right`, `Split down` and `Close pane` are disabled at `opacity.disabled`. `Plugin actions` and `Read the last 20 lines` stay enabled, because both are local and `R-30-807` disables only what needs the network. A line under the header carries the words of `R-30-940`, because the opaque surface of `R-31-10-10` covers that banner. |
 | Offline | No route to the relay. | The same disabled set as the row above. A line under the header carries the words of `R-30-808` and routes to `/hosts/:hostId/diagnostics`, per `R-30-806`. |
 | Confirming | `Close pane` was tapped. | The sheet closes and the dialog of `R-33-074` opens, as the last wireframe draws. |
-
-The `Loading`, `Error`, `Outcome unknown` and `Renaming` states left with the rows that raised
-them on 2026-09-09 (`R-03-101`). No row acts on the computer from inside the sheet any more: the
-one `host_action` this sheet leads to is sent after the sheet is gone, and `R-31-10-11` holds where
-its outcome shows.
+| Loading | A split is in flight. | Show a spinner on that row. Disable all actions and dismissal until the result, per `R-31-10-13`. |
+| Created | The Host acknowledges the split with `result_id`. | Close the sheet and replace the terminal view, per `R-31-10-14`. |
+| Error | The Host refuses the split. | Keep the sheet open and show the refusal, per `R-31-10-13`. |
+| Outcome unknown | No acknowledgement arrives. | Stop the spinner and allow dismissal. Reconcile before another split, per `R-31-10-13`. |
 
 ## Navigation
 
 - This sheet is a modal layer on a per-Host route, so it names the connected computer, per
   `R-30-946`.
 - In: the overflow `:` on `08-terminal.md`, or a long press on a row of `06-agent-list.md`.
+- Out, `Split right` or `Split down`: replace the terminal view after acknowledgement, per
+  `R-31-10-14`.
 - Out, `Plugin actions`: `/hosts/:hostId/panes/:paneId/actions`, mockup `18-actions.md`, with this
   pane as the scope (added 2026-09-09 per `R-03-055`).
 - Out, `Read the last 20 lines`: the sheet closes after the announcement starts.
@@ -177,16 +180,17 @@ its outcome shows.
   place them differently. The sheet MUST close before the dialog opens, so that exactly one sheet
   is ever on screen, per `R-32-545`, and so that the dialog does not fight the sheet focus trap of
   `R-32-546`. Every other action MUST NOT ask, because no other action destroys work.
-- **R-31-10-02** Retired 2026-09-09 per `R-03-101`. See `## Retired rules`.
-- **R-31-10-03** The sheet MUST NOT show more than three action rows at once, with `Cancel` not
-  counted: `Plugin actions`, `Close pane`, plus `Read the last 20 lines` with the screen reader on.
-  Amended 2026-09-09 per `R-03-101`, which retired the `Send a prompt` row, the layout group and
-  `Copy the whole screen`. The history of the cap: nine until 2026-09-04, when the product owner
-  dropped the `Panes` tree and `Show in tree` with it; eight until 2026-09-09, when `R-03-055` put
-  the `Plugin actions` row of callout 5 here and made it nine again; three since `R-03-101` the same
-  day. A fourth row means the wrong thing is being solved on a phone. `R-31-18-02` cites this
-  ceiling as the reason a plugin action is a separate screen and not another row here: one row
-  opens that screen, and the actions themselves stay off this sheet.
+- **R-31-10-02** Retirement reversed 2026-09-14 per `R-03-134`.
+  A successful split MUST fire `haptic.commit` and close the sheet over `motion.duration.base`.
+  `R-31-10-14` owns the route after the acknowledgement.
+
+- **R-31-10-03** Amended 2026-09-14 per `R-03-134`: the sheet MUST show at most five action rows,
+  excluding `Cancel`.
+  The rows are `Plugin actions`, `Split right`, `Split down`, `Close pane`, and the optional
+  screen-reader row.
+  The screen-reader row keeps its separate group before `Close pane`.
+  Plugin actions stay on their separate screen, per `R-31-18-02`.
+
 - **R-31-10-05** The sheet MUST NOT offer a font size control. Font size lives in Settings, because
   it is a preference, not a pane action.
 - **R-31-10-06** The sheet MUST offer `Read the last 20 lines` while the platform screen reader is
@@ -200,7 +204,7 @@ its outcome shows.
   and the sheet MUST NOT offer any action that `R-11-204` excludes. A row with no method behind it
   MUST NOT be drawn, because a person taps it expecting a workstation to answer. A mapped action
   whose parameters cannot express what the row promises MUST NOT be drawn either, which is what
-  retired the resize row. Since `R-03-101` the one such row is `Close pane`, which maps to `close`.
+  retired the resize row. The split rows map to `split`; `Close pane` maps to `close`.
 - **R-31-10-09** The sheet MUST NOT be asked to draw more than it can fit. Its height MUST be
   bounded by the safe area and, while a keyboard the grid raised is still up, by the keyboard inset
   that `R-30-519` owns (amended 2026-09-09 per `R-03-101`: until then the rename field inside the
@@ -227,14 +231,36 @@ its outcome shows.
   `R-03-101`: until then this rule named four fields, one per row of the layout group and one for
   `Rename pane`, and `## Retired rules` holds them.
 
+- **R-31-10-12** Added 2026-09-14 per `R-03-134`: the sheet MUST offer `Split right` and `Split
+  down` after `Plugin actions`.
+  This reverses their retirement on 2026-09-09. The create menu MUST NOT offer them.
+  Each row MUST send the existing `split` Host action with this pane as the target.
+  The directions are `right` and `down`, respectively. The glyphs are
+  `Symbols.splitscreen_right_rounded` and `Symbols.splitscreen_bottom_rounded`.
+  Neither row destroys work, so neither MUST ask for confirmation.
+- **R-31-10-13** A split MUST use the same loading, disabled, offline and refusal behaviour as
+  `Close pane`, without its confirmation.
+  While the request is pending, only its row shows a spinner. All actions and dismissal MUST be
+  disabled.
+  A Host refusal MUST keep the sheet open and show the error under `R-30-803` and `R-30-804`.
+  Offline and `Host in use` MUST disable both split rows, per `R-30-807`.
+  An unknown outcome MUST stop the spinner and restore dismissal, per `R-30-518`.
+  The sheet MUST NOT offer an immediate repeat of a split whose outcome is unknown.
+  Reconciliation checks for a new `pane_id` in the same tab's `panes[]`.
+- **R-31-10-14** The sheet MUST wait for `host_action_ack` with the new pane id in `result_id`.
+  After success, the sheet MUST close and the terminal MUST replace its route with
+  `/hosts/:hostId/panes/:newPaneId`.
+  The back gesture MUST return to `Agents`, not the old pane. The screen MUST show one terminal,
+  never adjacent terminals.
+  The app MUST send one `tree_request` after the acknowledgement, as the create flow does.
+
 ## Retired rules
 
 | Rule | Why |
 | --- | --- |
 | `R-31-10-04` | **Retired.** It required a warning line and the exact column and row numbers on `Match this pane to my screen`. That action left version one, so the rule has no subject. No later rule reuses this id. See below. |
-| `R-31-10-02` | **Retired 2026-09-09 per `R-03-101`.** It required a successful action to fire `haptic.commit` and close the sheet inside `motion.duration.base`. It governed the rows that acted from inside the sheet: `Split right`, `Split down`, `Zoom this pane` and `Rename pane`. Those rows are gone, and `Close pane` acts after the sheet is already gone, per `R-31-10-01`, so no in-sheet success state remains. The haptic a pane action earns is the `haptic.commit` row of the haptic table in `docs/30-ux-spec.md`. No later rule reuses this id. |
 | `Send a prompt to <agent>` | **Retired row 2026-09-09 per `R-03-101`, not a rule id.** It opened the agent prompt composer of `11-prompt-composer.md`, which is retired with it. The live terminal of `R-03-054` is the prompt: a person types to the agent in the pane. |
-| `Split right`, `Split down`, `Zoom this pane`, `Rename pane` | **Retired rows 2026-09-09 per `R-03-101`, not rule ids.** Desktop layout tasks with no use on a phone. `R-11-202` keeps the `split`, `zoom` and `rename` mappings; no screen sends them. The create menu of `17-create.md` still splits a pane through `pane.split`, because that creates a new thing. The `R-31-10-11` fields these rows named were: a `pane_id` in `panes[]` that was not there before, in that tab, for a split; `label` in that pane's `panes[]` entry for a rename; nothing for a zoom, because `R-11-043` lists every `panes[]` field and none carries a zoom state. |
+| `Zoom this pane`, `Rename pane` | **Retired rows 2026-09-09 per `R-03-101`, not rule ids.** These desktop layout actions remain excluded. `R-11-202` keeps the protocol mappings. |
 | `Copy the whole screen` | **Retired row 2026-09-09 per `R-03-101`, not a rule id.** It copied the visible text without ANSI codes. The copy path is text selection in the grid: a long press starts it and `Copy` in the platform's own edit menu copies it, per `R-31-08-22` and `R-21-042`. |
 | `Show in tree` | **Retired row, not a rule id.** The local-group row routed to the `Panes` tree. The product owner dropped that destination on 2026-09-04 (`R-30-021`), so the row has no target. No rule carried it; `R-31-10-03`'s cap fell from nine to eight. |
 
@@ -277,6 +303,7 @@ mapping, and this screen no longer uses it. The icon map in `docs/32-design-lang
   coloured, per `R-30-141`. The scrolled state MUST NOT hide a row from the semantics tree: a
   screen reader MUST be able to reach every row the sheet holds, per `R-31-10-09`.
 - Focus order: per `R-30-719`, the sheet traps the focus. The order is header, `Plugin actions`,
+  `Split right`, `Split down`,
   `Read the last 20 lines` when present, `Close pane`, then `Cancel`. On close the focus returns to
   the overflow `:` that opened the sheet. The confirmation dialog places its own focus, per
   `R-33-074`, and this screen MUST NOT set it.

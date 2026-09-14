@@ -108,7 +108,14 @@ import '../models/messages/pane_summary.dart' show PaneSummary;
 import '../models/messages/send_input_ack.dart' show SendInputAck;
 import '../models/messages/theme_palette.dart' show ThemePalette;
 import '../models/messages/tree_snapshot.dart' show TreeSnapshot;
-import '../services/pane_actions.dart' show closePane;
+import '../services/pane_actions.dart'
+    show
+        closePane,
+        createPaneSplit,
+        HostActionOutcome,
+        HostActionApplied,
+        HostActionRefused,
+        HostActionOutcomeUnknown;
 import '../services/relay.dart'
     show
         RelayConnected,
@@ -167,6 +174,7 @@ class TerminalScreen extends StatefulWidget {
     this.onDiagnostics,
     this.onOpenPluginActions,
     this.onSwitchPane,
+    this.onSplit,
     this.onRevoked,
     this.onFrameState,
     this.now = DateTime.now,
@@ -213,6 +221,9 @@ class TerminalScreen extends StatefulWidget {
   /// own lifecycle and the nested `/actions` route keeps the right pane. `null` leaves the
   /// title a plain heading.
   final ValueChanged<String>? onSwitchPane;
+
+  /// Opens the new pane after the Host acknowledges a split.
+  final ValueChanged<String>? onSplit;
 
   /// Fires once, automatically, when this Device is revoked mid-session (R-13-054,
   /// R-13-055). A caller clears this computer's stored record and navigates to the pairing
@@ -791,7 +802,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   /// The overflow's pane action sheet (mockup 08 callout 5, mockup 10). Its
   /// `Plugin actions` row routes to this pane's plugin actions (R-03-055);
   /// `Close pane` sends `close` after the R-31-10-01 confirmation. Nothing
-  /// else acts on the computer from here (R-03-101).
+  /// else requires a confirmation. Split actions report the new pane after acknowledgement.
   void _openPaneActions() {
     final ({String kind, String line})? agent = _agentLine;
     final String? label = _treePane?.label;
@@ -816,6 +827,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
         },
         onTapDiagnostics: widget.onDiagnostics,
         onOpenPluginActions: widget.onOpenPluginActions,
+        onSplit: widget.onSplit == null
+            ? null
+            : (String direction) => unawaited(_splitPane(direction)),
         onClosePane: () => unawaited(
           closePane(
             messages: widget.messages,
@@ -826,6 +840,44 @@ class _TerminalScreenState extends State<TerminalScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _splitPane(String direction) async {
+    final HostActionOutcome outcome = await createPaneSplit(
+      messages: widget.messages,
+      connectionState: widget.connectionState,
+      send: widget.send,
+      targetPaneId: widget.paneId,
+      direction: direction,
+    );
+    if (!mounted) return;
+    switch (outcome) {
+      case HostActionApplied(:final ack) when ack.resultId != null:
+        unawaited(AppHaptic.commit());
+        widget.onSplit?.call(ack.resultId!);
+      case HostActionApplied():
+        showChromeAlertDialog<void>(
+          context: context,
+          title: 'Could not split pane.',
+          detail: 'The computer did not return the new id.',
+          defaultAction: (label: 'OK', result: null),
+        );
+      case HostActionRefused(:final message):
+        unawaited(AppHaptic.error());
+        showChromeAlertDialog<void>(
+          context: context,
+          title: 'Could not split pane.',
+          detail: message,
+          defaultAction: (label: 'OK', result: null),
+        );
+      case HostActionOutcomeUnknown():
+        showChromeAlertDialog<void>(
+          context: context,
+          title: 'Outcome unknown',
+          body: 'The connection dropped before the computer confirmed the split. Check the pane list before you split again.',
+          defaultAction: (label: 'OK', result: null),
+        );
+    }
   }
 
   /// The hierarchy switcher of R-03-113 item 1 (mockup 08 callout 10,

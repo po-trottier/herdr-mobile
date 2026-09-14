@@ -15,7 +15,7 @@
 library;
 
 import 'dart:async' show StreamController, StreamIterator, unawaited;
-import 'dart:convert' show base64Encode, jsonEncode, utf8;
+import 'dart:convert' show base64Encode, jsonDecode, jsonEncode, utf8;
 import 'dart:io' show HttpServer, WebSocket, WebSocketTransformer;
 import 'dart:typed_data' show Uint8List;
 
@@ -61,6 +61,8 @@ import 'package:herdr_mobile/models/messages/agent_status.dart'
 import 'package:herdr_mobile/models/messages/agent_status_kind.dart'
     show AgentStatusKind;
 import 'package:herdr_mobile/models/messages/device_info.dart' show DeviceInfo;
+import 'package:herdr_mobile/models/messages/host_action_ack.dart';
+import 'package:herdr_mobile/models/messages/host_action_kind.dart';
 import 'package:herdr_mobile/models/messages/host_info.dart' show HostInfo;
 import 'package:herdr_mobile/models/messages/platform.dart' as wire;
 import 'package:herdr_mobile/models/messages/tree_snapshot.dart'
@@ -73,6 +75,7 @@ import 'package:herdr_mobile/screens/manual_pairing_screen.dart'
     show ManualPairingScreen;
 import 'package:herdr_mobile/screens/notifications_screen.dart'
     show NotificationsScreen;
+import 'package:herdr_mobile/screens/terminal_screen.dart';
 import 'package:herdr_mobile/services/agent_status.dart'
     show AgentStatusService;
 import 'package:herdr_mobile/services/app_settings.dart'
@@ -80,7 +83,8 @@ import 'package:herdr_mobile/services/app_settings.dart'
 import 'package:herdr_mobile/services/biometric_gate.dart' show BiometricGate;
 import 'package:herdr_mobile/services/connectivity.dart'
     show ConnectivityWatcher;
-import 'package:herdr_mobile/services/frame_codec.dart' show encodeFrame;
+import 'package:herdr_mobile/services/frame_codec.dart'
+    show encodeFrame, decodeFragment, Reassembler;
 import 'package:herdr_mobile/services/keystore.dart' show KeystoreService;
 import 'package:herdr_mobile/services/noise.dart'
     show NoiseCipher, NoiseSession;
@@ -269,7 +273,9 @@ const _fakeHostInfo = HostInfo(
 /// `RelayNotConnectedException` — exactly the state the cached-info create guard exists for.
 /// Real async (`dart:io` sockets), so a caller inside `testWidgets` must run this through
 /// `tester.runAsync`.
-Future<RelayConnection> _connectedThenDroppedRelay() async {
+Future<RelayConnection> _connectedThenDroppedRelay({
+  void Function(WebSocket, StreamIterator<dynamic>, NoiseCipher)? keepConnected,
+}) async {
   final connections = <WebSocket>[];
   final server = await HttpServer.bind('127.0.0.1', 0);
   server.listen((request) async {
@@ -309,15 +315,25 @@ Future<RelayConnection> _connectedThenDroppedRelay() async {
   ws.add(
     jsonEncode(<String, Object>{'type': 'session_joined', 'role': 'device'}),
   );
+  final hostCipher = NoiseCipher.withKey(_deviceReceiveKey);
   await _sendHostMessage(
     ws,
-    NoiseCipher.withKey(_deviceReceiveKey),
+    hostCipher,
     const Message.hostInfo(_fakeHostInfo),
     1,
   );
 
   final result = await connectResult;
   assert(result is Ok<void>, 'the fake-host connect succeeds: $result');
+  if (keepConnected != null) {
+    addTearDown(() async {
+      await relay.disconnect();
+      await ws.close();
+      await server.close(force: true);
+    });
+    keepConnected(ws, iterator, hostCipher);
+    return relay;
+  }
   await relay.disconnect();
   assert(!relay.isConnected && relay.lastHostInfo != null);
   await ws.close();
@@ -1069,6 +1085,155 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    testWidgets('split ack replaces the terminal and refreshes the tree once', (
+      tester,
+    ) async {
+      const connectivityChannel = MethodChannel(
+        'dev.fluttercommunity.plus/connectivity',
+      );
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        connectivityChannel,
+        (_) async => <String>['wifi'],
+      );
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          connectivityChannel,
+          null,
+        );
+      });
+      late WebSocket host;
+      late NoiseCipher hostCipher;
+      final received = <Map<String, dynamic>>[];
+      final relay = (await tester.runAsync(
+        () => _connectedThenDroppedRelay(
+          keepConnected: (socket, iterator, cipher) {
+            host = socket;
+            hostCipher = cipher;
+            unawaited(() async {
+              final reassembler = Reassembler();
+              final receiveCipher = NoiseCipher.withKey(_deviceSendKey);
+              while (await iterator.moveNext()) {
+                final decoded = await decodeFragment(
+                  reassembler,
+                  receiveCipher,
+                  Uint8List.fromList(iterator.current as List<int>),
+                );
+                final bytes = (decoded as Ok<Uint8List?>).value;
+                if (bytes != null) {
+                  received.add(
+                    jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>,
+                  );
+                }
+              }
+            }());
+          },
+        ),
+      ))!;
+      appRouter.go('/hosts/h2/agents');
+      await pumpAtAgentList(tester, 'h2', relay: relay);
+      await tester.runAsync(
+        () => _sendHostMessage(
+          host,
+          hostCipher,
+          const Message.treeSnapshot(
+            TreeSnapshot(workspaces: [], tabs: [], panes: [], agents: []),
+          ),
+          2,
+        ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      unawaited(appRouter.push('/hosts/h2/panes/pane-1'));
+      await tester.pumpAndSettle();
+      final depth =
+          appRouter.routerDelegate.currentConfiguration.matches.length;
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+      received.clear();
+      await tester.tap(find.bySemanticsLabel('Pane actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Split right'));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+      final request = received.singleWhere(
+        (frame) => frame['type'] == 'host_action',
+      );
+      final payload = request['payload'] as Map<String, dynamic>;
+      expect(payload['action'], 'pane.split');
+      expect(payload['pane_id'], 'pane-1');
+      expect((payload['params'] as Map<String, dynamic>)['direction'], 'right');
+      expect(appRouter.state.uri.path, '/hosts/h2/panes/pane-1');
+      expect(
+        received.where((frame) => frame['type'] == 'tree_request'),
+        isEmpty,
+      );
+      await tester.runAsync(
+        () => _sendHostMessage(
+          host,
+          hostCipher,
+          const Message.hostActionAck(
+            HostActionAck(
+              success: true,
+              action: HostActionKind.paneSplit,
+              paneId: 'pane-1',
+              resultId: 'pane-2',
+            ),
+          ),
+          3,
+          corr: request['corr'] as String?,
+        ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      expect(appRouter.state.uri.path, '/hosts/h2/panes/pane-2');
+      expect(
+        appRouter.routerDelegate.currentConfiguration.matches.length,
+        depth,
+      );
+      expect(
+        tester.widget<TerminalScreen>(find.byType(TerminalScreen)).paneId,
+        'pane-2',
+      );
+      expect(
+        received.where((frame) => frame['type'] == 'tree_request'),
+        hasLength(1),
+      );
+      await tester.runAsync(
+        () => _sendHostMessage(
+          host,
+          hostCipher,
+          const Message.treeSnapshot(
+            TreeSnapshot(workspaces: [], tabs: [], panes: [], agents: []),
+          ),
+          4,
+        ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AgentListScreen), findsOneWidget);
+      expect(appRouter.state.uri.path, '/hosts/h2/agents');
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+    });
     testWidgets('a create tap that races a never-completed handshake (null lastHostInfo) answers '
         'with the not-connected sentence, never silence', (tester) async {
       await pumpAtAgentList(

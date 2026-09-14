@@ -1,20 +1,7 @@
-/// The create menu (`docs/90-implementation-plan.md` `WP-18-d`, `docs/31-mockups/17-create.md`,
-/// R-90-010): the grab handle, the header, `New space`, `New tab` and `Split this pane`, the
-/// workspace-picker sub-list of `R-31-17-11`, and `Cancel` — every wireframe and state that
-/// mockup draws (R-31-17-02, R-31-17-03).
-///
-/// This file also owns the second checkbox of `WP-18-d`: reconciling an unacknowledged create
-/// through `tree_request` before the create control is re-enabled, and never repeating the
-/// create (`docs/30-ux-spec.md` R-30-518, R-31-17-07, R-31-17-08). It sends every `host_action`
-/// and the reconciling `tree_request` through `pane_actions.dart`'s `createWorkspace`,
-/// `createTab`, `createPaneSplit` and `reconcileTree` — this file adds no request/reply
-/// plumbing of its own.
-///
-/// Like `pane_actions_sheet.dart`, this screen holds no dependency on where its data comes
-/// from: every field arrives as a plain constructor argument ([snapshot], [currentPaneId],
-/// [lastCreatedWorkspaceId], [messages], [connectionState], [send]), and [onCreated] is this
-/// sheet's whole contract with routing (R-31-17-10 is a caller concern, not drawn here,
-/// R-90-024).
+/// The create menu offers `New space` and `New tab` (R-03-134, R-31-17-02).
+/// It uses the last created workspace, the only workspace, or the workspace picker.
+/// It reconciles an unknown create outcome through `reconcileTree` before it enables
+/// another create action (R-30-518, R-31-17-07). [onCreated] reports the new entity to routing.
 library;
 
 import 'dart:async' show StreamSubscription, unawaited;
@@ -65,7 +52,6 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../core/result/result.dart' show Result, Ok, Err;
 import '../models/message.dart' show Message;
-import '../models/messages/pane_summary.dart' show PaneSummary;
 import '../models/messages/tree_snapshot.dart' show TreeSnapshot;
 import '../models/messages/workspace_summary.dart' show WorkspaceSummary;
 import '../services/pane_actions.dart'
@@ -73,7 +59,6 @@ import '../services/pane_actions.dart'
         reconcileTree,
         createWorkspace,
         createTab,
-        createPaneSplit,
         HostActionOutcome,
         HostActionApplied,
         HostActionRefused,
@@ -117,12 +102,6 @@ final class CreatedTab extends CreateResult {
   final String tabId;
 }
 
-/// A split applied. [paneId] is the new pane's `result_id`.
-final class CreatedPane extends CreateResult {
-  const CreatedPane(this.paneId);
-  final String paneId;
-}
-
 /// R-31-17-08: the control MUST stay enabled and the menu MUST open with every row disabled
 /// while the link is down or another phone holds the computer. Mirrors
 /// `device_list_screen.dart`'s own `_LiveConnection`, derived from [RelayConnectionState] the
@@ -148,7 +127,6 @@ Future<void> showCreateSheet(
   BuildContext context, {
   required String hostName,
   required TreeSnapshot snapshot,
-  String? currentPaneId,
   String? lastCreatedWorkspaceId,
   required Stream<Message> messages,
   required Stream<RelayConnectionState> connectionState,
@@ -169,7 +147,6 @@ Future<void> showCreateSheet(
     builder: (BuildContext context) => CreateSheet(
       hostName: hostName,
       snapshot: snapshot,
-      currentPaneId: currentPaneId,
       lastCreatedWorkspaceId: lastCreatedWorkspaceId,
       messages: messages,
       connectionState: connectionState,
@@ -185,7 +162,6 @@ class CreateSheet extends StatefulWidget {
     super.key,
     required this.hostName,
     required this.snapshot,
-    this.currentPaneId,
     this.lastCreatedWorkspaceId,
     required this.messages,
     required this.connectionState,
@@ -195,7 +171,6 @@ class CreateSheet extends StatefulWidget {
 
   final String hostName;
   final TreeSnapshot snapshot;
-  final String? currentPaneId;
   final String? lastCreatedWorkspaceId;
   final Stream<Message> messages;
   final Stream<RelayConnectionState> connectionState;
@@ -209,10 +184,7 @@ class CreateSheet extends StatefulWidget {
 class _CreateSheetState extends State<CreateSheet> {
   late TreeSnapshot _snapshot = widget.snapshot;
 
-  // R-31-17-02: resolved once, from the constructor arguments only, and never re-run against a
-  // later snapshot — only the display data ([_paneContext], [_workspaceContext]) below re-reads
-  // the live [_snapshot] a `Check now` may have replaced.
-  late final String? _paneContextId;
+  // R-31-17-02: choose the workspace once. Reconciliation only updates its display data.
   late final String? _workspaceContextId;
 
   _Phase _phase = _Phase.menu;
@@ -234,18 +206,10 @@ class _CreateSheetState extends State<CreateSheet> {
   @override
   void initState() {
     super.initState();
-    final PaneSummary? pane = widget.currentPaneId == null
-        ? null
-        : widget.snapshot.panes.cast<PaneSummary?>().firstWhere(
-            (p) => p?.paneId == widget.currentPaneId,
-            orElse: () => null,
-          );
-    _paneContextId = pane?.paneId;
-    _workspaceContextId = pane != null
-        ? pane.workspaceId
-        : widget.snapshot.workspaces.any(
-            (w) => w.workspaceId == widget.lastCreatedWorkspaceId,
-          )
+    _workspaceContextId =
+        widget.snapshot.workspaces.any(
+          (w) => w.workspaceId == widget.lastCreatedWorkspaceId,
+        )
         ? widget.lastCreatedWorkspaceId
         : widget.snapshot.workspaces.length == 1
         ? widget.snapshot.workspaces.single.workspaceId
@@ -274,13 +238,6 @@ class _CreateSheetState extends State<CreateSheet> {
   /// R-30-951's own "never disabled otherwise".
   bool get _canAct =>
       _connection == _LiveConnection.connected && _loadingRowId == null;
-
-  PaneSummary? get _paneContext => _paneContextId == null
-      ? null
-      : _snapshot.panes.cast<PaneSummary?>().firstWhere(
-          (p) => p?.paneId == _paneContextId,
-          orElse: () => null,
-        );
 
   WorkspaceSummary? get _workspaceContext => _workspaceContextId == null
       ? null
@@ -522,82 +479,10 @@ class _CreateSheetState extends State<CreateSheet> {
                   ),
               ],
             ),
-            const _GroupDivider(),
-            _ActionGroup(children: _buildSplitRows()),
           ],
         ),
       ),
     );
-  }
-
-  List<Widget> _buildSplitRows() {
-    final AppColor color = AppColor.of(context);
-    final PaneSummary? pane = _paneContext;
-    if (pane == null) {
-      return <Widget>[
-        AppListRow(
-          leading: Icon(
-            Symbols.splitscreen_rounded,
-            size: AppSize.iconMd,
-            color: color.fgDisabled,
-          ),
-          primary: 'Split a pane',
-          secondary: 'Open a pane first',
-          onTap: null,
-          showDivider: false,
-        ),
-      ];
-    }
-    // ponytail: two-level name fallback (label, then title) only; `07-tree.md` owns the full
-    // unnamed-pane display algorithm and is out of scope here.
-    final String name = pane.label.isNotEmpty ? pane.label : pane.title;
-    return <Widget>[
-      AppListRow(
-        leading: Icon(
-          Symbols.splitscreen_right_rounded,
-          size: AppSize.iconMd,
-          color: color.fgSecondary,
-        ),
-        primary: 'Split pane $name right',
-        onTap: _canAct
-            ? () => _start(
-                'splitRight',
-                () => createPaneSplit(
-                  messages: widget.messages,
-                  connectionState: widget.connectionState,
-                  send: widget.send,
-                  targetPaneId: pane.paneId,
-                  direction: 'right',
-                ),
-                CreatedPane.new,
-              )
-            : null,
-        isLoading: _loadingRowId == 'splitRight',
-      ),
-      AppListRow(
-        leading: Icon(
-          Symbols.splitscreen_bottom_rounded,
-          size: AppSize.iconMd,
-          color: color.fgSecondary,
-        ),
-        primary: 'Split pane $name down',
-        onTap: _canAct
-            ? () => _start(
-                'splitDown',
-                () => createPaneSplit(
-                  messages: widget.messages,
-                  connectionState: widget.connectionState,
-                  send: widget.send,
-                  targetPaneId: pane.paneId,
-                  direction: 'down',
-                ),
-                CreatedPane.new,
-              )
-            : null,
-        isLoading: _loadingRowId == 'splitDown',
-        showDivider: false,
-      ),
-    ];
   }
 
   Widget _buildWorkspaceList(BuildContext context) {

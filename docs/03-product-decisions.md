@@ -226,11 +226,14 @@ and cleaner than a dot. This supersedes the bar-for-unread split of `R-03-058`, 
 force for its principle: one mark per fact. `docs/32-design-language.md` owns the bar's values;
 each mockup names the states its rows show.
 
-**R-03-101**: The pane action sheet MUST hold two things: the plugin actions of `R-03-055` and
-`Close pane`, plus the screen-reader `Read the last 20 lines` row where a screen reader is on.
-It MUST NOT offer a prompt composer, because the live terminal of `R-03-054` is the prompt: a
-person types to the agent in the pane. It MUST NOT offer split, zoom or rename, which are desktop
-layout tasks with no use on a phone. It MUST NOT offer `Copy the whole screen`: the copy path is
+**R-03-101**: The pane action sheet MUST hold the plugin actions of `R-03-055`, `Split right`,
+`Split down` and `Close pane`, plus the screen-reader `Read the last 20 lines` row where a screen
+reader is on (amended 2026-09-14 per `R-03-134`: the two split rows returned, because a shell
+beside the agent on screen is a real phone use; until then this rule kept split out as a desktop
+layout task). It MUST NOT offer a prompt composer, because the live terminal of `R-03-054` is the
+prompt: a person types to the agent in the pane. It MUST NOT offer zoom or rename, which are
+desktop layout tasks with no use on a phone. It MUST NOT offer `Copy the whole screen`: the copy
+path is
 text selection in the grid, which `docs/21-terminal-rendering.md` and
 `docs/31-mockups/08-terminal.md` own and which MUST work by long press. Decided 2026-09-09 by the
 product owner. `R-03-050` still states that the phone has full control of every pane action the
@@ -590,6 +593,22 @@ control is a filled round icon button outside the field and the row is `size.fie
 `docs/31-mockups/09-key-row.md` owns the panel and the bar, `docs/32-design-language.md` section
 7.13 owns the values, and `R-31-09-01`'s "bank one is always visible" is retired by this rule: the
 keys are one tap away.
+
+**R-03-134**: A split MUST be offered **on the pane it splits**, in the pane action sheet behind
+the terminal's overflow control, and MUST NOT be offered in the create menu of the `Agents`
+screen. Decided 2026-09-14 by the product owner, in three steps the same day: first "there's no
+splitting in mobile", then "split can make sense but then we should focus the new panel in the
+tab, single terminal always", then "if we want a CLI separate from our agent session we'd need to
+split, but that can be in the `…` in the menu bar". The use is real: a shell beside the agent you
+are watching. So the action lives where that agent is on screen, as `Split right` and `Split down`
+rows above `Close pane`, and the create menu of `docs/31-mockups/17-create.md` holds `New space`
+and `New tab` only, with no pane context. After the Host acknowledges a split the app MUST open
+the new pane in the single terminal view at once: the phone shows one pane at a time and never a
+side-by-side layout, so "focus the new pane" is the whole visible result. This amends `R-03-101`,
+which removed split from the sheet on 2026-09-09 as a desktop layout task; the two rows return,
+and zoom, rename and copy stay out. `docs/31-mockups/10-pane-actions.md` owns the rows,
+`docs/31-mockups/17-create.md` owns the menu, `docs/30-ux-spec.md` `R-30-511`'s route owns the
+navigation to the new pane.
 
 ## 8. Local notifications only
 

@@ -9,9 +9,7 @@
 /// against a connection drop, never resending a non-idempotent action — has nothing to do with
 /// that transport.
 ///
-/// This file owns no screen (R-90-024): `create_sheet.dart` paints every state the outcomes
-/// below raise. The pane action sheet's own split, zoom and rename left with R-03-101
-/// (2026-09-09), and their wrappers left this file with them.
+/// This file owns no screen (R-90-024). Callers show action outcomes and choose navigation.
 library;
 
 import 'dart:async';
@@ -164,9 +162,8 @@ Future<HostActionOutcome> createTab({
   ),
 );
 
-/// `pane.split`, creating a new pane by splitting [targetPaneId] toward [direction] (`right`
-/// or `down`, R-31-17-04). `focus` is always sent `false`. This is the create menu's split
-/// (`docs/31-mockups/17-create.md`), the one split a phone offers since R-03-101.
+/// Splits [targetPaneId] toward [direction] (`right` or `down`, R-03-134).
+/// The terminal action sheet offers this action. `focus` stays `false` on the Host.
 Future<HostActionOutcome> createPaneSplit({
   required Stream<Message> messages,
   required Stream<RelayConnectionState> connectionState,

@@ -1,0 +1,47 @@
+[package]
+name = "herdr-relay-hub"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The relay service: WebSocket rendezvous hub, in-memory handle map, /healthz, /metrics."
+publish = false
+
+[dependencies]
+# "ws" is not one of axum's default features (it pulls in tokio-tungstenite and the
+# WebSocket upgrade machinery), and this crate is a WebSocket server (R-12-020).
+axum = { workspace = true, features = ["ws"] }
+tokio = { workspace = true }
+# axum's own WebSocket type already implements Stream/Sink via futures-util
+# internally (see its `ws` feature); depending on it directly here only names a
+# crate already in the resolved build graph, to split a socket into a read half and
+# a write half the way axum's own WebSocket documentation does.
+futures-util = "=0.3.34"
+# default-features = false excludes the "generate" feature, so rand (and its
+# chacha20/getrandom transitive deps) never enter this crate's build graph
+# (R-41-133, R-12-060). The relay only decodes and validates handles.
+herdr-relay-proto = { path = "../herdr-relay-proto", default-features = false }
+# The registration-frame handshake (R-11-113/114/115) and the R-12-041 JSON log
+# line are the only two JSON payloads this crate ever builds; both already-pinned
+# workspace dependencies, no new dependency choice made here.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Structured logging call sites (R-41-030 to R-41-035); paired with a hand-rolled
+# `Subscriber` in routes/logging.rs rather than the `tracing-subscriber` crate,
+# which is not a workspace pin and whose default JSON formatter would print
+# `target`/`level`/`span` fields R-12-041 does not allow.
+tracing = { workspace = true }
+
+[dev-dependencies]
+# The test-only WebSocket client that drives routes.rs as a real Host/Device would.
+# Already the pinned version for the Host plugin's own outbound client
+# (docs/11-relay-protocol.md §1 layer table), so no new version choice is made here.
+tokio-tungstenite = "=0.30.0"
+# "test-util" unlocks `#[tokio::test(start_paused = true)]`, so heartbeat.rs's timer
+# tests run instantly instead of sleeping for real 10s/30s deadlines.
+tokio = { workspace = true, features = ["test-util"] }
+# `docs/90-implementation-plan.md` Phase 4 (`WP-4`): `tests/ciphertext_only.rs` drives a
+# real Noise handshake through this crate's own router and asserts the relay forwards
+# only ciphertext (R-11-001, R-11-027). Dev-dependency only, so this never reaches the
+# production `herdr-relay-hub` binary or its R-41-133/R-12-060 rand-free build graph —
+# only `cargo test`'s test binaries link it.
+herdr-relay = { path = "../herdr-relay" }

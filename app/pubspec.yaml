@@ -1,0 +1,116 @@
+name: herdr_mobile
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Design systems. R-20-042: standalone packages, not the frozen in-SDK
+  # material.dart and cupertino.dart libraries.
+  material_ui: 1.1.0
+  cupertino_ui: 1.0.1
+  # Cupertino glyph font: the platform back button, search field and expansion tile draw it. R-20-044.
+  cupertino_icons: 1.0.9
+  xterm2: 5.2.0
+
+  # State management and dependency injection.
+  flutter_riverpod: 3.4.2
+
+  # Navigation and deep links.
+  go_router: 18.0.0
+
+  # Transport. R-20-009.
+  web_socket_channel: 3.0.3
+
+  # Noise primitives. R-20-032.
+  cryptography: 2.9.0
+  cryptography_flutter: 2.3.4
+
+  # Wire type codegen support.
+  freezed_annotation: 3.1.0
+  json_annotation: 4.12.0
+
+  # Platform integration, one package per docs/22-platform-integration.md rule.
+  flutter_secure_storage: 10.3.1
+  local_auth: 3.0.2
+  flutter_local_notifications: 22.3.0
+  connectivity_plus: 7.3.1
+  device_info_plus: 13.2.0
+  package_info_plus: 10.2.1
+  mobile_scanner: 7.4.0
+
+  # Swipe-to-reveal actions. R-20-040.
+  flutter_slidable: 4.0.3
+
+  # Non-secret preferences, including the persisted theme mode. R-20-038.
+  shared_preferences: 2.5.5
+
+  # Levelled logging. R-41-034.
+  logging: 1.3.0
+
+  # Status treatment icons. R-32-400, R-32-401. Requested by WP-12-a.
+  material_symbols_icons: 4.2960.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+  freezed: 4.0.0
+  json_serializable: 6.14.1
+  build_runner: 2.16.0
+  flutter_lints: 6.0.0
+  mocktail: 1.0.5
+
+  # InMemorySharedPreferencesAsync test double, already a resolved
+  # transitive dependency of shared_preferences 2.5.5. Made a direct
+  # dev_dependency to satisfy depend_on_referenced_packages. Requested by
+  # WP-19-a for app/test/services/notifications_test.dart.
+  shared_preferences_platform_interface: 2.4.2
+
+flutter:
+  uses-material-design: true
+
+  # Interface font. R-32-200, R-32-201. Requested by WP-12-a.
+  fonts:
+    - family: IBM Plex Sans
+      fonts:
+        - asset: assets/fonts/IBMPlexSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBMPlexSans-SemiBold.ttf
+          weight: 600
+
+    # Terminal font. R-21-011, R-21-012. Requested by WP-2.
+    - family: JetBrainsMono Nerd Font Mono
+      fonts:
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf
+          weight: 700
+          style: italic
+
+    # Display font. Archivo Bold (700) and Black (900). SIL OFL 1.1.
+    - family: Archivo
+      fonts:
+        - asset: assets/fonts/Archivo-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Archivo-Black.ttf
+          weight: 900
+
+  # EFF long wordlist. R-13-025, R-30-904. Fetched, checksum-verified and
+  # written by app/tool/fetch_eff_wordlist.dart at build time (WP-15-a owns
+  # that path under R-90-018); never fetched by the shipped app itself.
+  assets:
+    - assets/wordlists/eff_large_wordlist.txt
+    - assets/brand/

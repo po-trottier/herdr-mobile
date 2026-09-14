@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Daily Flutter/pub dependency check (docs/40-repo-tooling.md R-40-055, R-40-056).
+  # No `groups:` entry, so every package, including `cupertino_ui`, opens its own pull
+  # request. Dependabot never auto-merges without a separate workflow, and this file
+  # adds none, so R-40-055's "opens a pull request, merges none" holds by omission.
+  - package-ecosystem: "pub"
+    directory: "/app"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 10

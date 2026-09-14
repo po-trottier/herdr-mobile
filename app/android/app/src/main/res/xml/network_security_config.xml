@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- R-22-084: grants the OS-level permission the Dart-level allow list in R-22-039 needs to
+     actually open a cleartext connection. Android's <domain-config>/<domain> element matches
+     exact hostnames or IP literals only; it has no CIDR/subnet syntax (confirmed against
+     Android's own Network Security Configuration reference:
+     https://developer.android.com/privacy-and-security/security-config, "<domain>" section).
+     R-22-039's allow list is IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16),
+     which cannot be expressed as a set of <domain> entries. The base-config below permits
+     cleartext for every destination at the manifest layer; R-22-039's Dart-level allow list
+     stays the real security gate; every other origin is still rejected in Dart before a socket
+     ever opens. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

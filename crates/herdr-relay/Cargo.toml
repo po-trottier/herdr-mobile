@@ -1,0 +1,66 @@
+[package]
+name = "herdr-relay"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The Herdr Host plugin: Herdr socket client, watch loop, Noise session, relay client and popup pane."
+publish = false
+
+[dependencies]
+herdr-relay-proto = { path = "../herdr-relay-proto" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+keyring = { workspace = true }
+snow = { workspace = true }
+blake2 = { workspace = true }
+toml = { workspace = true }
+time = { workspace = true }
+qrcode = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+uuid = { workspace = true }
+unicode-width = { workspace = true }
+# `docs/90-implementation-plan.md` Phase 4 (`WP-4`): the Noise interop spike.
+# `rand` generates the test routing handle and the fixed-ephemeral-free static
+# keypairs `src/bin/spike-noise-host.rs` uses; `tokio`/`tokio-tungstenite`/
+# `futures-util` open the real WebSocket to a locally-run `herdr-relay-hub`
+# instance. `relay.rs`'s own doc comment already anticipated this addition.
+rand = { workspace = true }
+# `signal`: the bridge clears its R-10-062 control endpoint from `state.json` on
+# ctrl-c through `tokio::signal::ctrl_c`; no other crate enables the feature.
+tokio = { workspace = true, features = ["signal"] }
+# `rustls-tls-native-roots`: `wss://` needs a compiled-in TLS backend, which
+# tokio-tungstenite's own default features (`connect`, `handshake`) do not
+# include (verified against 0.30.0's own `[features]` table). rustls, not
+# `native-tls`, to stay consistent with this workspace's existing pure-Rust
+# crypto stance (`snow` for Noise, no OpenSSL/system-TLS dependency
+# anywhere else); `-native-roots` trusts the OS certificate store, matching
+# the real deployment's publicly-issued Let's Encrypt certificate
+# (`docs/14-relay-deployment.md` R-14-022) rather than a bundled root list.
+tokio-tungstenite = { version = "=0.30.0", features = ["rustls-tls-native-roots"] }
+futures-util = "=0.3.34"
+flate2 = { workspace = true }
+
+[dev-dependencies]
+# Proving `relay::connect_host` actually completes a TLS handshake
+# (R-12-002, R-12-020: production always connects over `wss://`), not just
+# the plaintext `ws://` this crate's other tests use. Dev-only: no
+# production dependency footprint. Versions pinned to what
+# `rustls-tls-native-roots` above already resolves in this workspace, so
+# this adds no second copy of any of the three.
+rcgen = "0.14.9"
+rustls = "=0.23.43"
+tokio-rustls = "=0.26.4"
+rustls-pki-types = "=1.15.1"
+# Requested by WP-10-c for crates/herdr-relay/tests/popup_once.rs (R-31-16-02): a
+# pure-Rust QR decoder, run directly over the popup's own rendered half-block
+# output, proving it round-trips to the exact pairing URI the encoder produced.
+# Dev-only: no production dependency footprint, no `image` crate needed (rqrr's
+# `BitGrid`/`SimpleGrid` decode straight from a boolean grid function).
+rqrr = "=0.10.1"
+# `test-util`: `tests/host_pairing.rs` proves the 600 s phrase lifetime
+# (R-13-022) and the idle `Noise_KK` hold past the 30 s connect timeout with
+# `#[tokio::test(start_paused = true)]`, not with real waits. Dev-only.
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Native Host-plugin and shared-protocol gates (docs/41-code-standards.md R-41-114,
+  # R-41-115). `crates/rust-toolchain.toml` selects the exact 1.98.0 toolchain; every
+  # GitHub-hosted runner ships rustup, so no toolchain-install action is needed.
+  rust:
+    name: Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: crates
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup component add rustfmt clippy
+      - run: cargo fmt --check
+      - run: cargo clippy -p herdr-relay -p herdr-relay-proto --all-targets --all-features -- -D warnings
+      - run: cargo test -p herdr-relay -p herdr-relay-proto
+
+  # The relay builds, lints and tests only through its Dockerfile
+  # (docs/12-relay-hosting.md R-12-012). ubuntu-latest ships Docker, so no setup action
+  # is needed.
+
+  relay-container:
+    name: Relay container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Build test image (fmt, clippy, tests)
+        run: docker build --target test -f crates/herdr-relay-hub/Dockerfile .
+      - name: Build final image
+        run: docker build -f crates/herdr-relay-hub/Dockerfile -t herdr-relay-hub .
+
+  # Host plugin release cross-builds (docs/90-implementation-plan.md §5.2, Phase 11,
+  # requested by WP-11; docs/00-overview.md hard requirement 4: the plugin MUST work
+  # on Windows, Linux and macOS). aarch64-apple-darwin and x86_64-apple-darwin both
+  # build on the same macOS runner; Xcode's cross-linking support covers the
+  # non-native macOS target with no extra toolchain.
+  host-release:
+    name: Host release (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: crates
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release -p herdr-relay --target ${{ matrix.target }}
+
+  # Dart gate, the Phase 0 "Done when" criterion (docs/90-implementation-plan.md §5.2,
+  # `WP-0-a`; commands from docs/40-repo-tooling.md §7.2.3).
+  flutter:
+    name: Flutter (Android)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          flutter-version: "3.47.0"
+      - run: flutter pub get
+      # WP-21-b, on request to WP-0-a per docs/90-implementation-plan.md §5.3 (this path's
+      # registry row): fails the build when app/LICENSE is absent or unparseable, so the
+      # Settings/About work package's R-31-19-14 group and R-23-060 gate runs before any
+      # build, debug or release.
+      - run: dart run tool/check_notices.dart
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter build apk --debug
+
+  # Optional: iOS only builds on macOS with Xcode, and only WP-23 signing makes it a
+  # required gate (R-90-012, docs/40-repo-tooling.md Open question 1).
+  ios:
+    name: Flutter (iOS, optional)
+    runs-on: macos-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          flutter-version: "3.47.0"
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter build ios --debug --no-codesign

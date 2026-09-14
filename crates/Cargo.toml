@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+members = ["herdr-relay-proto", "herdr-relay", "herdr-relay-hub"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+
+# Exact pins only (R-41-043, R-41-135). Every version here is verified against
+# docs/12-relay-hosting.md "## Language and Crates", docs/13-security-pairing.md
+# "### Libraries", and the Implementation TODO in docs/11-relay-protocol.md.
+[workspace.dependencies]
+axum = "=0.8.9"
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+thiserror = "=2.0.20"
+tracing = "=0.1.44"
+rand = "=0.10.2"
+base64 = "=0.23.1"
+# Requested by WP-10-a for crates/herdr-relay/src/{keys,store,config}.rs (R-41-041):
+# keyring/snow/blake2 are docs/13-security-pairing.md "### Libraries" pins for Host
+# key storage, Curve25519 keygen and the display fingerprint. toml parses
+# config.toml (R-10-051); no stdlib/workspace crate does. time formats RFC 3339
+# timestamps for store.rs's paired_at/last_seen; no stdlib/workspace crate does.
+# The `parsing` feature is requested by `WP-10-c` for `crates/herdr-relay/src/
+# popup.rs`: it parses those same RFC 3339 strings back, to compute the table's
+# relative "3m ago" column and its own detail-block date format (R-31-16-18).
+keyring = "=4.1.6"
+snow = "=0.10.0"
+blake2 = "=0.10.6"
+toml = "=1.1.4"
+time = { version = "=0.3.55", features = ["formatting", "parsing"] }
+# Requested by WP-10-b/WP-10-c for crates/herdr-relay/src/{pairing,popup}.rs:
+# qrcode encodes the local pairing URI at error correction M (R-13-030, R-12-005,
+# R-31-16-01); ratatui/crossterm provide the Host popup TUI (R-01-005, R-90-010).
+# uuid generates the UUIDv4 host_id/pairing identifier (R-41-043).
+qrcode = "=0.14.1"
+ratatui = "=0.30.2"
+crossterm = "=0.29.0"
+uuid = { version = "=1.25.0", features = ["v4"] }
+# Requested by WP-10-c for crates/herdr-relay/src/popup.rs (R-31-16-28): measures
+# display-cell width for the phone table's column budgets and tail elision.
+# Already resolved transitively through `ratatui_core`'s own `Line`/`Span` width
+# calculation; pinned directly here so `popup.rs` can call it without reaching
+# into ratatui's private internals.
+unicode-width = "=0.2.2"
+# `docs/11-relay-protocol.md` R-11-232: zlib compression of the frame envelope before
+# Noise encryption, `crates/herdr-relay/src/frame_codec.rs`. Default `miniz_oxide`
+# backend, no new system zlib dependency.
+flate2 = "=1.1.9"

@@ -1,0 +1,48 @@
+# herdr-mobile line-ending and diff policy.
+# This repository holds documentation, agent guidance, and — as of Phase 0 — the Rust workspace
+# and Flutter project themselves. This file pins line endings for both.
+
+# LF everywhere. A CRLF checkout would rewrite every Markdown file on a Windows
+# clone and produce a diff that contains no change.
+* text=auto eol=lf
+
+# Documentation and configuration: LF, always text.
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+
+# Root dotfiles: LF, always text.
+.editorconfig  text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+
+# Rust workspace, shell shims, Dart sources and TOML manifests: LF, always text
+# (R-40-018, R-41-049).
+*.rs    text eol=lf
+*.sh    text eol=lf
+*.dart  text eol=lf
+*.toml  text eol=lf
+
+# PowerShell shims: CRLF (R-41-049). A CRLF-less checkout breaks PowerShell's line parser.
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.psd1  text eol=crlf
+
+# The licence is the verbatim Apache-2.0 text. Keep it out of language statistics.
+LICENSE text eol=lf linguist-license=Apache-2.0
+
+# Agent instruction files are documentation, not code. Keep them out of the
+# language statistics so the repository reads as documentation on a forge.
+AGENTS.md  text eol=lf linguist-documentation
+CLAUDE.md  text eol=lf linguist-documentation
+docs/**    text eol=lf linguist-documentation
+
+# Binary assets, if a diagram or screenshot is ever committed: no conversion.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.pdf  binary

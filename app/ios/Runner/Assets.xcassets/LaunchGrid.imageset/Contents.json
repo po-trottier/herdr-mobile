@@ -1,0 +1,140 @@
+{
+  "images": [
+    {
+      "filename": "launch_grid_light@1x.png",
+      "idiom": "universal",
+      "scale": "1x",
+      "resizing": {
+        "mode": "9-part",
+        "cap-insets": {
+          "top": 0,
+          "bottom": 0,
+          "left": 0,
+          "right": 0
+        },
+        "center": {
+          "mode": "tile",
+          "width": 40,
+          "height": 40
+        }
+      }
+    },
+    {
+      "filename": "launch_grid_light@2x.png",
+      "idiom": "universal",
+      "scale": "2x",
+      "resizing": {
+        "mode": "9-part",
+        "cap-insets": {
+          "top": 0,
+          "bottom": 0,
+          "left": 0,
+          "right": 0
+        },
+        "center": {
+          "mode": "tile",
+          "width": 80,
+          "height": 80
+        }
+      }
+    },
+    {
+      "filename": "launch_grid_light@3x.png",
+      "idiom": "universal",
+      "scale": "3x",
+      "resizing": {
+        "mode": "9-part",
+        "cap-insets": {
+          "top": 0,
+          "bottom": 0,
+          "left": 0,
+          "right": 0
+        },
+        "center": {
+          "mode": "tile",
+          "width": 120,
+          "height": 120
+        }
+      }
+    },
+    {
+      "filename": "launch_grid_dark@1x.png",
+      "idiom": "universal",
+      "scale": "1x",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "resizing": {
+        "mode": "9-part",
+        "cap-insets": {
+          "top": 0,
+          "bottom": 0,
+          "left": 0,
+          "right": 0
+        },
+        "center": {
+          "mode": "tile",
+          "width": 40,
+          "height": 40
+        }
+      }
+    },
+    {
+      "filename": "launch_grid_dark@2x.png",
+      "idiom": "universal",
+      "scale": "2x",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "resizing": {
+        "mode": "9-part",
+        "cap-insets": {
+          "top": 0,
+          "bottom": 0,
+          "left": 0,
+          "right": 0
+        },
+        "center": {
+          "mode": "tile",
+          "width": 80,
+          "height": 80
+        }
+      }
+    },
+    {
+      "filename": "launch_grid_dark@3x.png",
+      "idiom": "universal",
+      "scale": "3x",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "resizing": {
+        "mode": "9-part",
+        "cap-insets": {
+          "top": 0,
+          "bottom": 0,
+          "left": 0,
+          "right": 0
+        },
+        "center": {
+          "mode": "tile",
+          "width": 120,
+          "height": 120
+        }
+      }
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

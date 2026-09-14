@@ -1,0 +1,146 @@
+# herdr-relay: bridges the local Herdr socket API to a hosted relay so a phone
+# can watch and drive a pane.
+#
+# The bridge is a long-lived process, but plugin startup hooks are one-shot, so
+# the OS service manager owns its lifetime: a systemd user unit on Linux, a
+# launchd user agent on macOS, and a Task Scheduler job on Windows. The startup
+# hook only reconciles that unit and exits.
+#
+# A popup pane is the only UI surface a plugin can open, so the pairing QR code
+# and the client list live in one.
+#
+# Every command locates its script through HERDR_PLUGIN_ROOT, which herdr
+# injects. On Windows the value may carry a \\?\ verbatim prefix, which the
+# Windows payloads strip before use. This indirection is required because herdr
+# resolves a relative program against its own install directory on Windows
+# (GH #58) and the working directory of an action is unreliable there.
+# Action ids must be unique per manifest, so the Windows pairs carry a -windows
+# suffix.
+
+id = "herdr-relay"
+name = "Relay"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Pairs a phone with this Herdr session and relays pane output and input through a hosted relay."
+platforms = ["linux", "macos", "windows"]
+
+# Reconcile the supervisor unit after every herdr restart. One-shot by design:
+# it ensures the unit exists and is enabled, then exits. It never runs the
+# bridge in the foreground.
+
+[[startup]]
+platforms = ["linux", "macos"]
+command = ["/bin/sh", "-c", '''
+r=${HERDR_PLUGIN_ROOT:?herdr-relay: HERDR_PLUGIN_ROOT not set}; exec sh "$r/posix/ensure-service.sh"
+''']
+
+[[startup]]
+platforms = ["windows"]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''
+$r=$env:HERDR_PLUGIN_ROOT; if(-not $r){$b=$env:HERDR_BIN_PATH; if(-not $b){$b='herdr'}; $r=((& $b plugin list --json|ConvertFrom-Json).result.plugins|Where-Object {$_.plugin_id -eq 'herdr-relay'}).plugin_root}; if($r -and $r.StartsWith('\\?\')){$r=$r.Substring(4)}; & (Join-Path $r 'windows\ensure-service.ps1')
+''']
+
+# Pair: opens the popup pane showing the QR code and the six-word pairing phrase.
+
+[[actions]]
+id = "pair"
+title = "Pair a phone"
+description = "Shows the pairing QR code and the six-word pairing phrase (macOS, Linux)."
+platforms = ["linux", "macos"]
+command = ["/bin/sh", "-c", '''
+b=${HERDR_BIN_PATH:-herdr}; exec "$b" plugin pane open --plugin herdr-relay --entrypoint relay
+''']
+
+[[actions]]
+id = "pair-windows"
+title = "Pair a phone"
+description = "Shows the pairing QR code and the six-word pairing phrase on Windows."
+platforms = ["windows"]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''
+$b=$env:HERDR_BIN_PATH; if(-not $b){$b='herdr'}; & $b plugin pane open --plugin herdr-relay --entrypoint relay-windows
+''']
+
+# Clients: prints the paired devices to the plugin log without opening a pane.
+
+[[actions]]
+id = "clients"
+title = "List paired phones"
+description = "Reports every paired device and its last-seen time (macOS, Linux)."
+platforms = ["linux", "macos"]
+command = ["/bin/sh", "-c", '''
+r=${HERDR_PLUGIN_ROOT:?herdr-relay: HERDR_PLUGIN_ROOT not set}; exec sh "$r/posix/relayctl.sh" clients
+''']
+
+[[actions]]
+id = "clients-windows"
+title = "List paired phones"
+description = "Reports every paired device and its last-seen time on Windows."
+platforms = ["windows"]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''
+$r=$env:HERDR_PLUGIN_ROOT; if(-not $r){$b=$env:HERDR_BIN_PATH; if(-not $b){$b='herdr'}; $r=((& $b plugin list --json|ConvertFrom-Json).result.plugins|Where-Object {$_.plugin_id -eq 'herdr-relay'}).plugin_root}; if($r -and $r.StartsWith('\\?\')){$r=$r.Substring(4)}; & (Join-Path $r 'windows\relayctl.ps1') clients
+''']
+
+# Refresh: revokes every paired device and issues a new pairing secret.
+
+[[actions]]
+id = "refresh"
+title = "Revoke all phones"
+description = "Revokes every paired device and issues a new pairing phrase (macOS, Linux)."
+platforms = ["linux", "macos"]
+command = ["/bin/sh", "-c", '''
+r=${HERDR_PLUGIN_ROOT:?herdr-relay: HERDR_PLUGIN_ROOT not set}; exec sh "$r/posix/relayctl.sh" refresh
+''']
+
+[[actions]]
+id = "refresh-windows"
+title = "Revoke all phones"
+description = "Revokes every paired device and issues a new pairing phrase on Windows."
+platforms = ["windows"]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''
+$r=$env:HERDR_PLUGIN_ROOT; if(-not $r){$b=$env:HERDR_BIN_PATH; if(-not $b){$b='herdr'}; $r=((& $b plugin list --json|ConvertFrom-Json).result.plugins|Where-Object {$_.plugin_id -eq 'herdr-relay'}).plugin_root}; if($r -and $r.StartsWith('\\?\')){$r=$r.Substring(4)}; & (Join-Path $r 'windows\relayctl.ps1') refresh
+''']
+
+# Stop: disconnects from the hub and stops the supervised bridge.
+
+[[actions]]
+id = "stop"
+title = "Stop the relay"
+description = "Disconnects from the hub and stops the bridge (macOS, Linux)."
+platforms = ["linux", "macos"]
+command = ["/bin/sh", "-c", '''
+r=${HERDR_PLUGIN_ROOT:?herdr-relay: HERDR_PLUGIN_ROOT not set}; exec sh "$r/posix/relayctl.sh" stop
+''']
+
+[[actions]]
+id = "stop-windows"
+title = "Stop the relay"
+description = "Disconnects from the hub and stops the bridge on Windows."
+platforms = ["windows"]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''
+$r=$env:HERDR_PLUGIN_ROOT; if(-not $r){$b=$env:HERDR_BIN_PATH; if(-not $b){$b='herdr'}; $r=((& $b plugin list --json|ConvertFrom-Json).result.plugins|Where-Object {$_.plugin_id -eq 'herdr-relay'}).plugin_root}; if($r -and $r.StartsWith('\\?\')){$r=$r.Substring(4)}; & (Join-Path $r 'windows\relayctl.ps1') stop
+''']
+
+# The only UI surface a plugin can open. Shows the QR code, the six-word
+# pairing phrase, and the live client list.
+
+[[panes]]
+id = "relay"
+title = "Relay"
+placement = "popup"
+width = "70%"
+height = "70%"
+platforms = ["linux", "macos"]
+command = ["/bin/sh", "-c", '''
+r=${HERDR_PLUGIN_ROOT:?herdr-relay: HERDR_PLUGIN_ROOT not set}; exec sh "$r/posix/ui.sh"
+''']
+
+[[panes]]
+id = "relay-windows"
+title = "Relay"
+placement = "popup"
+width = "70%"
+height = "70%"
+platforms = ["windows"]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''
+$r=$env:HERDR_PLUGIN_ROOT; if(-not $r){$b=$env:HERDR_BIN_PATH; if(-not $b){$b='herdr'}; $r=((& $b plugin list --json|ConvertFrom-Json).result.plugins|Where-Object {$_.plugin_id -eq 'herdr-relay'}).plugin_root}; if($r -and $r.StartsWith('\\?\')){$r=$r.Substring(4)}; & (Join-Path $r 'windows\ui.ps1')
+''']

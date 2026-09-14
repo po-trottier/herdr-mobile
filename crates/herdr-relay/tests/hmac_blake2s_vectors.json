@@ -1,0 +1,40 @@
+{
+  "description": "Fixed key/data/expected-MAC triples for the HMAC-BLAKE2s construction R-13-072 requires (docs/13-security-pairing.md), working around cryptography 2.9.0's Blake2s.blockLengthInBytes bug (32 instead of the correct RFC 7693 value, 64). Every MAC below was computed with a hand-rolled RFC 2104 HMAC over blake2 0.10.6's Blake2s256 (ipad/opad width 64, matching snow 0.10.0's own internal HashBLAKE2s::hmac()), then cross-checked against an independent Python hashlib.blake2s-based reference implementation. crates/herdr-relay/tests/hmac_blake2s_vectors.rs asserts every vector byte for byte; app/test/services/hmac_blake2s_vectors_test.dart (WP-14-b, not yet built) reads this same file as its own canonical source, per R-13-072.",
+  "vectors": [
+    {
+      "name": "zero_key_empty_data",
+      "note": "Boundary case: a 32-byte all-zero key (Noise's chaining_key length) with empty data.",
+      "key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "data_hex": "",
+      "expected_mac_hex": "eaf4bb25938f4d20e72656bbbc7a9bf63c0c18537333c35bdb67db1402661acd"
+    },
+    {
+      "name": "psk0_mix_key_and_hash_step",
+      "note": "A real intermediate value from a live Noise_XXpsk0 handshake this session verified end to end (crates/herdr-relay/src/noise.rs, app/test/spike/noise_client_test.dart): key is the chaining key right after Initialize()/MixHash(prologue) for Noise_XXpsk0_25519_ChaChaPoly_BLAKE2s with an empty prologue; data is psk_from_phrase(\"remedy-tapestry-hubcap-oversleep-jailbird-kinetic\") (R-13-024). The expected MAC is the temp_key MixKeyAndHash's HKDF derives from them.",
+      "key_hex": "e6430c7faad4fc73ac14bd61be8e48b5ecb9fefd79885ccce36a28dc409b5167",
+      "data_hex": "fdc3ab8ae6e97b76793d4b98ebd803b7448db753ea25c0dfa106e6285176d1fd",
+      "expected_mac_hex": "0518d04e070b46e53d28e540dac83c28a081e819e0469d137827cee5241b38ae"
+    },
+    {
+      "name": "hkdf_expand_counter_byte",
+      "note": "The Noise-spec HKDF's second HMAC call: key is the psk0 step's own temp_key (this file's psk0_mix_key_and_hash_step vector's expected_mac_hex), data is the single counter byte 0x01 HKDF-Expand appends. The expected MAC matches the chaining key this session's live handshake produced after the psk token.",
+      "key_hex": "0518d04e070b46e53d28e540dac83c28a081e819e0469d137827cee5241b38ae",
+      "data_hex": "01",
+      "expected_mac_hex": "22fc6e980719ee1b7218370151bc2807d5a69c740b2e7a2f3bb457eac1d01046"
+    },
+    {
+      "name": "sixty_four_byte_key",
+      "note": "Boundary case at R-13-072's stated maximum: a key exactly 64 bytes long (0x00..0x3f), so ipad/opad XOR the key across their full width with no zero-padding remainder. Noise itself never passes a chaining_key this long (always 32 bytes), but the construction must still be correct at the boundary.",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "data_hex": "68657264722d72656c61792d686d61632d766563746f72",
+      "expected_mac_hex": "b0d9c06e17043db48942360ae1cc9208192d20939d62e847b272b2315b502b53"
+    },
+    {
+      "name": "ascii_data",
+      "note": "A human-readable data payload (the docs' own worked pairing phrase, docs/11-relay-protocol.md §8.1) with an arbitrary fixed 32-byte key, as a plain sanity case distinct from the handshake-derived vectors above.",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "data_hex": "72656d6564792d74617065737472792d6875626361702d6f766572736c6565702d6a61696c626972642d6b696e65746963",
+      "expected_mac_hex": "4e669798faf4b0ab3e7f703d48ebb73c1d0cba2ec523203ef91322f95b1e9c44"
+    }
+  ]
+}

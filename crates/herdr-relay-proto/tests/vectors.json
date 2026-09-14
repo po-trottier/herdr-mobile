@@ -1,0 +1,360 @@
+{
+  "example_handle": "n6Loxf94CfyIO6hOxlaHvA",
+  "example_pairing_uri": "herdr-remote://pair?v=1&r=https%3A%2F%2Frelay.example.com&h=n6Loxf94CfyIO6hOxlaHvA&p=remedy-tapestry-hubcap-oversleep-jailbird-kinetic",
+  "example_phrase": "remedy-tapestry-hubcap-oversleep-jailbird-kinetic",
+  "messages": {
+    "action_list": {
+      "corr": "req-010",
+      "payload": {
+        "actions": [
+          {
+            "action_id": "open-git",
+            "contexts": [
+              "global"
+            ],
+            "description": "Opens a git status pane",
+            "plugin_id": "herdr-sidebar",
+            "title": "Open Git"
+          }
+        ]
+      },
+      "seq": 12,
+      "type": "action_list",
+      "v": 1
+    },
+    "action_list_request": {
+      "corr": "req-010",
+      "payload": {},
+      "seq": 12,
+      "type": "action_list_request",
+      "v": 1
+    },
+    "agent_prompt": {
+      "corr": "req-005",
+      "payload": {
+        "target": "w3:p2",
+        "text": "run the tests"
+      },
+      "seq": 7,
+      "type": "agent_prompt",
+      "v": 1
+    },
+    "agent_prompt_ack": {
+      "corr": "req-005",
+      "payload": {
+        "accepted": true,
+        "target": "w3:p2"
+      },
+      "seq": 7,
+      "type": "agent_prompt_ack",
+      "v": 1
+    },
+    "agent_status": {
+      "payload": {
+        "agent_kind": "claude",
+        "at": "2026-08-24T14:32:05Z",
+        "host_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "pane_id": "w3:p2",
+        "pane_title": "claude",
+        "status": "done",
+        "tab_id": "w3:t2",
+        "tab_title": "impl",
+        "workspace_id": "w3"
+      },
+      "seq": 5,
+      "type": "agent_status",
+      "v": 1
+    },
+    "device_info": {
+      "payload": {
+        "app_version": "1.0.0",
+        "device_id": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+        "device_name": "Pixel 9 Pro",
+        "os_version": "15",
+        "platform": "android",
+        "protocol": 1
+      },
+      "seq": 1,
+      "type": "device_info",
+      "v": 1
+    },
+    "device_list": {
+      "corr": "req-007",
+      "payload": {
+        "devices": [
+          {
+            "connected": true,
+            "fingerprint": "3f9a-1c04-be77-20d5",
+            "id": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+            "last_seen": "2026-08-24T14:30:00Z",
+            "name": "Pixel 9 Pro",
+            "paired_at": "2026-08-20T09:00:00Z",
+            "platform": "android"
+          }
+        ]
+      },
+      "seq": 9,
+      "type": "device_list",
+      "v": 1
+    },
+    "device_list_request": {
+      "corr": "req-007",
+      "payload": {},
+      "seq": 9,
+      "type": "device_list_request",
+      "v": 1
+    },
+    "disconnect": {
+      "payload": {},
+      "seq": 5,
+      "type": "disconnect",
+      "v": 1
+    },
+    "error": {
+      "corr": "req-009",
+      "payload": {
+        "code": "pane_not_found",
+        "fatal": false,
+        "message": "pane w3:p9 does not exist"
+      },
+      "seq": 11,
+      "type": "error",
+      "v": 1
+    },
+    "host_action": {
+      "corr": "req-006",
+      "payload": {
+        "action": "pane.split",
+        "pane_id": "w3:p2",
+        "params": {
+          "direction": "right",
+          "focus": false
+        }
+      },
+      "seq": 8,
+      "type": "host_action",
+      "v": 1
+    },
+    "host_action_ack": {
+      "corr": "req-006",
+      "payload": {
+        "action": "pane.split",
+        "pane_id": "w3:p2",
+        "result_id": "w3:p4",
+        "success": true
+      },
+      "seq": 8,
+      "type": "host_action_ack",
+      "v": 1
+    },
+    "host_info": {
+      "payload": {
+        "herdr_protocol": 21,
+        "herdr_version": "0.8.2-preview.2026-08-31-b1ff4582e968",
+        "host_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "host_name": "patrick-desk",
+        "paired": false,
+        "protocol": 1
+      },
+      "seq": 1,
+      "type": "host_info",
+      "v": 1
+    },
+    "pane_frame": {
+      "payload": {
+        "pane_id": "w3:p2",
+        "revision": 82196,
+        "text": "line one\nline two",
+        "viewport_rows": 50,
+        "width": 122
+      },
+      "seq": 4,
+      "type": "pane_frame",
+      "v": 1
+    },
+    "revoke_device": {
+      "corr": "req-008",
+      "payload": {
+        "device_id": "f9e8d7c6-b5a4-3210-fedc-ba9876543210"
+      },
+      "seq": 10,
+      "type": "revoke_device",
+      "v": 1
+    },
+    "revoke_result": {
+      "corr": "req-008",
+      "payload": {
+        "all": false,
+        "revoked": [
+          "f9e8d7c6-b5a4-3210-fedc-ba9876543210"
+        ]
+      },
+      "seq": 10,
+      "type": "revoke_result",
+      "v": 1
+    },
+    "scroll_request": {
+      "corr": "req-003",
+      "payload": {
+        "lines": 200,
+        "pane_id": "w3:p2"
+      },
+      "seq": 6,
+      "type": "scroll_request",
+      "v": 1
+    },
+    "scroll_response": {
+      "corr": "req-003",
+      "payload": {
+        "lines": 2,
+        "pane_id": "w3:p2",
+        "text": "older line one\nolder line two",
+        "truncated": true
+      },
+      "seq": 6,
+      "type": "scroll_response",
+      "v": 1
+    },
+    "send_input": {
+      "payload": {
+        "keys": [
+          "ctrl+c"
+        ],
+        "pane_id": "w3:p2"
+      },
+      "seq": 4,
+      "type": "send_input",
+      "v": 1
+    },
+    "send_input_ack": {
+      "corr": "req-004",
+      "payload": {
+        "accepted": true,
+        "pane_id": "w3:p2"
+      },
+      "seq": 4,
+      "type": "send_input_ack",
+      "v": 1
+    },
+    "tree_request": {
+      "corr": "req-001",
+      "payload": {},
+      "seq": 2,
+      "type": "tree_request",
+      "v": 1
+    },
+    "tree_snapshot": {
+      "corr": "req-001",
+      "payload": {
+        "agents": [
+          {
+            "agent_kind": "claude",
+            "pane_id": "w3:p2",
+            "session": "sess_001",
+            "status": "working"
+          }
+        ],
+        "panes": [
+          {
+            "agent": "claude",
+            "agent_status": "working",
+            "cwd": "D:\\Repositories\\herdr-mobile",
+            "focused": true,
+            "label": "claude",
+            "pane_id": "w3:p2",
+            "revision": 82195,
+            "scroll": {
+              "max_offset_from_bottom": 0,
+              "offset_from_bottom": 0,
+              "viewport_rows": 50
+            },
+            "tab_id": "w3:t2",
+            "terminal_id": "term_abc123",
+            "title": "claude",
+            "workspace_id": "w3"
+          }
+        ],
+        "tabs": [
+          {
+            "focused": true,
+            "tab_id": "w3:t2",
+            "title": "impl",
+            "workspace_id": "w3"
+          }
+        ],
+        "workspaces": [
+          {
+            "focused": true,
+            "is_linked_worktree": false,
+            "name": "herdr-relay",
+            "repo_name": "herdr-relay",
+            "space_id": null,
+            "workspace_id": "w3"
+          }
+        ]
+      },
+      "seq": 2,
+      "type": "tree_snapshot",
+      "v": 1
+    },
+    "tree_update": {
+      "payload": {
+        "event": "pane.updated",
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "D:\\Repositories\\herdr-mobile",
+          "focused": true,
+          "label": "claude",
+          "pane_id": "w3:p2",
+          "revision": 82196,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w3:t2",
+          "terminal_id": "term_abc123",
+          "title": "claude",
+          "workspace_id": "w3"
+        }
+      },
+      "seq": 3,
+      "type": "tree_update",
+      "v": 1
+    },
+    "unwatch_pane": {
+      "payload": {
+        "pane_id": "w3:p2"
+      },
+      "seq": 5,
+      "type": "unwatch_pane",
+      "v": 1
+    },
+    "watch_ack": {
+      "corr": "req-002",
+      "payload": {
+        "pane_id": "w3:p2",
+        "revision": 82195,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0
+        },
+        "viewport_rows": 50,
+        "width": 122
+      },
+      "seq": 3,
+      "type": "watch_ack",
+      "v": 1
+    },
+    "watch_pane": {
+      "corr": "req-002",
+      "payload": {
+        "pane_id": "w3:p2"
+      },
+      "seq": 3,
+      "type": "watch_pane",
+      "v": 1
+    }
+  }
+}

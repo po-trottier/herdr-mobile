@@ -1,0 +1,21 @@
+[package]
+name = "herdr-relay-proto"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared wire protocol for herdr-relay and herdr-relay-hub: frame envelope, application messages, close codes, routing-handle codec, pairing-phrase codec and protocol test vectors."
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true, optional = true }
+base64 = { workspace = true }
+
+[features]
+default = ["generate"]
+# Handle::generate and Phrase::generate need a CSPRNG. herdr-relay-hub builds with
+# default-features = false so its dependency graph never links rand, chacha20 or
+# getrandom: R-41-133 forbids the relay from depending on rand (R-12-060).
+generate = ["dep:rand"]

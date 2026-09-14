@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- R-22-087: the background follows the operating-system appearance. -->
+    <color name="launch_background">#17171a</color>
+</resources>

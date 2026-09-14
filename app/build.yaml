@@ -1,0 +1,32 @@
+# json_serializable configuration for herdr-mobile.
+#
+# `explicit_to_json: true` makes every generated `toJson()` call `.toJson()`
+# on a nested serializable field (and map it across a `List`/nested object)
+# instead of embedding the raw Dart object. Without this, `toJson()` on a
+# class with a nested freezed field (for example `ActionList.actions`, a
+# `List<ActionListEntry>`) returns the `ActionListEntry` instances
+# themselves, not `Map`s, which only happens to work when the result is
+# piped straight into `jsonEncode` (which falls back to each object's own
+# `toJson()`), and breaks any code that inspects the returned `Map`
+# directly, such as `app/test/models/vectors_test.dart`'s round-trip check
+# against the parsed JSON vector file.
+#
+# There is deliberately NO project-wide `include_if_null` override here.
+# `crates/herdr-relay-proto/tests/vectors.json` (regenerated from real
+# `Serialize` impls, `crates/herdr-relay-proto/tests/vectors.rs`) proves the
+# Rust side is NOT uniform: a `None` field either omits its key
+# (`#[serde(skip_serializing_if = "Option::is_none")]`, for example
+# `AgentSummary.status_at`, `TreeUpdate.pane`/`workspace`/`tab`) or writes an
+# explicit JSON `null` (a plain `Option<T>` with no such attribute, for
+# example `PaneSummary.agent`, `AgentSummary.session`,
+# `ActionListEntry.description`/`contexts`), per
+# `docs/11-relay-protocol.md`'s per-message field table. Each Dart model
+# field mirrors its Rust counterpart individually with
+# `@JsonKey(includeIfNull: false)` only where the Rust field actually skips;
+# see the model files under `lib/models/` for the field-by-field mapping.
+targets:
+  $default:
+    builders:
+      json_serializable:
+        options:
+          explicit_to_json: true

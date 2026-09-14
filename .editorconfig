@@ -1,0 +1,37 @@
+# herdr-mobile editor configuration.
+# This repository holds documentation and agent guidance only, so this file covers
+# Markdown, YAML, JSON, plain text and the Git dotfiles. An implementation repository
+# adds its own language sections.
+# Applies to every editor that reads EditorConfig (VS Code, IntelliJ, Visual Studio,
+# neovim, and others).
+
+root = true
+
+# ── Universal defaults ───────────────────────────────────────────────────────
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# ── Markdown ─────────────────────────────────────────────────────────────────
+# Two trailing spaces are a hard line break in Markdown, so automatic trimming is
+# off. Authors use a blank line instead. markdownlint MD009 permits exactly two.
+[*.md]
+trim_trailing_whitespace = false
+
+# ── YAML, JSON, plain text ───────────────────────────────────────────────────
+[*.{yml,yaml,json,txt}]
+trim_trailing_whitespace = true
+
+# ── Git dotfiles ─────────────────────────────────────────────────────────────
+[.{gitattributes,gitignore,gitmodules}]
+trim_trailing_whitespace = true
+
+# ── The licence text is verbatim ─────────────────────────────────────────────
+# LICENSE is the canonical Apache-2.0 text. Never reformat it.
+[LICENSE]
+trim_trailing_whitespace = false
+insert_final_newline = true

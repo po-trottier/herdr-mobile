@@ -1,0 +1,98 @@
+# Dart static analysis for herdr-mobile.
+# Enforced by: dart analyze --fatal-infos --fatal-warnings
+#
+# The Flutter recommended set is the base. Everything below either escalates a
+# finding to an error or adds a rule the base set omits.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  # All three strict flags. Dart's type system only pays off when implicit
+  # dynamic cannot leak in.
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+  errors:
+    # A swallowed or dropped async error is the defect R-41-024 forbids.
+    # The analyser can prove these, so they are errors, not warnings.
+    unawaited_futures: error
+    discarded_futures: error
+    body_might_complete_normally_catch_error: error
+
+    # Correctness findings that the analyser proves.
+    invalid_null_aware_operator: error
+    dead_code: error
+    unnecessary_null_comparison: error
+    unreachable_switch_case: error
+
+    # Hygiene. An unused import or variable is a leftover from an edit.
+    unused_import: error
+    unused_local_variable: error
+    unused_field: error
+    unused_element: error
+
+    # A deprecated API is removed in a later Flutter release. Fix it now.
+    deprecated_member_use: error
+    deprecated_member_use_from_same_package: error
+
+    # TODO without an owner rots. Use a ponytail: comment (R-41-023) instead.
+    todo: ignore
+
+  exclude:
+    - '**/*.g.dart'
+    - '**/*.freezed.dart'
+    - '**/generated_plugin_registrant.dart'
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+
+linter:
+  rules:
+    # --- Error handling (R-41-024 .. R-41-028) ---
+    - only_throw_errors
+    - avoid_catches_without_on_clauses
+    - avoid_catching_errors
+    - use_rethrow_when_possible
+
+    # --- Async correctness (R-41-097 .. R-41-099) ---
+    - avoid_slow_async_io
+    - cancel_subscriptions
+    - close_sinks
+    - unawaited_futures
+    - discarded_futures
+    - use_build_context_synchronously
+
+    # --- Logging discipline (R-41-030, R-41-031) ---
+    # print() writes terminal content to the platform log with no redaction.
+    - avoid_print
+
+    # --- Immutability. A const widget subtree is not rebuilt. ---
+    - prefer_const_constructors
+    - prefer_const_constructors_in_immutables
+    - prefer_const_declarations
+    - prefer_const_literals_to_create_immutables
+    - prefer_final_locals
+    - prefer_final_in_for_each
+
+    # --- Type discipline ---
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - avoid_positional_boolean_parameters
+    - avoid_type_to_string
+
+    # --- Widget conventions ---
+    - use_key_in_widget_constructors
+    - use_super_parameters
+    - sized_box_for_whitespace
+
+    # --- Structure ---
+    - avoid_relative_lib_imports
+    - directives_ordering
+    - prefer_relative_imports
+    - unnecessary_late
+    - use_enums

@@ -1,0 +1,61 @@
+// Markdown lint configuration for the herdr-mobile documentation repository.
+//
+// Markdown is the specification's product in this repository, and this file is its build
+// configuration. Every relaxation below is deliberate and has a stated reason. A rule that
+// catches a real defect stays on.
+//
+// Run it with the pinned version:
+//   npx markdownlint-cli2@0.23.2 "**/*.md"
+//
+// See docs/40-repo-tooling.md and CONTRIBUTING.md, section "Validate the documentation".
+{
+  "config": {
+    "default": true,
+
+    // Prose wraps at 100 columns across every document. The 80-column default would force a reflow
+    // of about 5200 lines and would make the rule-and-rationale sentence style unreadable. Tables,
+    // code fences and headings are exempt: a rule table with eight columns cannot wrap, and breaking
+    // a command example would make it wrong.
+    "MD013": {
+      "line_length": 100,
+      "tables": false,
+      "code_blocks": false,
+      "headings": false
+    },
+
+    // A heading may repeat under a different parent. docs/23-public-release.md needs "Apple App
+    // Store" and "Google Play" under several parents, once per topic. A repeat under the SAME parent
+    // is still an error.
+    "MD024": { "siblings_only": true },
+
+    // A numbered list that continues after an intervening paragraph keeps its running number, which
+    // is what a reader expects in a step sequence. Both "1/1/1" and "1/2/3" are accepted; a list
+    // that mixes the two styles is still an error.
+    "MD029": { "style": "one_or_ordered" },
+
+    // CLAUDE.md opens with an HTML comment on purpose. Claude Code strips a block-level HTML comment
+    // before it injects the file, so the maintainer note costs no context tokens while staying
+    // visible to a human and to a file read. That is the only inline HTML in the repository.
+    "MD033": false,
+
+    // MD041 requires the first line to be a top-level heading. CLAUDE.md starts with the HTML
+    // comment above, then the "@AGENTS.md" import line that Claude Code expands. It is a pointer
+    // file, not a document, so it has no H1 by design.
+    "MD041": false,
+
+    // A "## Sources" entry is a bare URL on purpose. A reader copies it, and an autolink adds
+    // punctuation that breaks a copy-paste. Every mutable fact in this repository carries its source
+    // URL, so this pattern appears about 190 times.
+    "MD034": false,
+
+    // Table pipe padding is cosmetic and both forms render identically. The repository uses padded
+    // tables where a column is read by a human and compact tables where it is long. MD056, which
+    // catches a table with a wrong number of columns, stays on, because that one is a real defect.
+    "MD060": false
+  },
+  "globs": ["**/*.md"],
+  // app/** is Flutter- and Xcode-generated scaffold (flutter create, Podfile, Assets.xcassets),
+  // never hand-authored. docs/40-repo-tooling.md §3.2 names no Markdown file under app/, so this
+  // exclusion never hides a real specification document.
+  "ignores": ["node_modules/**", ".mermaid-tmp/**", "app/**"]
+}

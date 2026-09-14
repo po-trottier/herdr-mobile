@@ -1,0 +1,50 @@
+# herdr-mobile ignore list.
+# This repository holds documentation and agent guidance only. It has no build
+# output, so this file covers documentation-check artefacts, agent-local files,
+# and editor or operating-system noise. An implementation repository adds its own
+# build entries.
+
+# ── Documentation check artefacts ────────────────────────────────────────────
+# Mermaid diagrams are rendered to a temporary directory to prove they parse.
+# The images are never committed. See CONTRIBUTING.md, "Validate the documentation".
+*.mmd.svg
+*.mmd.png
+/.mermaid-tmp/
+
+# lychee link-check cache.
+.lycheecache
+
+# npx download cache, if a run is configured to keep one locally.
+/.npm/
+/node_modules/
+
+# Rust build output (crates/Cargo.toml workspace, Phase 0 onward).
+/crates/target/
+
+# ── Agent-local files ────────────────────────────────────────────────────────
+# Personal, per-machine agent instructions. The shared instructions live in
+# AGENTS.md and are committed. See docs/decisions/ADR-006-agent-instruction-files.md.
+CLAUDE.local.md
+AGENTS.local.md
+.claude/settings.local.json
+.codex/
+.omp/
+# tokf output-compression cache, written wherever a filtered command runs.
+.tokf/
+
+# ── Editor ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Operating system ─────────────────────────────────────────────────────────
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# flutter_test golden diff artifacts (matchesGoldenFile writes them beside the test)
+app/test/**/failures/

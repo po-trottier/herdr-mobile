@@ -14,7 +14,8 @@ library;
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
-import 'package:flutter/widgets.dart' show Brightness, MediaQueryData;
+import 'package:flutter/widgets.dart'
+    show Brightness, MediaQueryData, Scrollable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/messages/pane_scroll_state.dart'
     show PaneScrollState;
@@ -173,14 +174,33 @@ void main() {
           await tester.pumpAndSettle();
 
           // Structural proof beside the visual one: every tier is present and
-          // the current pane is the selected row.
+          // the current pane is the selected row. The sheet opens part-height,
+          // so the lower rows are scrolled into view before the check, then
+          // back to the top so the golden shows the opening frame.
           expect(find.text('Switch pane'), findsOneWidget);
           expect(find.text('docs'), findsOneWidget);
           expect(find.text('tests'), findsOneWidget);
           expect(find.text('Blocked'), findsOneWidget);
           expect(find.text('Done'), findsOneWidget);
+          await tester.scrollUntilVisible(
+            find.text('Working'),
+            48,
+            scrollable: find.descendant(
+              of: find.byType(PaneSwitcherSheet),
+              matching: find.byType(Scrollable),
+            ),
+          );
           expect(find.text('Working'), findsOneWidget);
           expect(find.bySemanticsLabel('pane 3, zsh'), findsOneWidget);
+          await tester.scrollUntilVisible(
+            find.text('docs'),
+            -48,
+            scrollable: find.descendant(
+              of: find.byType(PaneSwitcherSheet),
+              matching: find.byType(Scrollable),
+            ),
+          );
+          await tester.pumpAndSettle();
 
           await expectLater(
             find.byType(PaneSwitcherSheet),

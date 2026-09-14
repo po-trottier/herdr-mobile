@@ -346,6 +346,9 @@ void main() {
 
     await tester.tap(find.text('open'));
     await _settle(tester);
+    // The sheet opens part-height, so a lower row is reached by scrolling the list first.
+    await tester.ensureVisible(find.text('review'));
+    await _settle(tester);
     await tester.tap(find.text('review'));
     await _settle(tester);
     expect(find.byType(PaneSwitcherSheet), findsNothing);

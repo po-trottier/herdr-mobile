@@ -33,13 +33,13 @@ import 'package:flutter/widgets.dart'
         Column,
         ColoredBox,
         ConstrainedBox,
+        DraggableScrollableSheet,
         Container,
         CrossAxisAlignment,
         EdgeInsets,
         EdgeInsetsDirectional,
         ExcludeSemantics,
         Expanded,
-        Flexible,
         Icon,
         ListView,
         MainAxisSize,
@@ -51,6 +51,7 @@ import 'package:flutter/widgets.dart'
         Radius,
         Row,
         SafeArea,
+        ScrollController,
         Semantics,
         SizedBox,
         Stack,
@@ -133,16 +134,29 @@ Future<void> showPaneSwitcherSheet(
           MediaQuery.viewInsetsOf(sheetContext).bottom,
         ),
       ),
-      child: Material(
-        color: AppColor.of(sheetContext).bgRaised,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppRadius.lg),
-        ),
-        child: PaneSwitcherSheet(
-          tree: tree,
-          currentPaneId: currentPaneId,
-          onSwitchPane: onSwitchPane,
-        ),
+      // Material's own scrollable-sheet pattern: the sheet opens part-height so the scrim
+      // stays tappable, the list scrolls inside it, and a drag past the top of the list pulls
+      // the sheet down and dismisses it. A `shrinkWrap` list in an `isScrollControlled` sheet
+      // grew a long tree to the whole screen and swallowed every drag, so the only way out was
+      // the back gesture (product owner, 2026-09-14).
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        builder: (BuildContext context, ScrollController scrollController) =>
+            Material(
+              color: AppColor.of(context).bgRaised,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppRadius.lg),
+              ),
+              child: PaneSwitcherSheet(
+                tree: tree,
+                currentPaneId: currentPaneId,
+                onSwitchPane: onSwitchPane,
+                scrollController: scrollController,
+              ),
+            ),
       ),
     ),
   );
@@ -156,6 +170,7 @@ class PaneSwitcherSheet extends StatefulWidget {
     required this.tree,
     required this.currentPaneId,
     required this.onSwitchPane,
+    this.scrollController,
   });
 
   final TreeSnapshot tree;
@@ -166,6 +181,11 @@ class PaneSwitcherSheet extends StatefulWidget {
 
   /// Fires with the chosen pane id after the sheet has popped; never with [currentPaneId].
   final ValueChanged<String> onSwitchPane;
+
+  /// The `DraggableScrollableSheet` controller from [showPaneSwitcherSheet], so the list's
+  /// overscroll drags the sheet instead of stopping at the list's edge. `null` in a bare test
+  /// harness.
+  final ScrollController? scrollController;
 
   @override
   State<PaneSwitcherSheet> createState() => _PaneSwitcherSheetState();
@@ -222,12 +242,7 @@ class _PaneSwitcherSheetState extends State<PaneSwitcherSheet> {
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
     final List<Widget> rows = _rows();
-    return ConstrainedBox(
-      // The handle and the heading stay put; the tree scrolls past this bound, the same
-      // ceiling the pane action sheet takes (R-31-10-09).
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.9,
-      ),
+    return SizedBox.expand(
       child: SafeArea(
         top: false,
         child: Column(
@@ -264,9 +279,9 @@ class _PaneSwitcherSheetState extends State<PaneSwitcherSheet> {
                 ),
               )
             else
-              Flexible(
+              Expanded(
                 child: ListView(
-                  shrinkWrap: true,
+                  controller: widget.scrollController,
                   padding: const EdgeInsets.only(bottom: AppSpace.space2),
                   children: rows,
                 ),

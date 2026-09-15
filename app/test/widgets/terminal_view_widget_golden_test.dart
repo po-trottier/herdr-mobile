@@ -6,6 +6,8 @@
 /// Landscape cases swap these dimensions.
 library;
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show AdaptiveTextSelectionToolbar;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -161,6 +163,7 @@ Widget _body({
                     captureTime: captureTime,
                     reconnectAttempt: reconnectAttempt,
                     truncatedAtTop: truncatedAtTop,
+                    onDismissTruncated: () {},
                     maxScrollOffsetFromBottom: maxScrollOffsetFromBottom,
                     overview: overview,
                     onVisibleColumnsChanged: (value) =>
@@ -226,6 +229,60 @@ Future<void> _goldenCase(
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('native iOS pill ${brightness.name}', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await loadAppFonts();
+      await _goldenCase(
+        tester,
+        name: 'scrolled_ios',
+        brightness: brightness,
+        body: _body(
+          color: AppColor.resolve(brightness),
+          phase: TerminalGridPhase.live,
+          terminal: _terminal(feed: _scrollableFeed())..resize(144, 240),
+          maxScrollOffsetFromBottom: 240,
+          linkWord: StatusStripLinkWord.paused,
+          scrollOffsetFromBottom: 120,
+        ),
+        settle: (t) async {
+          await t.pump();
+          final scrollable = t.widget<Scrollable>(
+            find.descendant(
+              of: find.byKey(const ValueKey('terminalGridArea')),
+              matching: find.byType(Scrollable),
+            ),
+          );
+          scrollable.controller!.jumpTo(
+            scrollable.controller!.position.maxScrollExtent - 50,
+          );
+          await t.pump();
+          expect(find.text('to bottom'), findsOneWidget);
+        },
+      );
+      debugDefaultTargetPlatformOverride = null;
+    });
+    testWidgets('native iOS truncated strip ${brightness.name}', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await loadAppFonts();
+      await _goldenCase(
+        tester,
+        name: 'truncated_ios',
+        brightness: brightness,
+        body: _body(
+          color: AppColor.resolve(brightness),
+          phase: TerminalGridPhase.live,
+          terminal: _terminal(),
+          truncatedAtTop: true,
+        ),
+      );
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
   testWidgets(
     'themed_vesper follows the Host without changing chrome (R-21-044)',
     (tester) async {

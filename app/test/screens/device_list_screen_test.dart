@@ -12,6 +12,7 @@ import 'dart:async';
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
+        CupertinoActivityIndicator,
         CupertinoActionSheet,
         CupertinoActionSheetAction,
         CupertinoAlertDialog,
@@ -42,7 +43,8 @@ import 'package:herdr_mobile/widgets/status_bar.dart' show StatusBar;
 import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_list_row.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_settings_section.dart';
-import 'package:material_ui/material_ui.dart' show MaterialApp, MenuItemButton;
+import 'package:material_ui/material_ui.dart'
+    show CircularProgressIndicator, MaterialApp, MenuItemButton;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
@@ -459,48 +461,60 @@ void main() {
     );
     expect(find.text('paired $paired \u00b7 seen 4m ago'), findsOneWidget);
   });
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      '$platform: Remove this phone: confirms with exact wording, sends revoke_device, reports '
+      'onRemovedThisPhone once revoke_result confirms it',
+      (WidgetTester tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        bool removed = false;
+        final harness = await _pumpLoaded(
+          tester,
+          _threePhones(),
+          onRemovedThisPhone: () => removed = true,
+        );
 
-  testWidgets(
-    'Remove this phone: confirms with the exact wording, sends revoke_device, and reports '
-    'onRemovedThisPhone once revoke_result confirms it',
-    (WidgetTester tester) async {
-      bool removed = false;
-      final harness = await _pumpLoaded(
-        tester,
-        _threePhones(),
-        onRemovedThisPhone: () => removed = true,
-      );
+        await _pickRemove(tester, 'Remove this phone');
 
-      await _pickRemove(tester, 'Remove this phone');
+        expect(
+          find.text('Remove this phone from patrick-desk?'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('You will have to pair again to reach this computer.'),
+          findsOneWidget,
+        );
 
-      expect(find.text('Remove this phone from patrick-desk?'), findsOneWidget);
-      expect(
-        find.text('You will have to pair again to reach this computer.'),
-        findsOneWidget,
-      );
+        await tester.tap(find.text('Remove'));
+        await tester.pump();
+        expect(
+          find.byType(
+            platform == TargetPlatform.iOS
+                ? CupertinoActivityIndicator
+                : CircularProgressIndicator,
+          ),
+          findsOneWidget,
+        );
+        expect(harness.revokedIds, ['device-1']);
+        expect(
+          _removeAction(tester).onPressed,
+          isNull,
+          reason: 'one revoke in flight disables every revoke control (R-31-14-12.1)',
+        );
 
-      await tester.tap(find.text('Remove'));
-      await tester.pump();
+        await harness.deliver(
+          tester,
+          const Message.revokeResult(
+            RevokeResult(revoked: ['device-1'], all: false),
+          ),
+        );
 
-      expect(harness.revokedIds, ['device-1']);
-      expect(
-        _removeAction(tester).onPressed,
-        isNull,
-        reason:
-            'one revoke in flight disables every revoke control (R-31-14-12.1)',
-      );
-
-      await harness.deliver(
-        tester,
-        const Message.revokeResult(
-          RevokeResult(revoked: ['device-1'], all: false),
-        ),
-      );
-
-      expect(removed, isTrue);
-    },
-  );
-
+        expect(removed, isTrue);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
   testWidgets('Remove other phones: confirms with the exact count and wording, then sends one '
       'revoke_device per other phone in sequence, never for this phone, and each confirmed '
       'row leaves the list', (WidgetTester tester) async {

@@ -41,11 +41,10 @@ import 'package:herdr_mobile/services/connectivity.dart'
 import 'package:herdr_mobile/services/keystore.dart' show KeystoreService;
 import 'package:herdr_mobile/services/plain_store.dart' show PlainStore;
 import 'package:herdr_mobile/services/relay.dart' show RelayConnection;
-import 'package:herdr_mobile/widgets/app_list_row.dart' show AppListRow;
 import 'package:herdr_mobile/widgets/ground_grid.dart' show GroundGrid;
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:material_ui/material_ui.dart'
-    show IconButton, MaterialApp, SegmentedButton, Slider;
+    show IconButton, ListTile, MaterialApp, SegmentedButton, Slider, Switch;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -392,7 +391,7 @@ void main() {
 
   testWidgets(
     'iOS: renders CupertinoNavigationBar, not Material AppBar, every row of every group is a '
-    'CupertinoListTile inside CupertinoListSection, never an AppListRow (R-33-073), and the '
+    'CupertinoListTile inside CupertinoListSection (R-33-073), and '
     'theme and size controls are the Cupertino ones (R-03-059)',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -418,8 +417,9 @@ void main() {
           reason: '$label is not a CupertinoListTile',
         );
       }
-      expect(find.byType(AppListRow), findsNothing);
-      // The four toggle rows trail the platform's switch, not the Material one.
+      expect(find.byType(ListTile), findsNothing);
+      expect(find.byType(CupertinoSwitch), findsWidgets);
+      expect(find.byType(Switch), findsNothing);
       expect(
         find.byType(CupertinoSlidingSegmentedControl<AppThemeMode>),
         findsOneWidget,
@@ -484,11 +484,12 @@ void main() {
     expect(find.text('About'), findsOneWidget);
     expect(find.byType(CupertinoListTile), findsNothing);
     expect(find.byType(CupertinoSwitch), findsNothing);
+    expect(find.byType(Switch), findsWidgets);
     for (final label in rowLabels) {
       expect(
-        find.ancestor(of: find.text(label), matching: find.byType(AppListRow)),
+        find.ancestor(of: find.text(label), matching: find.byType(ListTile)),
         findsOneWidget,
-        reason: '$label is not an AppListRow',
+        reason: '$label is not a ListTile',
       );
     }
   });

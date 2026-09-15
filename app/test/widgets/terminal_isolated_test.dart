@@ -6,6 +6,10 @@ library;
 
 import 'dart:io' show File;
 
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoButton, CupertinoListTile;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart'
     show AdaptiveTextSelectionToolbar, Colors, DefaultMaterialLocalizations;
 import 'package:flutter/widgets.dart';
@@ -15,7 +19,15 @@ import 'package:herdr_mobile/widgets/terminal_view_widget.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
 import 'package:herdr_mobile/widgets/theme/app_type.dart';
 import 'package:material_ui/material_ui.dart'
-    show Brightness, ColorScheme, Material, MaterialApp, Scaffold, ThemeData;
+    show
+        Brightness,
+        ColorScheme,
+        FilledButton,
+        ListTile,
+        Material,
+        MaterialApp,
+        Scaffold,
+        ThemeData;
 import 'package:xterm2/xterm.dart'
     show
         CellOffset,
@@ -1011,15 +1023,20 @@ void main() {
       expect(find.text('to bottom'), findsNothing);
     });
 
-    testWidgets(
-      'is fully opaque once scrolled back, not the grid\'s dimmed opacity',
-      (tester) async {
+    for (final platform in <TargetPlatform>[
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    ]) {
+      testWidgets('native pill returns to live output on ${platform.name}', (
+        tester,
+      ) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
         final terminal = _terminal(
           feed: List.generate(60, (i) => 'row $i').join('\r\n'),
         );
         await tester.pumpWidget(
           _harness(
-            // The short viewport gives the buffer a real scroll extent.
             height: 200,
             child: TerminalViewWidget(
               palette: AppColor.dark,
@@ -1031,33 +1048,50 @@ void main() {
           ),
         );
         await tester.pump();
-
-        // Drive the grid's own scroll controller directly, rather than a
-        // drag gesture: it is the same `ScrollController` this widget owns
-        // and hands to `xterm2`'s `TerminalView`, so `jumpTo` is a
-        // deterministic way to move the Device's own offset above the live
-        // bottom without depending on drag-gesture physics.
         final scrollable = tester.widget<Scrollable>(find.byType(Scrollable));
         final double bottom = scrollable.controller!.position.maxScrollExtent;
-        expect(bottom, greaterThan(0));
         scrollable.controller!.jumpTo(bottom - 50);
         await tester.pump();
-
         expect(find.text('to bottom'), findsOneWidget);
-        final decoratedBox = tester.widget<DecoratedBox>(
-          find.ancestor(
-            of: find.text('to bottom'),
-            matching: find.byType(DecoratedBox),
+        expect(
+          find.byType(
+            platform == TargetPlatform.iOS ? CupertinoButton : FilledButton,
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('to bottom'));
+        await tester.pumpAndSettle();
+        expect(scrollable.controller!.offset, closeTo(bottom, 0.5));
+        expect(find.text('to bottom'), findsNothing);
+        debugDefaultTargetPlatformOverride = null;
+      });
+      testWidgets('native truncated strip dismisses on ${platform.name}', (
+        tester,
+      ) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        var dismissed = false;
+        await tester.pumpWidget(
+          _harness(
+            child: TerminalViewWidget(
+              palette: AppColor.dark,
+              phase: TerminalGridPhase.live,
+              terminal: _terminal(),
+              truncatedAtTop: true,
+              onDismissTruncated: () => dismissed = true,
+            ),
           ),
         );
-        final decoration = decoratedBox.decoration as BoxDecoration;
-        expect(
-          decoration.color!.a,
-          1.0,
-          reason: 'the pill MUST be fully opaque, per R-31-08-16, unlike the grid it sits over',
+        await tester.pump();
+        final row = find.byType(
+          platform == TargetPlatform.iOS ? CupertinoListTile : ListTile,
         );
-      },
-    );
+        expect(row, findsOneWidget);
+        await tester.tap(row);
+        expect(dismissed, isTrue);
+        debugDefaultTargetPlatformOverride = null;
+      });
+    }
   });
 
   group('sparse Host rows keep real content visible', () {

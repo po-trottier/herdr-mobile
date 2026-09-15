@@ -6,13 +6,13 @@ library;
 
 import 'package:flutter/widgets.dart'
     show
-        AnimatedContainer,
         Border,
         BorderSide,
         BoxDecoration,
         BuildContext,
         Color,
         DecoratedBox,
+        DefaultTextStyle,
         EdgeInsets,
         Expanded,
         Padding,
@@ -25,9 +25,10 @@ import 'package:flutter/widgets.dart'
 
 import 'status_bar.dart' show BarState, StatusBar;
 import 'theme/app_color.dart';
-import 'theme/app_pressable.dart';
 import 'theme/app_radius.dart';
 import 'theme/app_space.dart';
+import 'theme/app_type.dart';
+import 'theme/chrome_strip_action.dart';
 
 /// A full-width band, surface `color.bg.raised`, `radius.none`, padding
 /// `space.3` by `space.4`, hairline top and bottom in `color.border.subtle`.
@@ -36,13 +37,8 @@ import 'theme/app_space.dart';
 /// the treatment's icon and, for `treat.error`, its own `inStrip` bar
 /// (R-32-506). The strip draws no bar of its own.
 ///
-/// [onTapDestination] is R-32-561's whole-width tap: permitted only when
-/// this strip names a place it routes to, and MUST NOT be work that
-/// goes nowhere. [trailing] carries that other kind of work instead — a
-/// `Try again` text action or a dismiss control — as a sibling outside
-/// the tappable region, so the two controls never compete for the same
-/// gesture. The destination region presses to `color.bg.high`, per
-/// R-32-501's third case and R-32-609, through `AppPressable`.
+/// [onTapDestination] makes the destination a platform row.
+/// [trailing] holds a separate action outside that row.
 class AppStrip extends StatelessWidget {
   const AppStrip({
     super.key,
@@ -80,19 +76,13 @@ class AppStrip extends StatelessWidget {
       horizontal: AppSpace.space4,
       vertical: AppSpace.space3,
     );
-
+    final Widget label = DefaultTextStyle.merge(
+      style: AppType.caption,
+      child: child,
+    );
     final Widget content = onTapDestination == null
-        ? Padding(padding: inset, child: child)
-        : AppPressable(
-            onTap: onTapDestination,
-            builder: (BuildContext context, bool pressed) => AnimatedContainer(
-              duration: AppPressable.fillDuration(context, pressed),
-              curve: AppPressable.fillCurve(context),
-              decoration: BoxDecoration(color: pressed ? color.bgHigh : null),
-              padding: inset,
-              child: child,
-            ),
-          );
+        ? Padding(padding: inset, child: label)
+        : ChromeStripAction(onTap: onTapDestination!, child: label);
 
     return DecoratedBox(
       decoration: BoxDecoration(

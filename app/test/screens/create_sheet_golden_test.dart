@@ -16,6 +16,10 @@ library;
 
 import 'dart:async';
 
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoNavigationBarBackButton;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/message.dart';
@@ -27,7 +31,7 @@ import 'package:herdr_mobile/models/messages/workspace_summary.dart';
 import 'package:herdr_mobile/screens/create_sheet.dart';
 import 'package:herdr_mobile/services/relay.dart';
 import 'package:material_ui/material_ui.dart'
-    show Builder, ElevatedButton, Scaffold, Text;
+    show BackButton, Builder, ElevatedButton, Scaffold, Text;
 
 import 'golden_support.dart';
 
@@ -78,6 +82,16 @@ const _snapshot = TreeSnapshot(
   agents: [],
 );
 
+const _pickerSnapshot = TreeSnapshot(
+  workspaces: [
+    WorkspaceSummary(workspaceId: 'ws-1', name: 'herdr-relay', focused: true),
+    WorkspaceSummary(workspaceId: 'ws-2', name: 'other-space', focused: false),
+  ],
+  tabs: [],
+  panes: [],
+  agents: [],
+);
+
 const _themes = <(String, Brightness)>[
   ('dark', Brightness.dark),
   ('light', Brightness.light),
@@ -86,53 +100,77 @@ const _themes = <(String, Brightness)>[
 void main() {
   setUpAll(loadAppFonts);
 
-  for (final (themeName, brightness) in _themes) {
-    testWidgets('default ($themeName) matches docs/31-mockups/17-create.md', (
-      tester,
-    ) async {
-      tester.view.physicalSize = goldenReferenceSize;
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    final platformSuffix = platform == TargetPlatform.iOS ? '_ios' : '';
+    for (final picker in [false, true]) {
+      final stateName = picker ? 'picker' : 'default';
+      for (final (themeName, brightness) in _themes) {
+        testWidgets(
+          '$stateName ($themeName, ${platform.name}) matches docs/31-mockups/17-create.md',
+          (tester) async {
+            debugDefaultTargetPlatformOverride = platform;
+            addTearDown(() => debugDefaultTargetPlatformOverride = null);
+            tester.view.physicalSize = goldenReferenceSize;
+            tester.view.devicePixelRatio = 1.0;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
 
-      final harness = _Harness();
-      addTearDown(harness.dispose);
+            final harness = _Harness();
+            addTearDown(harness.dispose);
 
-      await tester.pumpWidget(
-        goldenApp(
-          brightness: brightness,
-          child: Builder(
-            builder: (context) => Scaffold(
-              body: ElevatedButton(
-                onPressed: () => showCreateSheet(
-                  context,
-                  hostName: 'patrick-desk',
-                  snapshot: _snapshot,
-                  messages: harness.messages.stream,
-                  connectionState: harness.connectionState.stream,
-                  send: harness.send,
-                  onCreated: (_) {},
+            await tester.pumpWidget(
+              goldenApp(
+                brightness: brightness,
+                child: Builder(
+                  builder: (context) => Scaffold(
+                    body: ElevatedButton(
+                      onPressed: () => showCreateSheet(
+                        context,
+                        hostName: 'patrick-desk',
+                        snapshot: picker ? _pickerSnapshot : _snapshot,
+                        messages: harness.messages.stream,
+                        connectionState: harness.connectionState.stream,
+                        send: harness.send,
+                        onCreated: (_) {},
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
                 ),
-                child: const Text('open'),
               ),
-            ),
-          ),
-        ),
-      );
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
+            );
+            await tester.tap(find.text('open'));
+            await tester.pumpAndSettle();
 
-      // Structural proof alongside the visual one: every callout the mockup's third wireframe
-      // draws is really present in the tree, not just painted to look right by coincidence.
-      expect(find.text('Create on patrick-desk'), findsOneWidget);
-      expect(find.text('New space'), findsOneWidget);
-      expect(find.text('New tab in herdr-relay'), findsOneWidget);
-      expect(find.text('Cancel'), findsOneWidget);
+            if (picker) {
+              await tester.tap(find.text('New tab...'));
+              await tester.pumpAndSettle();
+              expect(find.text('New tab in which space?'), findsOneWidget);
+              expect(
+                find.byType(
+                  platform == TargetPlatform.iOS
+                      ? CupertinoNavigationBarBackButton
+                      : BackButton,
+                ),
+                findsOneWidget,
+              );
+            } else {
+              expect(find.text('Create on patrick-desk'), findsOneWidget);
+              expect(find.text('New space'), findsOneWidget);
+              expect(find.text('New tab in herdr-relay'), findsOneWidget);
+            }
+            expect(find.text('Cancel'), findsOneWidget);
 
-      await expectLater(
-        find.byType(CreateSheet),
-        matchesGoldenFile('goldens/create_sheet_default_$themeName.png'),
-      );
-    });
+            await expectLater(
+              find.byType(CreateSheet),
+              matchesGoldenFile(
+                'goldens/create_sheet_$stateName${platformSuffix}_$themeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
+        );
+      }
+    }
   }
 }

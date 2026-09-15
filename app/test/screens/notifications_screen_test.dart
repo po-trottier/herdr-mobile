@@ -11,7 +11,7 @@ import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoButton, CupertinoNavigationBar;
+    show CupertinoButton, CupertinoListTile, CupertinoNavigationBar;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/semantics.dart'
@@ -32,6 +32,7 @@ import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show AlertDialog, IconButton, MaterialApp, TextButton;
+import 'package:material_ui/material_ui.dart' show ListTile;
 
 final DateTime _fixedNow = DateTime.utc(2026, 9, 4, 10, 4);
 
@@ -687,4 +688,54 @@ void main() {
     expect(find.byType(IconButton), findsNothing);
     debugDefaultTargetPlatformOverride = null;
   });
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  ]) {
+    testWidgets(
+      'native notification controls preserve actions on ${platform.name}',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final (calls, _) = await _pump(
+          tester,
+          items: <NotificationItem>[_entry('w1:p1')],
+        );
+        final Type button = platform == TargetPlatform.iOS
+            ? CupertinoButton
+            : TextButton;
+        final Type tile = platform == TargetPlatform.iOS
+            ? CupertinoListTile
+            : ListTile;
+        expect(find.byType(tile), findsOneWidget);
+        await tester.drag(
+          find.text('claude is blocked'),
+          const Offset(-300, 0),
+        );
+        await tester.pumpAndSettle();
+        expect(calls.remove, isEmpty);
+        final remove = find.widgetWithText(button, 'Remove');
+        expect(remove, findsOneWidget);
+        await tester.tap(remove);
+        await tester.pumpAndSettle();
+        expect(calls.remove, <String>['w1:p1']);
+        await tester.drag(find.text('claude is blocked'), const Offset(300, 0));
+        await tester.pumpAndSettle();
+        final mark = find.widgetWithText(button, 'Mark as read');
+        expect(mark, findsOneWidget);
+        await tester.tap(mark);
+        await tester.pumpAndSettle();
+        expect(calls.markSeen, <String>['w1:p1']);
+        await tester.tap(find.byIcon(Symbols.more_vert_rounded));
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(tile, 'Remove'), findsOneWidget);
+        expect(find.widgetWithText(tile, 'Mark as read'), findsOneWidget);
+        await tester.tap(find.widgetWithText(tile, 'Remove'));
+        await tester.pumpAndSettle();
+        expect(calls.remove, <String>['w1:p1', 'w1:p1']);
+        expect(calls.open, isEmpty);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
 }

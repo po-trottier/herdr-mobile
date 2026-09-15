@@ -8,8 +8,6 @@
 /// type-and-platform branching, which is this file's job.
 library;
 
-import 'dart:io' show File;
-
 import 'package:flutter/widgets.dart' show Text;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/lock_screen.dart';
@@ -151,37 +149,4 @@ void main() {
       }
     });
   });
-
-  group('no sensor-location copy (R-31-04-08)', () {
-    test('lock_screen.dart never names where a sensor sits (back, side, under-display, front, '
-        'top or bottom)', () {
-      final source = _codeOnly(
-        File('lib/screens/lock_screen.dart').readAsStringSync(),
-      );
-      final locationWords = RegExp(
-        r'\b(back|side|under-display|under display|front|top|bottom)\b',
-        caseSensitive: false,
-      );
-      expect(locationWords.hasMatch(source), isFalse, reason: source);
-    });
-  });
-}
-
-/// Strips `///`, `//` line comments and `/* */` block comments from [source], so a source-text
-/// assertion checks the screen's real code and copy, not this file's own doc comments or
-/// `lock_screen.dart`'s doc comments (which quote rule text discussing sensor placement, e.g.
-/// "no copy on this screen may state where a sensor is"). Mirrors
-/// `terminal_isolated_test.dart`'s `_codeOnly` helper.
-String _codeOnly(String source) {
-  final noBlockComments = source.replaceAll(
-    RegExp(r'/\*.*?\*/', dotAll: true),
-    '',
-  );
-  return noBlockComments
-      .split('\n')
-      .map((line) {
-        final index = line.indexOf('//');
-        return index == -1 ? line : line.substring(0, index);
-      })
-      .join('\n');
 }

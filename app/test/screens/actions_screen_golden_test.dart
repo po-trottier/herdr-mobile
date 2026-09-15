@@ -16,11 +16,15 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/action_list.dart';
 import 'package:herdr_mobile/models/messages/action_list_entry.dart';
+import 'package:herdr_mobile/models/messages/host_action_ack.dart';
+import 'package:herdr_mobile/models/messages/host_action_kind.dart';
 import 'package:herdr_mobile/screens/actions_screen.dart';
 import 'package:herdr_mobile/services/host_actions.dart';
 import 'package:herdr_mobile/services/relay.dart';
@@ -137,117 +141,158 @@ const _themes = <(String, Brightness)>[
 void main() {
   setUpAll(loadAppFonts);
 
-  for (final (themeName, brightness) in _themes) {
-    testWidgets('default ($themeName) matches docs/31-mockups/18-actions.md', (
-      tester,
-    ) async {
-      tester.view.physicalSize = goldenReferenceSize;
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    final platformSuffix = platform == TargetPlatform.iOS ? '_ios' : '';
+    for (final (themeName, brightness) in _themes) {
+      testWidgets(
+        'default ($themeName, ${platform.name}) matches docs/31-mockups/18-actions.md',
+        (tester) async {
+          debugDefaultTargetPlatformOverride = platform;
+          addTearDown(() => debugDefaultTargetPlatformOverride = null);
+          tester.view.physicalSize = goldenReferenceSize;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
 
-      final harness = _Harness();
-      addTearDown(harness.dispose);
-      await tester.pumpWidget(
-        goldenApp(
-          brightness: brightness,
-          child: ActionsScreen(
-            hostId: 'host-1',
-            hostName: 'patrick-desk',
-            messages: harness.messages.stream,
-            connectionState: harness.connectionState.stream,
-            send: harness.send,
-            scope: _paneScope,
-          ),
-        ),
-      );
-      await harness.deliver(
-        tester,
-        const Message.actionList(ActionList(actions: _actions)),
-      );
-      // `tab-smart-rename` starts collapsed, matching the mockup's third wireframe.
-      await tester.tap(find.text('tab-smart-rename'));
-      await tester.pumpAndSettle();
+          final harness = _Harness();
+          addTearDown(harness.dispose);
+          await tester.pumpWidget(
+            goldenApp(
+              brightness: brightness,
+              child: ActionsScreen(
+                hostId: 'host-1',
+                hostName: 'patrick-desk',
+                messages: harness.messages.stream,
+                connectionState: harness.connectionState.stream,
+                send: harness.send,
+                scope: _paneScope,
+              ),
+            ),
+          );
+          await harness.deliver(
+            tester,
+            const Message.actionList(ActionList(actions: _actions)),
+          );
+          // `tab-smart-rename` starts collapsed, matching the mockup's third wireframe.
+          await tester.tap(find.text('tab-smart-rename'));
+          await tester.pumpAndSettle();
 
-      // Structural proof alongside the visual one: the callouts the mockup names are really
-      // present in the tree, not just painted to look right by coincidence.
-      expect(find.text('Actions on patrick-desk'), findsOneWidget);
-      expect(find.text('A tap sends pane 1 as the context.'), findsOneWidget);
-      // The wireframe writes `>`; the app renders `›` (U+203A) with hair spaces (R-32-572).
-      expect(
-        find.text(
-          'herdr-relay\u2009\u203A\u2009plugin\u2009\u203A\u2009pane 1',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('herdr-scheduled'), findsOneWidget);
-      expect(find.text('2 actions'), findsOneWidget);
-      expect(find.text('herdr-sidebar'), findsOneWidget);
-      expect(find.text('3 actions'), findsOneWidget);
-      expect(find.text('tab-smart-rename'), findsOneWidget);
-      expect(find.text('5 actions'), findsOneWidget);
-      expect(find.text('Smart Rename: reset tab'), findsNothing);
-      // R-03-107 (amended 2026-09-09): a list with rows paints plain `color.bg.base`, no grid.
-      expect(find.byType(GroundGrid), findsNothing);
+          // Structural proof alongside the visual one: the callouts the mockup names are really
+          // present in the tree, not just painted to look right by coincidence.
+          expect(find.text('Actions on patrick-desk'), findsOneWidget);
+          expect(
+            find.text('A tap sends pane 1 as the context.'),
+            findsOneWidget,
+          );
+          // The wireframe writes `>`; the app renders `›` (U+203A) with hair spaces (R-32-572).
+          expect(
+            find.text(
+              'herdr-relay\u2009\u203A\u2009plugin\u2009\u203A\u2009pane 1',
+            ),
+            findsOneWidget,
+          );
+          expect(find.text('herdr-scheduled'), findsOneWidget);
+          expect(find.text('2 actions'), findsOneWidget);
+          expect(find.text('herdr-sidebar'), findsOneWidget);
+          expect(find.text('3 actions'), findsOneWidget);
+          expect(find.text('tab-smart-rename'), findsOneWidget);
+          expect(find.text('5 actions'), findsOneWidget);
+          expect(find.text('Smart Rename: reset tab'), findsNothing);
+          // R-03-107 (amended 2026-09-09): a list with rows paints plain `color.bg.base`, no grid.
+          expect(find.byType(GroundGrid), findsNothing);
 
-      await expectLater(
-        find.byType(ActionsScreen),
-        matchesGoldenFile('goldens/actions_screen_default_$themeName.png'),
+          await expectLater(
+            find.byType(ActionsScreen),
+            matchesGoldenFile(
+              'goldens/actions_screen_default${platformSuffix}_$themeName.png',
+            ),
+          );
+          await tester.tap(find.text('Scheduled jobs'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 200));
+          await expectLater(
+            find.byType(ActionsScreen),
+            matchesGoldenFile(
+              'goldens/actions_screen_pending${platformSuffix}_$themeName.png',
+            ),
+          );
+          await harness.deliver(
+            tester,
+            const Message.hostActionAck(
+              HostActionAck(
+                action: HostActionKind.pluginInvoke,
+                success: true,
+                paneId: 'pane-new',
+              ),
+            ),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        },
       );
-    });
 
-    testWidgets('empty ($themeName) matches docs/31-mockups/18-actions.md', (
-      tester,
-    ) async {
-      tester.view.physicalSize = goldenReferenceSize;
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      testWidgets(
+        'empty ($themeName, ${platform.name}) matches docs/31-mockups/18-actions.md',
+        (tester) async {
+          debugDefaultTargetPlatformOverride = platform;
+          addTearDown(() => debugDefaultTargetPlatformOverride = null);
+          tester.view.physicalSize = goldenReferenceSize;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
 
-      final harness = _Harness();
-      addTearDown(harness.dispose);
-      await tester.pumpWidget(
-        goldenApp(
-          brightness: brightness,
-          child: ActionsScreen(
-            hostId: 'host-1',
-            hostName: 'patrick-desk',
-            messages: harness.messages.stream,
-            connectionState: harness.connectionState.stream,
-            send: harness.send,
-            scope: _paneScope,
-          ),
-        ),
-      );
-      await harness.deliver(
-        tester,
-        const Message.actionList(ActionList(actions: <ActionListEntry>[])),
-      );
-      await precacheBrandMark(tester, find.byType(ActionsScreen));
-      await tester.pumpAndSettle();
+          final harness = _Harness();
+          addTearDown(harness.dispose);
+          await tester.pumpWidget(
+            goldenApp(
+              brightness: brightness,
+              child: ActionsScreen(
+                hostId: 'host-1',
+                hostName: 'patrick-desk',
+                messages: harness.messages.stream,
+                connectionState: harness.connectionState.stream,
+                send: harness.send,
+                scope: _paneScope,
+              ),
+            ),
+          );
+          await harness.deliver(
+            tester,
+            const Message.actionList(ActionList(actions: <ActionListEntry>[])),
+          );
+          await precacheBrandMark(tester, find.byType(ActionsScreen));
+          await tester.pumpAndSettle();
 
-      // R-03-107 (amended 2026-09-09): the ninth wireframe's block sits on the ground grid
-      // inside the mark; the list's scope strip is absent, because there is no list.
-      expect(
-        find.descendant(
-          of: find.descendant(
-            of: find.byType(GroundGrid),
-            matching: find.byType(EmptyMark),
-          ),
-          matching: find.text('No plugin on patrick-desk offers an action.'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Install a Herdr plugin on the computer, then come back.'),
-        findsOneWidget,
-      );
-      expect(find.text('A tap sends pane 1 as the context.'), findsNothing);
+          // R-03-107 (amended 2026-09-09): the ninth wireframe's block sits on the ground grid
+          // inside the mark; the list's scope strip is absent, because there is no list.
+          expect(
+            find.descendant(
+              of: find.descendant(
+                of: find.byType(GroundGrid),
+                matching: find.byType(EmptyMark),
+              ),
+              matching: find.text(
+                'No plugin on patrick-desk offers an action.',
+              ),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.text(
+              'Install a Herdr plugin on the computer, then come back.',
+            ),
+            findsOneWidget,
+          );
+          expect(find.text('A tap sends pane 1 as the context.'), findsNothing);
 
-      await expectLater(
-        find.byType(ActionsScreen),
-        matchesGoldenFile('goldens/actions_screen_empty_$themeName.png'),
+          await expectLater(
+            find.byType(ActionsScreen),
+            matchesGoldenFile(
+              'goldens/actions_screen_empty${platformSuffix}_$themeName.png',
+            ),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        },
       );
-    });
+    }
   }
 }

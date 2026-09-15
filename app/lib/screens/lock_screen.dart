@@ -11,14 +11,7 @@
 /// every named state deterministically, with no platform channel, by constructing
 /// [LockScreenBody] directly (`app/test/screens/lock_screen_golden_test.dart`).
 ///
-/// [LockScreenBody] wraps its content in a [Scaffold], not a bare `ColoredBox`, per
-/// R-41-020 and the identical fix on `welcome_screen.dart`'s `WelcomeScreenBody`: a `Text`
-/// with no `Material` ancestor silently falls back to `MaterialApp`'s own deliberately-ugly
-/// `_errorTextStyle` (`package:flutter/src/material/app.dart`), which sets a yellow, double
-/// `TextStyle.decoration` no `AppType` token overrides. Do not revert this to a bare
-/// `ColoredBox` — that silently reintroduces the yellow underline on every `Text` on this
-/// screen, including on a cold start with a paired Host and App Lock on, since `/lock` can be
-/// this app's first-painted route just as `/welcome` can.
+/// The native page scaffold keeps the lock surface opaque (R-33-015).
 ///
 /// This file does not decide the route this screen lives on, and does not keep the target
 /// route across an unlock (R-31-04-04, R-30-030): that is `app/lib/routing.dart`'s file, which
@@ -29,6 +22,7 @@ import 'dart:async' show unawaited;
 
 import 'package:connectivity_plus/connectivity_plus.dart'
     show Connectivity, ConnectivityResult;
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart'
@@ -198,120 +192,121 @@ class LockScreenBody extends StatelessWidget {
     final color = AppColor.of(context);
     final prompt = _promptFor(phase);
 
-    return Scaffold(
-      backgroundColor: color.bgBase,
-      body: GroundGrid(
-        child: SafeArea(
-          child: Column(
-            children: <Widget>[
-              SizedBox(
-                height: _markHeight,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.end,
+    final Widget body = GroundGrid(
+      child: SafeArea(
+        child: Column(
+          children: <Widget>[
+            SizedBox(
+              height: _markHeight,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  BrandMark(height: _markHeight, color: color.fgDisabled),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: AppBorder.hairline,
+              child: ColoredBox(color: color.borderSubtle),
+            ),
+            Expanded(
+              child: Padding(
+                // R-30-230: the one screen edge inset, `space.4`, on every side; this
+                // screen's actions then land where every other screen's do.
+                padding: const EdgeInsets.all(AppSpace.space4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    BrandMark(height: _markHeight, color: color.fgDisabled),
+                    const Eyebrow(text: 'Locked'),
+                    const SizedBox(height: AppSpace.space2),
+                    Text(
+                      'Herdr Remote',
+                      textAlign: TextAlign.center,
+                      style: AppType.title.copyWith(color: color.fgPrimary),
+                    ),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          Center(
+                            child: Icon(
+                              biometric.glyph,
+                              size: AppSize.iconHero,
+                              color: color.accentPrimary,
+                              fill: 0,
+                              weight: 400,
+                              grade: 0,
+                              semanticLabel: 'Locked',
+                            ),
+                          ),
+                          const SizedBox(height: AppSpace.space6),
+                          if (_promptIsError)
+                            // R-30-293: `/lock` is the one screen that centres, so the
+                            // wrapped prompt centres its lines too, not only its block.
+                            Center(
+                              child: Treatment.error(
+                                label: prompt,
+                                textAlign: TextAlign.center,
+                              ),
+                            )
+                          else
+                            Text(
+                              prompt,
+                              textAlign: TextAlign.center,
+                              style: AppType.body.copyWith(
+                                color: color.fgPrimary,
+                              ),
+                            ),
+                          const SizedBox(height: AppSpace.space3),
+                          Text(
+                            _reassuranceLine,
+                            textAlign: TextAlign.center,
+                            style: AppType.caption.copyWith(
+                              color: color.fgSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (offline) ...<Widget>[
+                      Text(
+                        _offlineStrip,
+                        textAlign: TextAlign.center,
+                        style: AppType.caption.copyWith(
+                          color: color.fgSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.space6),
+                    ],
+                    if (_biometricActionAvailable) ...<Widget>[
+                      AppFilledButton(
+                        label: biometric.label,
+                        onPressed: onPrimaryPressed,
+                      ),
+                      const SizedBox(height: AppSpace.space2),
+                      AppTextButton(
+                        label: 'Use device passcode',
+                        onPressed: onFallbackPressed,
+                      ),
+                    ] else
+                      AppFilledButton(
+                        label: 'Use device passcode',
+                        onPressed: onFallbackPressed,
+                      ),
                   ],
                 ),
               ),
-              SizedBox(
-                height: AppBorder.hairline,
-                child: ColoredBox(color: color.borderSubtle),
-              ),
-              Expanded(
-                child: Padding(
-                  // R-30-230: the one screen edge inset, `space.4`, on every side; this
-                  // screen's actions then land where every other screen's do.
-                  padding: const EdgeInsets.all(AppSpace.space4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      const Eyebrow(text: 'Locked'),
-                      const SizedBox(height: AppSpace.space2),
-                      Text(
-                        'Herdr Remote',
-                        textAlign: TextAlign.center,
-                        style: AppType.title.copyWith(color: color.fgPrimary),
-                      ),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            Center(
-                              child: Icon(
-                                biometric.glyph,
-                                size: AppSize.iconHero,
-                                color: color.accentPrimary,
-                                fill: 0,
-                                weight: 400,
-                                grade: 0,
-                                semanticLabel: 'Locked',
-                              ),
-                            ),
-                            const SizedBox(height: AppSpace.space6),
-                            if (_promptIsError)
-                              // R-30-293: `/lock` is the one screen that centres, so the
-                              // wrapped prompt centres its lines too, not only its block.
-                              Center(
-                                child: Treatment.error(
-                                  label: prompt,
-                                  textAlign: TextAlign.center,
-                                ),
-                              )
-                            else
-                              Text(
-                                prompt,
-                                textAlign: TextAlign.center,
-                                style: AppType.body.copyWith(
-                                  color: color.fgPrimary,
-                                ),
-                              ),
-                            const SizedBox(height: AppSpace.space3),
-                            Text(
-                              _reassuranceLine,
-                              textAlign: TextAlign.center,
-                              style: AppType.caption.copyWith(
-                                color: color.fgSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (offline) ...<Widget>[
-                        Text(
-                          _offlineStrip,
-                          textAlign: TextAlign.center,
-                          style: AppType.caption.copyWith(
-                            color: color.fgSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpace.space6),
-                      ],
-                      if (_biometricActionAvailable) ...<Widget>[
-                        AppFilledButton(
-                          label: biometric.label,
-                          onPressed: onPrimaryPressed,
-                        ),
-                        const SizedBox(height: AppSpace.space2),
-                        AppTextButton(
-                          label: 'Use device passcode',
-                          onPressed: onFallbackPressed,
-                        ),
-                      ] else
-                        AppFilledButton(
-                          label: 'Use device passcode',
-                          onPressed: onFallbackPressed,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return CupertinoPageScaffold(backgroundColor: color.bgBase, child: body);
+    }
+    return Scaffold(backgroundColor: color.bgBase, body: body);
   }
 }
 

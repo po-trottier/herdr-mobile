@@ -10,7 +10,6 @@ import 'dart:math' as math;
 import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter/widgets.dart'
     show
-        AnimatedContainer,
         AnimationStyle,
         BorderRadius,
         BoxConstraints,
@@ -22,7 +21,6 @@ import 'package:flutter/widgets.dart'
         Container,
         CrossAxisAlignment,
         EdgeInsets,
-        Expanded,
         ExcludeSemantics,
         Flexible,
         Icon,
@@ -31,18 +29,14 @@ import 'package:flutter/widgets.dart'
         MediaQuery,
         ModalRoute,
         Navigator,
-        Opacity,
         Padding,
         Radius,
-        Row,
         SafeArea,
-        Semantics,
         SingleChildScrollView,
         SizedBox,
         StatelessWidget,
         Text,
         TextDirection,
-        TextOverflow,
         View,
         ValueChanged,
         VoidCallback,
@@ -55,21 +49,18 @@ import '../widgets/app_strip.dart';
 import '../widgets/app_text_button.dart';
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_motion.dart' show AppMotion;
-import '../widgets/theme/app_pressable.dart' show AppPressable;
 import '../widgets/theme/app_radius.dart' show AppRadius;
 import '../widgets/theme/app_size.dart' show AppSize;
 import '../widgets/theme/app_space.dart' show AppSpace;
 import '../widgets/theme/app_type.dart' show AppType;
 import '../widgets/theme/chrome_confirmation_dialog.dart';
 import '../widgets/theme/chrome_confirmation_outcome.dart';
+import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/treatments.dart';
 
 /// `border.hairline`, per `docs/32-design-language.md` R-32-330; a local constant beside its
 /// callers, matching every other screen's own `_hairlineWidth`.
 const double _hairlineWidth = 1;
-
-/// `opacity.disabled`, per R-32-502, matching `app_list_row.dart`'s own local constant.
-const double _opacityDisabled = 0.38;
 
 /// One SGR/CSI escape sequence, for stripping the visible grid text before an accessibility
 /// announcement (R-31-10-06: "with every escape sequence removed").
@@ -317,11 +308,7 @@ class PaneActionsSheet extends StatelessWidget {
             onTap: onOpenPluginActions == null
                 ? null
                 : () => _actAndClose(context, onOpenPluginActions),
-            trailing: Icon(
-              Symbols.chevron_right_rounded,
-              size: AppSize.iconMd,
-              color: color.fgSecondary,
-            ),
+            navigation: true,
           ),
         ],
       ),
@@ -378,12 +365,7 @@ class PaneActionsSheet extends StatelessWidget {
   }
 }
 
-/// One sheet action row, per section 7.16 and R-32-405: `size.row.one_line` high, the icon
-/// at `size.icon.md` in `color.fg.primary` then `space.3`, the label in `type.body`
-/// `color.fg.primary`, no divider of its own. [destructive] takes `treat.destructive` instead
-/// (R-32-506, R-32-527): the hue moves to the icon and a `border.attention` leading bar, and
-/// the label stays `color.fg.primary`. Pressed: `color.bg.high` and the R-32-609 scale through
-/// [AppPressable]. Disabled: the whole row at `opacity.disabled` (R-32-502).
+/// A native sheet row. Destructive actions keep their hue in the glyph.
 class _ActionRow extends StatelessWidget {
   const _ActionRow({
     required this.label,
@@ -391,7 +373,7 @@ class _ActionRow extends StatelessWidget {
     this.enabled = true,
     this.destructive = false,
     this.onTap,
-    this.trailing,
+    this.navigation = false,
   });
 
   final String label;
@@ -399,52 +381,21 @@ class _ActionRow extends StatelessWidget {
   final bool enabled;
   final bool destructive;
   final VoidCallback? onTap;
-  final Widget? trailing;
+  final bool navigation;
 
   @override
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
-    final bool active = enabled && onTap != null;
-    final Widget row = AppPressable(
-      onTap: active ? onTap : null,
-      // The destructive hue lives in the glyph alone (R-32-527): a leading bar is the state bar of
-      // R-03-100, and a bar beside a red glyph is two marks for one fact (R-03-058).
-      builder: (BuildContext context, bool pressed) => AnimatedContainer(
-        duration: AppPressable.fillDuration(context, pressed),
-        curve: AppPressable.fillCurve(context),
-        height: AppSize.rowOneLine,
-        color: pressed ? color.bgHigh : Colors.transparent,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpace.space4),
-          child: Row(
-            children: <Widget>[
-              Icon(
-                icon,
-                size: AppSize.iconMd,
-                color: destructive ? color.statusError : color.fgPrimary,
-              ),
-              const SizedBox(width: AppSpace.space3),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.body.copyWith(color: color.fgPrimary),
-                ),
-              ),
-              ?trailing,
-            ],
-          ),
-        ),
+    return ChromeListRow.sheet(
+      title: label,
+      leading: Icon(
+        icon,
+        size: AppSize.iconMd,
+        color: destructive ? color.statusError : color.fgPrimary,
       ),
-    );
-    return Semantics(
-      button: true,
-      enabled: active,
-      label: destructive ? '$label, destructive' : label,
-      onTap: active ? onTap : null,
-      excludeSemantics: true,
-      child: active ? row : Opacity(opacity: _opacityDisabled, child: row),
+      onTap: enabled ? onTap : null,
+      destructive: destructive,
+      navigation: navigation,
     );
   }
 }

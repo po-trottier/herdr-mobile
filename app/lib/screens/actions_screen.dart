@@ -39,15 +39,12 @@ import 'package:flutter/widgets.dart'
     show
         Align,
         Alignment,
-        AnimatedContainer,
         Border,
         BorderRadius,
         BorderSide,
-        BoxConstraints,
         BoxDecoration,
         BuildContext,
         Column,
-        ConstrainedBox,
         CrossAxisAlignment,
         CustomScrollView,
         DecoratedBox,
@@ -55,8 +52,6 @@ import 'package:flutter/widgets.dart'
         Expanded,
         MainAxisAlignment,
         MainAxisSize,
-        MediaQuery,
-        Opacity,
         Padding,
         SafeArea,
         Row,
@@ -68,23 +63,11 @@ import 'package:flutter/widgets.dart'
         StatelessWidget,
         Text,
         TextOverflow,
-        TextStyle,
         VoidCallback,
         Widget;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show
-        AppBar,
-        CircularProgressIndicator,
-        Colors,
-        Container,
-        Icon,
-        PreferredSize,
-        Scaffold,
-        ScaffoldMessenger,
-        SelectionArea,
-        Size,
-        SnackBar;
+    show AppBar, Container, Icon, PreferredSize, Scaffold, SelectionArea, Size;
 
 import '../core/result/result.dart' show Err, Ok, Result;
 import '../models/codes.dart' show ErrorCode;
@@ -104,20 +87,16 @@ import '../widgets/app_text_button.dart';
 import '../widgets/ground_grid.dart' show GroundGrid;
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_haptic.dart';
-import '../widgets/theme/app_pressable.dart' show AppPressable;
 import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
+import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/theme/chrome_loading_delay.dart';
+import '../widgets/theme/chrome_snackbar.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
-
-/// `opacity.disabled`, per `docs/32-design-language.md`'s opacity table beside R-32-330. See
-/// `app_text_button.dart`'s sibling constant for why this is a local constant rather than a
-/// token import.
-const double _opacityDisabled = 0.38;
 
 /// `border.hairline`, per `docs/32-design-language.md` R-32-330. See `about_screen.dart`'s
 /// sibling constant for why this is a local constant rather than a token import.
@@ -322,18 +301,7 @@ class _ActionsScreenState extends State<ActionsScreen> {
     }
   }
 
-  void _showSnackbar(String message) {
-    final AppColor color = AppColor.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: color.bgRaised,
-        content: Text(
-          message,
-          style: AppType.body.copyWith(color: color.fgPrimary),
-        ),
-      ),
-    );
-  }
+  void _showSnackbar(String message) => showChromeSnackbar(context, message);
 
   @override
   Widget build(BuildContext context) {
@@ -643,15 +611,7 @@ String _twoDigits(int value) => value.toString().padLeft(2, '0');
 String _formatTime(DateTime local) =>
     '${_twoDigits(local.hour)}:${_twoDigits(local.minute)}';
 
-/// One action row, per R-31-18-03 and section 7.4: the `title` in `type.body.strong` over the
-/// whole `description` in `type.caption`, wrapped and never clamped, both at the `space.4`
-/// list inset with no leading icon, no chevron and no state word. The row is at least
-/// `size.row.two_line` high (`size.row.one_line` with no description) and grows with the
-/// description: the text lines plus `space.4` above and below. Divider: `border.hairline` in
-/// `color.border.subtle`, inset `space.4`, none on the last row of a group. Pressed:
-/// `color.bg.high` and the R-32-609 scale through [AppPressable]. Disabled: `opacity.disabled`
-/// (R-32-502, R-31-18-17). [invoking]: the in-place spinner holds the title line's height so
-/// the description does not jump (R-31-18-08), and the row is not dimmed.
+/// A platform action row keeps its full description and native pending indicator.
 class _ActionRow extends StatelessWidget {
   const _ActionRow({
     required this.pluginId,
@@ -671,79 +631,7 @@ class _ActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
     final bool active = onTap != null && !invoking;
-    final TextStyle titleStyle = AppType.bodyStrong.copyWith(
-      color: color.fgPrimary,
-    );
-    // `type.body.strong`'s own line height, so the spinner keeps the title line's box.
-    final double titleLineHeight =
-        titleStyle.fontSize! *
-        titleStyle.height! *
-        MediaQuery.textScalerOf(context).scale(1);
-    final Widget titleLine = invoking
-        ? SizedBox(
-            height: titleLineHeight,
-            child: const Align(
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                width: AppSize.spinner,
-                height: AppSize.spinner,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          )
-        : Text(title, style: titleStyle);
-    final Widget row = AppPressable(
-      onTap: active ? onTap : null,
-      builder: (BuildContext context, bool pressed) => AnimatedContainer(
-        duration: AppPressable.fillDuration(context, pressed),
-        curve: AppPressable.fillCurve(context),
-        color: pressed ? color.bgHigh : Colors.transparent,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: description == null
-                    ? AppSize.rowOneLine
-                    : AppSize.rowTwoLine,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpace.space4,
-                  vertical: AppSpace.space4,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    titleLine,
-                    if (description case final String text)
-                      Text(
-                        text,
-                        style: AppType.caption.copyWith(
-                          color: color.fgSecondary,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            if (showDivider)
-              Padding(
-                padding: const EdgeInsets.only(left: AppSpace.space4),
-                child: Container(
-                  height: _hairlineWidth,
-                  color: color.borderSubtle,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-    // R-31-18-17: the button role, the whole label (plugin id, title, description) and the
-    // enabled state; pending is a separate value, never spliced into the label.
     return Semantics(
       button: true,
       enabled: active,
@@ -751,9 +639,13 @@ class _ActionRow extends StatelessWidget {
       value: invoking ? 'pending' : null,
       onTap: active ? onTap : null,
       excludeSemantics: true,
-      child: active || invoking
-          ? row
-          : Opacity(opacity: _opacityDisabled, child: row),
+      child: ChromeListRow.sheet(
+        title: title,
+        subtitle: description,
+        onTap: onTap,
+        loading: invoking,
+        showDivider: showDivider,
+      ),
     );
   }
 }

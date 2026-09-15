@@ -19,6 +19,9 @@ import 'dart:ui' show TextBaseline, Tristate;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
+        CupertinoButton,
+        CupertinoExpansionTile,
+        CupertinoListTile,
         CupertinoPageScaffold,
         CupertinoSearchTextField,
         CupertinoSlidingSegmentedControl;
@@ -83,9 +86,13 @@ import 'package:herdr_mobile/widgets/theme/app_space.dart';
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart'
     show ChromeIconAction;
+import 'package:herdr_mobile/widgets/theme/chrome_list_row.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
+        ExpansionTile,
+        FilledButton,
+        ListTile,
         FloatingActionButton,
         IconButton,
         Icons,
@@ -425,7 +432,11 @@ Finder _rowDividers(AppColor color) => find.byWidgetPredicate(
 );
 
 Finder _semanticsRow(String label) => find.byWidgetPredicate(
-  (Widget widget) => widget is Semantics && widget.properties.label == label,
+  (Widget widget) =>
+      (widget is Semantics && widget.properties.label == label) ||
+      (widget is ChromeListRow &&
+          label.startsWith('${widget.title}, ') &&
+          label.contains(' pane')),
 );
 
 bool _textHasRun(Text widget, String value) {
@@ -1033,6 +1044,52 @@ void main() {
     },
   );
 
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  ]) {
+    testWidgets(
+      '$platform: native host button, pane row and workspace expansion',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final harness = _Harness();
+        addTearDown(harness.dispose);
+        await _pumpWorkspaceAxis(tester, harness, _oneAgentSnapshot());
+        expect(
+          find.byType(
+            platform == TargetPlatform.iOS
+                ? CupertinoExpansionTile
+                : ExpansionTile,
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byType(
+            platform == TargetPlatform.iOS ? CupertinoListTile : ListTile,
+          ),
+          findsWidgets,
+        );
+        expect(
+          find.ancestor(
+            of: find.text('patrick-desk'),
+            matching: find.byType(
+              platform == TargetPlatform.iOS ? CupertinoButton : FilledButton,
+            ),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('herdr-relay'));
+        await tester.pumpAndSettle();
+        expect(find.text('my-agent'), findsNothing);
+        await tester.tap(find.text('herdr-relay'));
+        await tester.pumpAndSettle();
+        expect(find.text('my-agent'), findsOneWidget);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
+
   testWidgets('switching to Workspace draws the space header, tab sub-header and one-line pane '
       'label (R-31-06-18, R-03-115)', (tester) async {
     final harness = _Harness();
@@ -1089,7 +1146,6 @@ void main() {
     Finder icon(IconData data) => find.byWidgetPredicate(
       (Widget widget) => widget is Icon && widget.icon == data,
     );
-    final Finder spaceHeader = _semanticsRow('lightspeed-kit, 4 panes');
     // The block is inset `space.4` from the screen edge; its hairline border paints over the
     // block's own edge and moves nothing.
     const double blockEdge = AppSpace.space4;
@@ -1124,21 +1180,6 @@ void main() {
     expect(leftOf(agentBar), tester.getTopRight(guideRule.first).dx);
     expect(leftOf(agentBar), blockEdge + AppSpace.space8 + AppBorder.hairline);
     expect(tester.getSize(agentBar).width, AppBorder.attention);
-    // Tier 1 is the band with the expander trailing: the chevron sits after the name, at the
-    // block's trailing inset, and the host chip's own chevron is not it.
-    final double chevronRight = tester
-        .getTopRight(
-          find.descendant(
-            of: spaceHeader,
-            matching: icon(Symbols.expand_more_rounded),
-          ),
-        )
-        .dx;
-    expect(
-      chevronRight,
-      greaterThan(tester.getTopRight(find.text('4 panes')).dx),
-    );
-    expect(tester.getTopRight(spaceHeader).dx - chevronRight, AppSpace.space4);
     // A shell row keeps its text in the agent rows' column (R-32-597).
     expect(leftOf(_textRun('pane 2')), paneTextLeft);
     expect(leftOf(_textRun('Explorer')), paneTextLeft);

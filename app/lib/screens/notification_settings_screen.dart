@@ -80,12 +80,10 @@ import 'package:material_ui/material_ui.dart'
     show
         AppBar,
         Border,
-        CircularProgressIndicator,
         Container,
         PreferredSize,
         Scaffold,
         Size,
-        Switch,
         TimeOfDay,
         showTimePicker;
 
@@ -102,9 +100,10 @@ import '../widgets/app_strip.dart';
 import '../widgets/app_text_button.dart';
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_haptic.dart';
-import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
+import '../widgets/theme/chrome_activity_indicator.dart';
+import '../widgets/theme/chrome_switch.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -467,11 +466,7 @@ class NotificationSettingsScreenBody extends StatelessWidget {
       Err() => const Treatment.error(label: _testAlertFailedLine),
     };
     final Widget? trailing = isSendingTestAlert
-        ? const SizedBox(
-            width: AppSize.spinner,
-            height: AppSize.spinner,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
+        ? const ChromeActivityIndicator()
         : null;
     final VoidCallback? onTap = isSendingTestAlert ? null : onSendTestAlert;
     if (_isIos) {
@@ -538,7 +533,7 @@ class _SwitchRow extends StatelessWidget {
         child: Opacity(
           opacity: enabled ? 1 : _opacityDisabled,
           child: IgnorePointer(
-            child: Switch(value: value, onChanged: (_) {}),
+            child: ChromeSwitch(value: value, onChanged: (_) {}),
           ),
         ),
       ),

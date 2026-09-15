@@ -12,17 +12,7 @@
 /// [WelcomeScreen] is the stateful orchestrator: it checks connectivity (`connectivity_plus`,
 /// mirroring `LockScreen`'s own one-shot `Connectivity()` check) once on mount.
 ///
-/// [WelcomeScreenBody] wraps its content in a [Scaffold], not a bare `ColoredBox`, per
-/// R-41-020: a `Text` with no `Material` ancestor silently falls back to `MaterialApp`'s own
-/// deliberately-ugly `_errorTextStyle` (`package:flutter/src/material/app.dart`), which sets
-/// a yellow, double `TextStyle.decoration`. No `AppType` token sets `decoration`, and
-/// `Text.style` merges over `DefaultTextStyle` rather than replacing it, so that fallback
-/// underline was reaching every piece of text on this screen while its `color` override hid
-/// only the fallback's red text colour. `Scaffold` supplies the missing `Material` and a real
-/// `DefaultTextStyle`. Do not revert this to a bare `ColoredBox` — that silently reintroduces
-/// the yellow underline on every `Text` on this screen. `lock_screen.dart`'s `LockScreenBody`
-/// and `app_shell.dart`'s iOS branch had this same bare-`ColoredBox` gap; both now wrap in a
-/// `Scaffold`/`CupertinoPageScaffold` too, for the identical reason.
+/// The native page scaffold supplies the default text style (R-41-020).
 ///
 /// R-31-01-09: this screen MUST NOT require, check for, or mention a device screen lock, a
 /// passcode or biometric enrolment, and MUST NOT disable `Scan QR code` for one — pairing and
@@ -51,6 +41,9 @@ import 'dart:async' show unawaited;
 import 'package:connectivity_plus/connectivity_plus.dart'
     show Connectivity, ConnectivityResult;
 import 'package:cryptography/cryptography.dart' show SimpleKeyPair;
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageScaffold;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart'
     show
         Align,
@@ -185,230 +178,227 @@ class WelcomeScreenBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
-    return Scaffold(
-      backgroundColor: color.bgBase,
+    final Widget body = SafeArea(
       // R-32-332: the grid aligns to the safe area's top-left, so it lives inside
       // it; the status-bar band above shows plain `color.bg.base`.
-      body: SafeArea(
-        child: GroundGrid(
-          child: _ScrollEdgeFooter(
-            scrollable: CustomScrollView(
-              slivers: <Widget>[
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      Expanded(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            // The hero is the one band without the ground grid:
-                            // plain `color.bg.base` up to its bottom rule, so the
-                            // mark and eyebrow sit on a quiet field (R-32-594).
-                            color: color.bgBase,
-                            border: Border(
-                              bottom: BorderSide(
-                                color: color.borderSubtle,
-                                width: AppBorder.hairline,
-                              ),
+      child: GroundGrid(
+        child: _ScrollEdgeFooter(
+          scrollable: CustomScrollView(
+            slivers: <Widget>[
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Expanded(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          // The hero is the one band without the ground grid:
+                          // plain `color.bg.base` up to its bottom rule, so the
+                          // mark and eyebrow sit on a quiet field (R-32-594).
+                          color: color.bgBase,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: color.borderSubtle,
+                              width: AppBorder.hairline,
                             ),
                           ),
-                          child: Stack(
-                            children: <Widget>[
-                              Positioned.fill(
-                                child: Align(
-                                  alignment: Alignment.bottomRight,
-                                  child: FractionallySizedBox(
-                                    heightFactor: _markFraction,
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      alignment: Alignment.bottomRight,
-                                      child: BrandMark(
-                                        height: _markMaxHeight,
-                                        color: color.fgPrimary,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const Positioned(
-                                left: AppSpace.space4,
-                                bottom: AppSpace.space4,
-                                child: Eyebrow(text: 'Herdr Remote'),
-                              ),
-                            ],
-                          ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpace.space4,
-                          AppSpace.space6,
-                          AppSpace.space4,
-                          AppSpace.space6,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Stack(
                           children: <Widget>[
-                            Text(
-                              'Watch the herd.\nFrom anywhere.',
-                              style: AppType.display.copyWith(
-                                color: color.fgPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: AppSpace.space3),
-                            Text(
-                              _valueSentence,
-                              style: AppType.body.copyWith(
-                                color: color.fgSecondary,
-                              ),
-                            ),
-                            const SizedBox(height: AppSpace.space6),
-                            if (isError)
-                              const Treatment.error(label: _keystoreInitError)
-                            else
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.md,
-                                ),
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: color.bgRaised,
-                                    border: Border.all(
-                                      color: color.borderSubtle,
-                                      width: AppBorder.hairline,
+                            Positioned.fill(
+                              child: Align(
+                                alignment: Alignment.bottomRight,
+                                child: FractionallySizedBox(
+                                  heightFactor: _markFraction,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.bottomRight,
+                                    child: BrandMark(
+                                      height: _markMaxHeight,
+                                      color: color.fgPrimary,
                                     ),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: <Widget>[
-                                      // R-32-333: the featured card's `border.accent` top edge.
-                                      SizedBox(
-                                        height: AppBorder.accent,
-                                        child: ColoredBox(
-                                          color: color.accentPrimary,
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.all(
-                                          AppSpace.space4,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: <Widget>[
-                                            for (
-                                              var i = 0;
-                                              i < pairingSetupSteps.length;
-                                              i++
-                                            )
-                                              Padding(
-                                                padding: EdgeInsets.only(
-                                                  bottom:
-                                                      i ==
-                                                          pairingSetupSteps
-                                                                  .length -
-                                                              1
-                                                      ? 0
-                                                      : AppSpace.space2,
-                                                ),
-                                                child: _StepRow(
-                                                  number: i + 1,
-                                                  total:
-                                                      pairingSetupSteps.length,
-                                                  text: pairingSetupSteps[i],
-                                                  icon: _stepIcons[i],
-                                                  color: color,
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
                                 ),
                               ),
-                            const SizedBox(height: AppSpace.space6),
-                            // The 7.31 `Alert note` row (amended 2026-09-08): `type.caption`
-                            // in `color.fg.secondary`, the `info` icon at `size.icon.sm` on
-                            // the first line. A 16 icon on a 16 line needs no offset.
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Icon(
-                                  Symbols.info_rounded,
-                                  size: AppSize.iconSm,
-                                  color: color.fgSecondary,
-                                ),
-                                const SizedBox(width: AppSpace.space2),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: <Widget>[
-                                      Text(
-                                        _alertRunningLimitation,
-                                        style: AppType.caption.copyWith(
-                                          color: color.fgSecondary,
-                                        ),
-                                      ),
-                                      const SizedBox(height: AppSpace.space2),
-                                      Text(
-                                        _alertScopeLimitation,
-                                        style: AppType.caption.copyWith(
-                                          color: color.fgSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                            ),
+                            const Positioned(
+                              left: AppSpace.space4,
+                              bottom: AppSpace.space4,
+                              child: Eyebrow(text: 'Herdr Remote'),
                             ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpace.space4,
+                        AppSpace.space6,
+                        AppSpace.space4,
+                        AppSpace.space6,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'Watch the herd.\nFrom anywhere.',
+                            style: AppType.display.copyWith(
+                              color: color.fgPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpace.space3),
+                          Text(
+                            _valueSentence,
+                            style: AppType.body.copyWith(
+                              color: color.fgSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpace.space6),
+                          if (isError)
+                            const Treatment.error(label: _keystoreInitError)
+                          else
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: color.bgRaised,
+                                  border: Border.all(
+                                    color: color.borderSubtle,
+                                    width: AppBorder.hairline,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: <Widget>[
+                                    // R-32-333: the featured card's `border.accent` top edge.
+                                    SizedBox(
+                                      height: AppBorder.accent,
+                                      child: ColoredBox(
+                                        color: color.accentPrimary,
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(
+                                        AppSpace.space4,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: <Widget>[
+                                          for (
+                                            var i = 0;
+                                            i < pairingSetupSteps.length;
+                                            i++
+                                          )
+                                            Padding(
+                                              padding: EdgeInsets.only(
+                                                bottom:
+                                                    i ==
+                                                        pairingSetupSteps
+                                                                .length -
+                                                            1
+                                                    ? 0
+                                                    : AppSpace.space2,
+                                              ),
+                                              child: _StepRow(
+                                                number: i + 1,
+                                                total: pairingSetupSteps.length,
+                                                text: pairingSetupSteps[i],
+                                                icon: _stepIcons[i],
+                                                color: color,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: AppSpace.space6),
+                          // The 7.31 `Alert note` row (amended 2026-09-08): `type.caption`
+                          // in `color.fg.secondary`, the `info` icon at `size.icon.sm` on
+                          // the first line. A 16 icon on a 16 line needs no offset.
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Icon(
+                                Symbols.info_rounded,
+                                size: AppSize.iconSm,
+                                color: color.fgSecondary,
+                              ),
+                              const SizedBox(width: AppSpace.space2),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      _alertRunningLimitation,
+                                      style: AppType.caption.copyWith(
+                                        color: color.fgSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: AppSpace.space2),
+                                    Text(
+                                      _alertScopeLimitation,
+                                      style: AppType.caption.copyWith(
+                                        color: color.fgSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // R-31-01-08: the limitation notes end the scrolling content and both actions
+          // sit in this footer, outside the scroll, so they are on screen at every size.
+          footer: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.space4,
+              AppSpace.space3,
+              AppSpace.space4,
+              AppSpace.space4,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                if (isOffline) ...<Widget>[
+                  const AppStrip(
+                    child: Treatment.warning(label: _offlineStrip),
                   ),
+                  const SizedBox(height: AppSpace.space3),
+                ],
+                AppFilledButton(
+                  label: 'Scan QR code',
+                  onPressed: isError ? null : onScanPressed,
+                ),
+                // `space.2`: the gap every filled-then-text stack in the app uses
+                // (`/lock`, `/pair/manual`, the connection screen, every sheet).
+                const SizedBox(height: AppSpace.space2),
+                AppTextButton(
+                  label: 'Enter the phrase instead',
+                  onPressed: onManualPressed,
                 ),
               ],
-            ),
-            // R-31-01-08: the limitation notes end the scrolling content and both actions
-            // sit in this footer, outside the scroll, so they are on screen at every size.
-            footer: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpace.space4,
-                AppSpace.space3,
-                AppSpace.space4,
-                AppSpace.space4,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  if (isOffline) ...<Widget>[
-                    const AppStrip(
-                      child: Treatment.warning(label: _offlineStrip),
-                    ),
-                    const SizedBox(height: AppSpace.space3),
-                  ],
-                  AppFilledButton(
-                    label: 'Scan QR code',
-                    onPressed: isError ? null : onScanPressed,
-                  ),
-                  // `space.2`: the gap every filled-then-text stack in the app uses
-                  // (`/lock`, `/pair/manual`, the connection screen, every sheet).
-                  const SizedBox(height: AppSpace.space2),
-                  AppTextButton(
-                    label: 'Enter the phrase instead',
-                    onPressed: onManualPressed,
-                  ),
-                ],
-              ),
             ),
           ),
         ),
       ),
     );
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return CupertinoPageScaffold(backgroundColor: color.bgBase, child: body);
+    }
+    return Scaffold(backgroundColor: color.bgBase, body: body);
   }
 }
 

@@ -23,16 +23,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart'
     show
-        AnimatedContainer,
         AnimationStyle,
         BorderRadius,
-        BoxConstraints,
         BoxDecoration,
         BuildContext,
         Center,
         Column,
         ColoredBox,
-        ConstrainedBox,
         DraggableScrollableSheet,
         Container,
         CrossAxisAlignment,
@@ -78,11 +75,11 @@ import '../widgets/app_section_header.dart' show AppSectionHeader;
 import '../widgets/status_bar.dart' show BarState, StatusBar;
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_motion.dart' show AppMotion;
-import '../widgets/theme/app_pressable.dart' show AppPressable;
 import '../widgets/theme/app_radius.dart' show AppBorder, AppRadius;
 import '../widgets/theme/app_size.dart' show AppSize;
 import '../widgets/theme/app_space.dart' show AppSpace;
 import '../widgets/theme/app_type.dart' show AppType;
+import '../widgets/theme/chrome_list_row.dart';
 
 /// The switcher's own ladder of tiers: a workspace header keeps `AppSectionHeader.tier1`'s
 /// text edge, and the tab header and the pane rows under it start one `space.10` in, so the
@@ -371,13 +368,9 @@ class _TabHeader extends StatelessWidget {
   _ => (bar: BarState.unknown, word: 'Unknown'),
 };
 
-/// Tier 3, one pane, inset by [_tierInset] so its state bar stands in the tab glyph's column.
-/// Since 2026-09-10, per R-03-115, agent and shell rows share one baseline and one 48-high
-/// anatomy. An agent row reads kind, `space.2`, pane name on the leading side, then the state
-/// word at the trailing edge. A shell row reads its pane glyph, display name, `space.2`, and
-/// optional title. [selected] is the pane on screen: the `color.accent.soft` wash and the
-/// semantics state `selected`. The one semantics node reads `agent kind, state, pane` for an
-/// agent row and `pane, title` for a shell row.
+/// A native pane row, inset by [_tierInset].
+/// Agent kind, pane name, and state share one baseline (R-03-115).
+/// The platform row shows [selected]. The state bar keeps the full row height.
 class _PaneRow extends StatelessWidget {
   const _PaneRow({
     required this.pane,
@@ -450,82 +443,48 @@ class _PaneRow extends StatelessWidget {
       button: true,
       onTap: onTap,
       excludeSemantics: true,
-      child: AppPressable(
-        onTap: onTap,
-        builder: (BuildContext context, bool pressed) => AnimatedContainer(
-          duration: AppPressable.fillDuration(context, pressed),
-          curve: AppPressable.fillCurve(context),
-          color: pressed
-              ? color.bgHigh
-              : selected
-              ? color.accentSoft
-              : Colors.transparent,
-          child: Stack(
-            children: <Widget>[
-              ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: AppSize.targetMin),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpace.space4,
-                    AppSpace.space3,
-                    AppSpace.space4,
-                    AppSpace.space3,
+      child: Stack(
+        children: <Widget>[
+          ChromeListRow.sheet(
+            title: label,
+            titleWidget: paneLabel,
+            leading: SizedBox(
+              width: AppSize.iconSm,
+              child: agentKind == null
+                  ? Icon(
+                      Symbols.splitscreen_rounded,
+                      size: AppSize.iconSm,
+                      color: color.fgSecondary,
+                    )
+                  : null,
+            ),
+            trailing: state == null
+                ? null
+                : Text(
+                    state.word,
+                    style: AppType.body.copyWith(color: color.fgPrimary),
                   ),
-                  child: Row(
-                    children: <Widget>[
-                      SizedBox(
-                        width: AppSize.iconSm,
-                        child: agentKind == null
-                            ? Icon(
-                                Symbols.splitscreen_rounded,
-                                size: AppSize.iconSm,
-                                color: color.fgSecondary,
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: AppSpace.space3),
-                      Expanded(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: <Widget>[
-                            Expanded(child: paneLabel),
-                            if (state != null) ...<Widget>[
-                              const SizedBox(width: AppSpace.space3),
-                              Text(
-                                state.word,
-                                style: AppType.body.copyWith(
-                                  color: color.fgPrimary,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (showDivider)
-                PositionedDirectional(
-                  start: AppSpace.space4,
-                  end: 0,
-                  bottom: 0,
-                  child: SizedBox(
-                    height: AppBorder.hairline,
-                    child: ColoredBox(color: color.borderSubtle),
-                  ),
-                ),
-              if (state != null)
-                PositionedDirectional(
-                  start: 0,
-                  top: 0,
-                  bottom: 0,
-                  child: StatusBar(state: state.bar),
-                ),
-            ],
+            selected: selected,
+            onTap: onTap,
           ),
-        ),
+          if (showDivider)
+            PositionedDirectional(
+              start: AppSpace.space4,
+              end: 0,
+              bottom: 0,
+              child: SizedBox(
+                height: AppBorder.hairline,
+                child: ColoredBox(color: color.borderSubtle),
+              ),
+            ),
+          if (state != null)
+            PositionedDirectional(
+              start: 0,
+              top: 0,
+              bottom: 0,
+              child: StatusBar(state: state.bar),
+            ),
+        ],
       ),
     );
     return Padding(

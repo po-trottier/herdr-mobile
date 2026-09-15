@@ -8,7 +8,6 @@ import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:flutter/material.dart'
     show
-        CircularProgressIndicator,
         Colors,
         Icon,
         Radius,
@@ -20,7 +19,6 @@ import 'package:flutter/material.dart'
         Row;
 import 'package:flutter/widgets.dart'
     show
-        AnimatedContainer,
         BorderRadius,
         BoxDecoration,
         BuildContext,
@@ -38,7 +36,6 @@ import 'package:flutter/widgets.dart'
         Padding,
         PopScope,
         SafeArea,
-        Semantics,
         SingleChildScrollView,
         SizedBox,
         StatefulWidget,
@@ -74,11 +71,12 @@ import '../widgets/app_strip.dart';
 import '../widgets/app_text_button.dart';
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_haptic.dart';
-import '../widgets/theme/app_pressable.dart';
 import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
+import '../widgets/theme/chrome_activity_indicator.dart';
+import '../widgets/theme/chrome_back_button.dart';
 import '../widgets/treatments.dart';
 
 /// Function shape for sending a frame, mirrors `pane_actions.dart`'s own private copy.
@@ -608,8 +606,7 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// Callout 16's own header: the back chevron and `New tab in which space?`, replacing [_Header]
-/// while the workspace list is open.
+/// Callout 16 uses the platform back control and the workspace picker title.
 class _WorkspaceListHeader extends StatelessWidget {
   const _WorkspaceListHeader({required this.onBack});
 
@@ -627,7 +624,7 @@ class _WorkspaceListHeader extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          _BackControl(onTap: onBack),
+          ChromeBackButton(onPressed: onBack),
           Expanded(
             child: Text(
               'New tab in which space?',
@@ -635,46 +632,6 @@ class _WorkspaceListHeader extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// The back chevron of [_WorkspaceListHeader]: the leading control glyph of R-32-510 at
-/// `size.icon.lg` in a `size.target.min` target, pressed through the shared [AppPressable]
-/// (R-32-501's third case, R-32-609): `color.bg.high` at `radius.sm` on pointer-down, with the
-/// wrapper's own scale, timing and reduce-motion handling. [onTap] `null` leaves the control
-/// inert while a create is in flight.
-class _BackControl extends StatelessWidget {
-  const _BackControl({required this.onTap});
-
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    return Semantics(
-      label: 'Back',
-      button: true,
-      enabled: onTap != null,
-      excludeSemantics: true,
-      child: AppPressable(
-        onTap: onTap,
-        builder: (BuildContext context, bool pressed) => AnimatedContainer(
-          duration: AppPressable.fillDuration(context, pressed),
-          curve: AppPressable.fillCurve(context),
-          width: AppSize.targetMin,
-          height: AppSize.targetMin,
-          decoration: BoxDecoration(
-            color: pressed ? color.bgHigh : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          child: Icon(
-            Symbols.chevron_left_rounded,
-            size: AppSize.iconLg,
-            color: color.fgPrimary,
-          ),
-        ),
       ),
     );
   }
@@ -734,11 +691,7 @@ class _OutcomeUnknownBlock extends StatelessWidget {
           ),
           const SizedBox(height: AppSpace.space3),
           reconciling
-              ? const SizedBox(
-                  width: AppSize.spinner,
-                  height: AppSize.spinner,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
+              ? const ChromeActivityIndicator()
               : AppTextButton(label: 'Check now', onPressed: onCheckNow),
         ],
       ),

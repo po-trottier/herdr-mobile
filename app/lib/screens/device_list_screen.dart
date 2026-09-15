@@ -69,14 +69,11 @@ import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
         AppBar,
-        CircularProgressIndicator,
         MaterialPageRoute,
         MenuAnchor,
         MenuController,
         MenuItemButton,
-        Scaffold,
-        ScaffoldMessenger,
-        SnackBar;
+        Scaffold;
 
 import '../core/result/result.dart' show Err, Ok, Result;
 import '../models/message.dart';
@@ -97,12 +94,14 @@ import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
+import '../widgets/theme/chrome_activity_indicator.dart';
 import '../widgets/theme/chrome_confirmation_dialog.dart';
 import '../widgets/theme/chrome_confirmation_outcome.dart';
 import '../widgets/theme/chrome_icon_action.dart';
 import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/theme/chrome_loading_delay.dart';
 import '../widgets/theme/chrome_settings_section.dart';
+import '../widgets/theme/chrome_snackbar.dart';
 import '../widgets/treatments.dart';
 import 'device_detail_screen.dart';
 
@@ -496,18 +495,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
     }
   }
 
-  void _showSnackbar(String message) {
-    final AppColor color = AppColor.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: color.bgRaised,
-        content: Text(
-          message,
-          style: AppType.body.copyWith(color: color.fgPrimary),
-        ),
-      ),
-    );
-  }
+  void _showSnackbar(String message) => showChromeSnackbar(context, message);
 
   /// Pushes the Device detail screen as the next level, on this screen's own `Navigator`, so
   /// the platform's own page transition and back control carry it (R-33-070, R-33-072.1).
@@ -930,11 +918,7 @@ class _OutcomeUnknownBlock extends StatelessWidget {
           ),
           const SizedBox(height: AppSpace.space3),
           reconciling
-              ? const SizedBox(
-                  width: AppSize.spinner,
-                  height: AppSize.spinner,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
+              ? const ChromeActivityIndicator()
               : AppTextButton(label: 'Check now', onPressed: onCheckNow),
         ],
       ),
@@ -998,11 +982,7 @@ class _DeviceRow extends StatelessWidget {
     ].join(', ');
 
     final Widget? trailing = isRemoving
-        ? const SizedBox(
-            width: AppSize.spinner,
-            height: AppSize.spinner,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
+        ? const ChromeActivityIndicator()
         : isThisPhone
         ? Text(
             'This phone',

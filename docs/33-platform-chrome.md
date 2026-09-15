@@ -115,12 +115,12 @@ moved more than once since the iOS 26 release. So the owner chose to wait for of
   breaks when Apple removes it. The app needs no such key: it draws its own flat chrome from
   `cupertino_ui`, per `R-33-012`, and a whole-app opt-out would also freeze the appearance of the
   system surfaces that the app does not draw.
-- **R-33-022** No chrome control is drawn by the operating system, so every glyph in the app's own
-  chrome MUST come from the icon set of `R-32-400`. A glyph on a surface the system draws, such as
-  the keyboard, the text-selection menu or a permission dialog, sits outside our map, per
-  `R-32-401`. A control the app draws MUST NOT borrow a glyph from a system surface. One glyph is
-  exempt, and it is the only one: the back glyph belongs to the navigation component that draws it,
-  per `R-33-070`, so the map holds no `Back` row and the app places no back glyph.
+- **R-33-022** Every glyph that the app places in its chrome MUST come from the icon set in
+  `R-32-400`. Glyphs that a platform control owns MUST stay native, per `R-20-044`.
+  This exception covers the back control, the search field and the expansion tile.
+  The app MUST NOT replace a native control to change its glyph.
+  Glyphs on an operating-system surface, such as a keyboard or permission dialog, stay outside
+  the app map, per `R-32-401`.
 - **R-33-068** The **opaque variant** of a translucent chrome surface is the opaque Selenized
   surface that the component's own anatomy already names. It is a user preference, and it is
   neither a fallback nor a version tier. It is reachable in exactly two cases, and each case names
@@ -222,7 +222,7 @@ and no glyph.
 | Bottom offset | from the system-bar inset | from the safe area |
 | Back | `AppBar` leading, drawn by `BackButton`, plus predictive back | `CupertinoNavigationBar` leading, plus the interactive pop gesture |
 | Primary navigation on a pushed route | the parent layout and the primary destinations only | the tab bar stays visible |
-| A row that opens the next level | a labelled destination row | `CupertinoListTile` with a trailing `chevron_right` from the app icon set, per `R-32-401` (amended 2026-09-08: `CupertinoListTileChevron` draws from the `cupertino_icons` font, which the app does not bundle, so it rendered a placeholder box; one icon set) |
+| A row that opens the next level | `ListTile` | `CupertinoListTile` with trailing `chevron_right` from the app icon set, per `R-32-401` |
 | Settings list | the Material settings list | `CupertinoListSection` with `CupertinoListTile` |
 | Confirmation | `AlertDialog`, roles placed by the component | `CupertinoAlertDialog`, `Cancel` leading |
 | Terminal state that ends the work: `pane gone`, `read failed`, `protocol mismatch` | `AlertDialog`, not barrier-dismissible, the back gesture refused, the title, the body and one or two actions named by role and placed by the component, the default action trailing (added 2026-09-10, per `R-03-119`; `docs/31-mockups/08-terminal.md` `R-31-08-27` owns the states) | `CupertinoAlertDialog` with `CupertinoDialogAction` actions, the default action marked `isDefaultAction`, no barrier dismissal (added 2026-09-10, per `R-03-119`) |
@@ -241,6 +241,21 @@ and no glyph.
 | Choice among destructive actions from an app bar action, the Phones removes | `MenuAnchor` opened by the `IconButton` app bar action, one `MenuItemButton` per choice with the `treat.destructive` glyph; each choice then opens the confirmation of `R-33-074` (added 2026-09-09, per `R-03-111`) | `CupertinoActionSheet` with one `isDestructiveAction` action per choice and a `Cancel` action; each choice then opens the confirmation of `R-33-074` (added 2026-09-09, per `R-03-111`) |
 | Key cap, in the terminal key row | `OutlinedButton`, or `FilledButton` while a modifier is latched, in the component's own pill; colours from `outlinedButtonTheme` and `filledButtonTheme`, the label type and a layout floor (`size.keycap` high, the column module wide, `space.2` of padding) from the key row's own button theme, per `docs/32-design-language.md` section 7.12 (added 2026-09-09, per `R-03-059`; the latched form became `FilledButton` on 2026-09-10, per `R-03-118`: it was `FilledButton.tonal`, which is not the platform's high-emphasis form, and its label went upper case for state) | `CupertinoButton.tinted`, or `CupertinoButton.filled` while latched, in the component's own corner; the row hands it the same floor and the label ink `color.accent.text`, per section 7.12 (added 2026-09-09, per `R-03-059`) |
 | Row control, the bank toggle of the terminal key row | `TextButton`, no outline and no fill, the glyph in `color.accent.text`; the same layout floor as the key cap from the key row's own `TextButtonTheme` (added 2026-09-10 by the product owner: the `…` and `×` caps were not discernible from the keys, and a control is not a key; a key has a border, the control has none) | a plain `CupertinoButton`, no fill, `foregroundColor` `color.accent.text`, the same minimum size and padding the row hands its keys (added 2026-09-10, same reason) |
+| Page surface, including Welcome and Lock | `Scaffold` | `CupertinoPageScaffold`; Lock stays opaque, per `R-33-015` |
+| Pushed route | `MaterialPage` | `CupertinoPage`; the biometric lock uses a full-screen dialog route without an edge-swipe dismissal |
+| Content row | `ListTile`, including its selected state | `CupertinoListTile`, including its native selection surface |
+| Activity indicator | `CircularProgressIndicator` | `CupertinoActivityIndicator`; both use the caller's size token through `ChromeActivityIndicator` |
+| Switch | `Switch`, with colours from `switchTheme` | `CupertinoSwitch`, with the section 7.7 tokens, through `ChromeSwitch` |
+| Snackbar | `SnackBar`, with the section 7.22 tokens from `snackBarTheme` | The opaque section 7.22 surface in the root `Overlay`; Cupertino has no snackbar control. `ChromeTransientTimeout` prevents a timeout with a screen reader on both platforms, per `R-30-743` |
+| Sheet row | `ListTile`, through `ChromeListRow.sheet` | `CupertinoListTile`, through `ChromeListRow.sheet`; only a navigation row carries a chevron |
+| Suggestion chip | `ActionChip`, with native geometry | Small `CupertinoButton.tinted`, through `ChromeSuggestionChip` |
+| Host picker | `FilledButton.tonal` | `CupertinoButton.tinted` |
+| Jump-to-bottom pill | `FilledButton.tonalIcon` | `CupertinoButton.tinted`; both stay opaque, per `R-33-060` |
+| Strip action | `ListTile` | `CupertinoListTile`; `ChromeStripAction` owns the destination tap |
+| Section header disclosure | `ListTile` with `IconButton` | `CupertinoListTile` with `CupertinoButton`; the count keeps its trailing inset |
+| Workspace inline expansion | `ExpansionTile`, with its own disclosure glyph and rotation | `CupertinoExpansionTile`, through `ChromeListRow.expand`, with its own disclosure glyph; `R-20-044` bundles this native font. `R-32-401` governs glyphs the app places, not glyphs a native control owns |
+| Notification swipe action | `TextButton` or `FilledButton.tonal` | Plain `CupertinoButton`; the existing swipe reveal stays |
+| In-sheet back control | `BackButton` with an explicit return callback | `CupertinoNavigationBarBackButton` with an explicit return callback |
 
 - **R-33-033** The table above is normative. A screen MUST use the control in its platform column,
   and MUST NOT substitute the other platform's control. The `Search a list` row was added on
@@ -348,8 +363,8 @@ and no glyph.
   the same three destinations and the same order. Only the control shape differs.
 - **R-33-070** **Back.** Each platform's navigation component MUST own the back glyph, the back
   label and the back gesture. The app MUST NOT place a back glyph itself, and the normative icon map
-  of `R-32-401` MUST NOT hold a `Back` row. Back is the one exception to that map's closing
-  sentence, per `R-33-022`. A screen MUST cite this rule and MUST NOT name a glyph.
+  `R-32-401` MUST NOT hold a `Back` row. The native-control exception in `R-33-022` applies.
+  A screen MUST cite this rule and MUST NOT name a glyph.
   1. On Android the `AppBar` leading slot MUST hold the Material `BackButton`. `AppBar` supplies it
      by itself when the route is not the first route of its `Navigator`. `BackButtonIcon` resolves
      the glyph from `Theme.of(context).platform`, which gives `Icons.arrow_back` on Android, and it
@@ -389,22 +404,19 @@ and no glyph.
      it.
 - **R-33-072** **A row that promises the next level.** One row MUST have one outcome on both
   platforms. A single indicator MUST NOT stand for a push, an inline expansion and a sheet. This
-  rule reaches a **list row** only, which is a `CupertinoListTile`, a `CupertinoExpansionTile` or a
-  Material settings row. Point 5 covers the one row type it does not reach.
+  rule reaches every list row, including a bottom-sheet action row. The row MUST use
+  `ListTile`, `CupertinoListTile` or the platform's own expansion control.
   1. On iOS a trailing chevron promises the **next level in the hierarchy**, and nothing else. Apple
      states that a disclosure indicator reveals the next level and does not show details about the
      item. So a row that opens a modal sheet MUST NOT carry a chevron, and a row that expands inline
      MUST NOT carry one either.
-  2. A row that opens the next level MUST use `CupertinoListTile` with a trailing `chevron_right`
-     from the app icon set at the trailing-chevron values of `docs/32-design-language.md` section
-     7.4, and MUST push that level. It MUST NOT use `CupertinoListTileChevron` (amended 2026-09-08
-     by the product owner's design pass: that widget draws `CupertinoIcons.right_chevron` from
-     the `cupertino_icons` font, which `docs/20-mobile-framework.md` does not list and the app
-     does not bundle, so the row showed a placeholder box on device and in the goldens; `R-32-401`
-     fixes one icon set, and it already holds the glyph). A row that opens a sheet MUST replace
-     the chevron with a labelled control, such as `Edit` or the current value as a button. A row
-     that expands inline MUST use `CupertinoExpansionTile`, whose arrow states that the content
-     opens in place.
+  2. A row that opens the next level MUST use `CupertinoListTile` with trailing `chevron_right`
+     from the app icon set and the trailing-chevron values of `docs/32-design-language.md`
+     section 7.4. It MUST push that level. This app-supplied indicator MUST NOT use
+     `CupertinoListTileChevron`, per `R-32-401`. A row that opens a sheet MUST replace the
+     chevron with a labelled control, such as `Edit` or a current value.
+     A row that expands inline MUST use `CupertinoExpansionTile`. Its native arrow states that
+     content opens in place, per `R-33-022`.
   3. On Android a trailing chevron carries no such promise, so the Material row MUST carry the
      current value or a labelled control instead. A Material choice MUST open a single-choice screen
      or a dialog, per `R-33-073`.
@@ -412,13 +424,12 @@ and no glyph.
      detail route and keeps its chevron, or keeps its sheet and drops it. The relay-address row and
      the phone-name row in `docs/31-mockups/15-appearance.md` open sheets, so both drop the chevron.
      `UxSpec` picks push or sheet; this rule fixes the affordance that follows the choice.
-  5. A **bottom-sheet action row** of `docs/32-design-language.md` section 7.16 is not a list row,
-     and this rule does not reach it. Apple's disclosure guidance describes a list or a table, and a
-     sheet action row sits in neither. In a sheet the useful distinction is not hierarchy depth but
-     **timing**: most rows act at once, and a row that opens a further surface does not. So a sheet
-     row that defers its outcome MAY carry a trailing indicator, and that indicator MUST be the only
-     one in the sheet. Removing it would make a deferring row look like a row that fires at once,
-     which is the worse error. The governing principle still holds: one indicator, one outcome.
+  5. A **bottom-sheet action row** in `docs/32-design-language.md` section 7.16 MUST use
+     `ListTile` on Android and `CupertinoListTile` on iOS, through `ChromeListRow.sheet`.
+     The helper MUST own selection, disabled and busy states, and destructive glyph semantics.
+     A row that opens a further navigation level MAY carry the iOS chevron from the app icon set.
+     An immediate action MUST NOT carry a chevron. A row that expands inline MUST use the
+     platform's expansion control. The bottom sheet itself stays shared, per `R-33-037`.
 - **R-33-073** **The settings list.** The composition of a settings list MUST come from the
   platform's own list widgets, so that an iOS settings screen does not render as a flat Android
   list. On iOS a settings screen MUST use `CupertinoListSection` for each group and
@@ -440,8 +451,8 @@ and no glyph.
      one `CupertinoListTile`, which keeps the platform's own tile height and inset, and on
      Android one list row of `docs/32-design-language.md` section 7.4. The same pass found the
      iOS screen composing a `CupertinoListSection` from Android rows, so only the outer section
-     was native. `app/lib/widgets/theme/chrome_list_row.dart` holds the one row that composes
-     per platform: push, choice, expand, toggle, action and static.
+     native. `app/lib/widgets/theme/chrome_list_row.dart` holds one row that composes
+     per platform: push, choice, expand, toggle, action, destructive, static and sheet.
 - **R-33-074** **A confirmation dialog.** A shared specification MUST name **roles** and MUST NOT
   name a position, an action order or an initial focus target. The two platforms order a safe action
   and a destructive action differently, so one fixed order is wrong on one of them.

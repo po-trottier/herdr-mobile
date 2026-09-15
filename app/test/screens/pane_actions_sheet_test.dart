@@ -7,6 +7,9 @@
 /// and a large text scale, plus `Cancel` staying above a raised keyboard (R-31-10-09).
 library;
 
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoListTile;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart'
     show
         EdgeInsets,
@@ -21,7 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/pane_actions_sheet.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show Builder, ElevatedButton, MaterialApp, Scaffold, Text;
+    show Builder, ElevatedButton, ListTile, MaterialApp, Scaffold, Text;
 
 /// Every row R-03-101 removed from the sheet. Not one of them may come back under any state.
 const List<String> _removedRows = <String>[
@@ -81,6 +84,36 @@ Future<void> _openSheet(
 }
 
 void main() {
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      '$platform uses native sheet actions and navigation disclosure',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        var opened = false;
+        await _openSheet(
+          tester,
+          mediaQueryData: const MediaQueryData(size: Size(400, 1200)),
+          onOpenPluginActions: () => opened = true,
+          onClosePane: () {},
+          onSplit: (_) {},
+        );
+        final nativeRows = find.byType(
+          platform == TargetPlatform.iOS ? CupertinoListTile : ListTile,
+        );
+        expect(nativeRows, findsNWidgets(4));
+        expect(
+          find.byIcon(Symbols.chevron_right_rounded),
+          platform == TargetPlatform.iOS ? findsOneWidget : findsNothing,
+        );
+        await tester.tap(find.text('Plugin actions'));
+        await tester.pumpAndSettle();
+        expect(opened, isTrue);
+        expect(find.byType(PaneActionsSheet), findsNothing);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
   for (final direction in ['right', 'down']) {
     testWidgets('Split $direction closes the sheet and calls back once', (
       tester,
@@ -219,7 +252,6 @@ void main() {
     );
 
     expect(find.byIcon(Symbols.extension_rounded), findsOneWidget);
-    expect(find.byIcon(Symbols.chevron_right_rounded), findsOneWidget);
     // `Close pane, destructive` takes its R-32-401 glyph.
     expect(find.byIcon(Symbols.delete_outline_rounded), findsOneWidget);
     expect(

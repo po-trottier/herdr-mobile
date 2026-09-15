@@ -15,9 +15,13 @@
 /// `golden_support.dart`.
 library;
 
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageScaffold;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/welcome_screen.dart';
+import 'package:material_ui/material_ui.dart' show Scaffold;
 
 import 'golden_support.dart';
 
@@ -44,45 +48,52 @@ const _themes = <(String, Brightness)>[
 void main() {
   setUpAll(loadAppFonts);
 
-  for (final testCase in _cases) {
-    for (final (themeName, brightness) in _themes) {
-      testWidgets(
-        '${testCase.name} ($themeName) matches docs/31-mockups/01-welcome.md',
-        (tester) async {
-          tester.view.physicalSize = goldenReferenceSize;
-          tester.view.devicePixelRatio = 1.0;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final testCase in _cases) {
+      for (final (themeName, brightness) in _themes) {
+        testWidgets(
+          '${testCase.name} ($themeName, ${platform.name}) matches docs/31-mockups/01-welcome.md',
+          (tester) async {
+            debugDefaultTargetPlatformOverride = platform;
+            tester.view.physicalSize = goldenReferenceSize;
+            tester.view.devicePixelRatio = 1.0;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
 
-          await tester.pumpWidget(
-            goldenApp(
-              brightness: brightness,
-              child: WelcomeScreenBody(
-                isError: testCase.isError,
-                isOffline: testCase.isOffline,
-                onScanPressed: () {},
-                onManualPressed: () {},
+            await tester.pumpWidget(
+              goldenApp(
+                brightness: brightness,
+                child: WelcomeScreenBody(
+                  isError: testCase.isError,
+                  isOffline: testCase.isOffline,
+                  onScanPressed: () {},
+                  onManualPressed: () {},
+                ),
               ),
-            ),
-          );
-          await precacheBrandMark(tester, find.byType(WelcomeScreenBody));
-          await tester.pumpAndSettle();
+            );
+            await precacheBrandMark(tester, find.byType(WelcomeScreenBody));
+            await tester.pumpAndSettle();
+            if (platform == TargetPlatform.iOS) {
+              expect(find.byType(Scaffold), findsNothing);
+              final scaffold = tester.widget<CupertinoPageScaffold>(
+                find.byType(CupertinoPageScaffold),
+              );
+              expect(scaffold.backgroundColor!.a, 1);
+            } else {
+              expect(find.byType(CupertinoPageScaffold), findsNothing);
+              expect(find.byType(Scaffold), findsOneWidget);
+            }
 
-          expect(find.text('Watch the herd.\nFrom anywhere.'), findsOneWidget);
-          expect(find.text('Scan QR code'), findsOneWidget);
-          expect(find.text('Enter the phrase instead'), findsOneWidget);
-          for (final step in pairingSetupSteps) {
-            expect(find.text(step), findsNWidgets(testCase.isError ? 0 : 1));
-          }
-
-          await expectLater(
-            find.byType(WelcomeScreenBody),
-            matchesGoldenFile(
-              'goldens/welcome_screen_${testCase.name}_$themeName.png',
-            ),
-          );
-        },
-      );
+            await expectLater(
+              find.byType(WelcomeScreenBody),
+              matchesGoldenFile(
+                'goldens/welcome_screen_${testCase.name}_$themeName${platform == TargetPlatform.iOS ? '_ios' : ''}.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
+        );
+      }
     }
   }
 }

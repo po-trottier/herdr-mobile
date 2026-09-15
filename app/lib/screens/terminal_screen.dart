@@ -93,7 +93,8 @@ import 'package:flutter/widgets.dart'
         WidgetSpan,
         WidgetsBinding;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
-import 'package:material_ui/material_ui.dart' show AppBar, Scaffold, TextButton;
+import 'package:material_ui/material_ui.dart'
+    show AppBar, BackButton, Scaffold, TextButton;
 
 import '../core/result/result.dart' show Err, Ok;
 import '../models/message.dart'
@@ -979,16 +980,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
     color: color.fgPrimary,
   );
 
-  /// The leading back control of R-32-510's app bar: the platform's own
-  /// glyph per R-33-070 (a chevron on iOS, a full arrow on Android), wired
-  /// to [TerminalScreen.onBack].
-  Widget _backControl(AppColor color) => _barControl(
-    color,
-    _isIos ? Symbols.chevron_left_rounded : Symbols.arrow_back_rounded,
-    label: 'Back',
-    onPressed: widget.onBack,
-  );
-
   /// The overflow of mockup 08's callout 5: the `more_vert` icon R-32-401
   /// names for `Pane actions`, with that name as its label (R-30-717).
   Widget _overflowControl(AppColor color) => _barControl(
@@ -1007,50 +998,65 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final String trailing = _deviceScrollOffset > 0
         ? '-$_deviceScrollOffset / ${frame.scroll.maxOffsetFromBottom}'
         : 'rev ${frame.revision}';
+    final Widget content = Row(
+      children: <Widget>[
+        const SizedBox(width: AppSpace.space2),
+
+        Expanded(child: _barAndTitle()),
+        const SizedBox(width: AppSpace.space3),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: <Widget>[
+            if (window != null)
+              Text(
+                'c${window.first}-${window.last}',
+                style: AppType.caption.copyWith(color: color.fgSecondary),
+              ),
+            Text(
+              trailing,
+              style: AppType.caption.copyWith(color: color.fgSecondary),
+            ),
+          ],
+        ),
+        const SizedBox(width: AppSpace.space2),
+        TerminalOverviewControl(
+          overview: _overview,
+          onPressed: _toggleOverview,
+        ),
+        // R-32-510's anatomy: `space.1` between two trailing controls.
+        const SizedBox(width: AppSpace.space1),
+        _overflowControl(color),
+        const SizedBox(width: AppSpace.space2),
+      ],
+    );
     return Container(
       decoration: BoxDecoration(
         color: color.bgBase,
         border: Border(bottom: BorderSide(color: color.borderStrong)),
       ),
-      // The bar's own surface covers the top inset; its content sits below
-      // it, the same split `CupertinoNavigationBar` draws in portrait.
-      padding: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top),
+      // CupertinoNavigationBar supplies its own top inset.
+      padding: _isIos
+          ? EdgeInsets.zero
+          : EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top),
       child: ConstrainedBox(
         // `size.bar.merged`: at least 56 on both platforms (R-32-543); the
         // iOS `size.appbar` of 44 belongs to `CupertinoNavigationBar` alone.
         constraints: const BoxConstraints(minHeight: AppSize.barMerged),
-        child: Row(
-          children: <Widget>[
-            const SizedBox(width: AppSpace.space2),
-            _backControl(color),
-            Expanded(child: _barAndTitle()),
-            const SizedBox(width: AppSpace.space3),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                if (window != null)
-                  Text(
-                    'c${window.first}-${window.last}',
-                    style: AppType.caption.copyWith(color: color.fgSecondary),
-                  ),
-                Text(
-                  trailing,
-                  style: AppType.caption.copyWith(color: color.fgSecondary),
-                ),
-              ],
-            ),
-            const SizedBox(width: AppSpace.space2),
-            TerminalOverviewControl(
-              overview: _overview,
-              onPressed: _toggleOverview,
-            ),
-            // R-32-510's anatomy: `space.1` between two trailing controls.
-            const SizedBox(width: AppSpace.space1),
-            _overflowControl(color),
-            const SizedBox(width: AppSpace.space2),
-          ],
-        ),
+        child: _isIos
+            ? CupertinoNavigationBar(
+                backgroundColor: color.bgBase,
+                border: null,
+                leading: null,
+                automaticallyImplyLeading: true,
+                middle: content,
+              )
+            : Row(
+                children: <Widget>[
+                  BackButton(onPressed: widget.onBack),
+                  Expanded(child: content),
+                ],
+              ),
       ),
     );
   }
@@ -1168,7 +1174,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
           border: Border(
             bottom: BorderSide(color: color.borderStrong, width: 1),
           ),
-          leading: _backControl(color),
+          leading: null,
+          automaticallyImplyLeading: true,
           middle: _barAndTitle(),
           trailing: _overflowControl(color),
           // R-31-08-26 (amended 2026-09-11): the attention summary is the
@@ -1182,7 +1189,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       appBar: AppBar(
         backgroundColor: color.bgBase,
         elevation: 0,
-        leading: _backControl(color),
+        leading: BackButton(onPressed: widget.onBack),
         title: _barAndTitle(),
         actions: <Widget>[
           _overflowControl(color),

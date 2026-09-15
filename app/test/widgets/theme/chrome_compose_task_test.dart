@@ -51,10 +51,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('compose body'), findsOneWidget);
-    // R-32-212, R-32-213: the widget draws every action label in
-    // `type.mono.button` upper case; the caller passes the written form.
-    expect(find.text('CANCEL'), findsOneWidget);
-    expect(find.text('SEND'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.text('send'), findsOneWidget);
     expect(
       find.byType(CupertinoButton),
       findsNWidgets(2),
@@ -68,7 +66,7 @@ void main() {
       'CupertinoSheetRoute<void>',
     );
 
-    await tester.tap(find.text('SEND'));
+    await tester.tap(find.text('send'));
     await tester.pump();
     expect(confirmed, 1);
     debugDefaultTargetPlatformOverride = null;
@@ -104,7 +102,7 @@ void main() {
       expect(find.text('compose body'), findsOneWidget);
       expect(find.byType(AppBar), findsOneWidget);
       expect(find.byType(IconButton), findsOneWidget);
-      expect(find.text('SEND'), findsOneWidget);
+      expect(find.text('send'), findsOneWidget);
       expect(find.byType(CupertinoButton), findsNothing);
       final ModalRoute<void>? route = ModalRoute.of<void>(
         tester.element(find.text('compose body')),
@@ -112,7 +110,7 @@ void main() {
       expect(route, isA<MaterialPageRoute<void>>());
       expect((route! as MaterialPageRoute<void>).fullscreenDialog, isTrue);
 
-      await tester.tap(find.text('SEND'));
+      await tester.tap(find.text('send'));
       await tester.pump();
       expect(confirmed, 1);
     },

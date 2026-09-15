@@ -52,6 +52,7 @@ Future<void> _loadFont(String family, List<String> assetPaths) async {
 
 /// Loads every font family the app renders with. Call once in `setUpAll`.
 Future<void> loadAppFonts() async {
+  await _loadFont('MaterialIcons', ['fonts/MaterialIcons-Regular.otf']);
   await _loadFont('IBM Plex Sans', [
     'assets/fonts/IBMPlexSans-Regular.ttf',
     'assets/fonts/IBMPlexSans-SemiBold.ttf',

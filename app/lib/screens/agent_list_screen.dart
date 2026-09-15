@@ -22,7 +22,7 @@
 /// `color.border.subtle` hairline, `radius.md`, inset `space.4` from the screen edge, `space.6`
 /// apart), holding three tiers that read apart at a glance (R-03-057, 2026-09-09, after two
 /// rounds that changed spacing alone): the space header as a `color.bg.high` band
-/// ([_SpaceHeader]), a glyph-led tab header with its pane rows hung off a guide rule
+/// ([ChromeListRow.expand]), a glyph-led tab header with its pane rows hung off a guide rule
 /// ([_TabGroup]), and the pane rows themselves, with the worktree row ([_WorktreeRow]) between
 /// the first two where a linked worktree needs naming; every text edge one `space.4` step in
 /// from the tier above ([_spaceNameEdge]). No header pins on this axis: Flutter stacks pinned
@@ -77,7 +77,6 @@ import 'package:flutter/widgets.dart'
         Align,
         Alignment,
         AlwaysScrollableScrollPhysics,
-        AnimatedContainer,
         AsyncSnapshot,
         Border,
         BorderRadius,
@@ -158,7 +157,6 @@ import 'package:flutter_slidable/flutter_slidable.dart'
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
-        Colors,
         FloatingActionButton,
         RefreshIndicator,
         Scaffold,
@@ -179,6 +177,7 @@ import '../services/notifications.dart' show ageTickPeriod;
 import '../services/relay.dart'
     show RelayConnected, RelayConnectionState, RelayNotConnectedException;
 import '../widgets/app_ground.dart' show EmptyMark;
+import '../widgets/app_list_row.dart';
 import '../widgets/app_section_header.dart';
 import '../widgets/app_strip.dart';
 import '../widgets/app_text_button.dart';
@@ -186,13 +185,14 @@ import '../widgets/eyebrow.dart';
 import '../widgets/ground_grid.dart' show GroundGrid;
 import '../widgets/status_bar.dart' show BarState, StatusBar;
 import '../widgets/theme/app_color.dart';
-import '../widgets/theme/app_pressable.dart';
 import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_icon_action.dart';
+import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/theme/chrome_loading_delay.dart';
+import '../widgets/theme/chrome_tonal_button.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -903,11 +903,7 @@ class _AgeClock extends InheritedNotifier<ValueNotifier<DateTime>> {
   }
 }
 
-/// Host chip `patrick-desk  v` (callout 1): `type.heading`, tap routes to `/hosts`, `v` is the
-/// collapse icon of R-32-401 at `size.icon.md`. Pressed through the shared [AppPressable]
-/// (R-32-501's third case, R-32-609): `color.bg.high` at `radius.sm` around the chip, with
-/// `space.2` of its own so the fill clears the name; the header row gives back that `space.2`
-/// at its leading edge, so the name stays on the `space.4` inset.
+/// The native host control opens the computer list.
 class _HostChip extends StatelessWidget {
   const _HostChip({required this.hostName, this.onTap});
 
@@ -919,36 +915,24 @@ class _HostChip extends StatelessWidget {
     final AppColor color = AppColor.of(context);
     return Semantics(
       button: onTap != null,
-      label: '$hostName, choose a computer',
+      label: '$hostName, choose computer',
       excludeSemantics: true,
-      child: AppPressable(
-        onTap: onTap,
-        builder: (BuildContext context, bool pressed) => AnimatedContainer(
-          duration: AppPressable.fillDuration(context, pressed),
-          curve: AppPressable.fillCurve(context),
-          decoration: BoxDecoration(
-            color: pressed ? color.bgHigh : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpace.space2,
-            vertical: AppSpace.space3,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                hostName,
-                style: AppType.heading.copyWith(color: color.fgPrimary),
-              ),
-              const SizedBox(width: AppSpace.space2),
-              Icon(
-                Symbols.expand_more_rounded,
-                size: AppSize.iconMd,
-                color: color.fgSecondary,
-              ),
-            ],
-          ),
+      child: ChromeTonalButton(
+        onPressed: onTap,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              hostName,
+              style: AppType.heading.copyWith(color: color.fgPrimary),
+            ),
+            const SizedBox(width: AppSpace.space2),
+            Icon(
+              Symbols.expand_more_rounded,
+              size: AppSize.iconMd,
+              color: color.fgSecondary,
+            ),
+          ],
         ),
       ),
     );
@@ -1430,7 +1414,7 @@ const double _groupGap = AppSpace.space3;
 /// [_spaceNameEdge] ladder and each different from the tier above it in background, in type or
 /// glyph, and in text edge:
 ///
-/// - Tier 1, the space: [_SpaceHeader], a `color.bg.high` band across the card's top.
+/// - Tier 1, the space: [ChromeListRow.expand], a `color.bg.high` band across the card's top.
 /// - Tier 1.5, the worktree: [_WorktreeRow], the worktree glyph and its label, omitted for the
 ///   parent and for a lone workspace per [SpaceGroup.showsWorktreeRow], so the header's own
 ///   name is never repeated under it; a full-width hairline precedes it.
@@ -1470,132 +1454,59 @@ class _SpaceBlock extends StatelessWidget {
           width: AppBorder.hairline,
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _SpaceHeader(
-            space: space,
-            expanded: expanded,
-            color: color,
-            onToggle: onToggle,
-          ),
-          if (expanded)
-            for (final (int worktreeIndex, WorktreeGroup worktree)
-                in space.worktrees.indexed) ...<Widget>[
-              if (space.showsWorktreeRow(worktree)) ...<Widget>[
-                // The parent is always first (R-31-06-15) and draws no row, so every drawn
-                // worktree row follows a tab group and its hairline spans the block.
-                if (worktreeIndex > 0) _Hairline(color: color),
-                _WorktreeRow(name: worktree.name, color: color),
-              ],
-              for (final (int tabIndex, TabGroup tab)
-                  in worktree.tabs.indexed) ...<Widget>[
-                if (tabIndex > 0)
-                  _Hairline(color: color, inset: _tabGlyphInset),
-                _TabGroup(
-                  tab: tab,
-                  color: color,
-                  onOpenPane: onOpenPane,
-                  onMarkSeen: onMarkSeen,
-                ),
+      child: ChromeListRow.expand(
+        title: space.name,
+        initiallyExpanded: expanded,
+        onExpansionChanged: (_) => onToggle(),
+        backgroundColor: color.bgHigh,
+        padding: const EdgeInsets.symmetric(horizontal: _spaceNameEdge),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              '${space.paneCount} pane${space.paneCount == 1 ? '' : 's'}',
+              style: AppType.caption.copyWith(color: color.fgSecondary),
+            ),
+            if (space.attentionCount > 0) ...<Widget>[
+              const SizedBox(width: AppSpace.space2),
+              _AttentionBadge(
+                count: space.attentionCount,
+                ink: color.fgPrimary,
+              ),
+            ],
+          ],
+        ),
+        child: ColoredBox(
+          color: color.bgRaised,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              for (final (int worktreeIndex, WorktreeGroup worktree)
+                  in space.worktrees.indexed) ...<Widget>[
+                if (space.showsWorktreeRow(worktree)) ...<Widget>[
+                  // The parent is always first (R-31-06-15) and draws no row, so every drawn
+                  // worktree row follows a tab group and its hairline spans the block.
+                  if (worktreeIndex > 0) _Hairline(color: color),
+                  _WorktreeRow(name: worktree.name, color: color),
+                ],
+                for (final (int tabIndex, TabGroup tab)
+                    in worktree.tabs.indexed) ...<Widget>[
+                  if (tabIndex > 0)
+                    _Hairline(color: color, inset: _tabGlyphInset),
+                  _TabGroup(
+                    tab: tab,
+                    color: color,
+                    onOpenPane: onOpenPane,
+                    onMarkSeen: onMarkSeen,
+                  ),
+                ],
               ],
             ],
-        ],
+          ),
+        ),
       ),
     ),
   );
-}
-
-/// Tier 1, the space header (callout 14, amended 2026-09-09 per R-03-057): a `color.bg.high`
-/// band, `size.row.one_line` high (R-32-564), the one tier that is a control. The space name in
-/// `type.body.strong` `color.fg.primary` at [_spaceNameEdge]; trailing, on the name's alphabetic
-/// baseline (R-32-563): the `N panes` count in `type.caption` `color.fg.secondary`, the badge of
-/// R-32-518 when a pane inside needs attention, and then the expander of R-32-568 at
-/// `size.icon.md`, centred in the band because an icon glyph's font baseline says nothing about
-/// where its shape sits. The band is a control filled with `color.bg.high`, so it presses per
-/// R-32-501's first case: `color.accent.primary` with its ink in `color.fg.on_accent`, the same
-/// answer a key cap gives, over the timing and the scale of R-32-609 through [AppPressable].
-/// The count and the badge stay while collapsed (R-32-566).
-class _SpaceHeader extends StatelessWidget {
-  const _SpaceHeader({
-    required this.space,
-    required this.expanded,
-    required this.color,
-    required this.onToggle,
-  });
-
-  final SpaceGroup space;
-  final bool expanded;
-  final AppColor color;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    final String paneCount =
-        '${space.paneCount} pane${space.paneCount == 1 ? '' : 's'}';
-    final String attention = space.attentionCount > 0
-        ? ', ${space.attentionCount} needing attention'
-        : '';
-    return Semantics(
-      label: '${space.name}, $paneCount$attention',
-      button: true,
-      expanded: expanded,
-      onTap: onToggle,
-      excludeSemantics: true,
-      child: AppPressable(
-        onTap: onToggle,
-        builder: (BuildContext context, bool pressed) {
-          final Color ink = pressed ? color.fgOnAccent : color.fgPrimary;
-          final Color inkSecondary = pressed
-              ? color.fgOnAccent
-              : color.fgSecondary;
-          return AnimatedContainer(
-            duration: AppPressable.fillDuration(context, pressed),
-            curve: AppPressable.fillCurve(context),
-            height: AppSize.rowOneLine,
-            color: pressed ? color.accentPrimary : color.bgHigh,
-            padding: const EdgeInsets.symmetric(horizontal: _spaceNameEdge),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          space.name,
-                          style: AppType.bodyStrong.copyWith(color: ink),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Text(
-                        paneCount,
-                        style: AppType.caption.copyWith(color: inkSecondary),
-                      ),
-                      if (space.attentionCount > 0) ...<Widget>[
-                        const SizedBox(width: AppSpace.space2),
-                        _AttentionBadge(count: space.attentionCount, ink: ink),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpace.space3),
-                Icon(
-                  expanded
-                      ? Symbols.expand_more_rounded
-                      : Symbols.chevron_right_rounded,
-                  size: AppSize.iconMd,
-                  color: inkSecondary,
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
 }
 
 /// Tier 1.5, the worktree row (callout 19, amended 2026-09-09 per R-03-057): the `A worktree`
@@ -1971,7 +1882,7 @@ class _RowLine extends StatelessWidget {
 /// `A pane` glyph in the leading slot, then the display name in `type.body`
 /// `color.fg.secondary` and its optional `title` in `type.caption` after `space.2`, all on
 /// one baseline. The title ellipses with the line. The row has no status word or state bar and
-/// stays one line high. Pressed to `color.bg.high` through [AppPressable] (R-32-501, R-32-609).
+/// The native list row handles taps.
 class _ShellRowContent extends StatelessWidget {
   const _ShellRowContent({
     required this.row,
@@ -1988,63 +1899,53 @@ class _ShellRowContent extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: <String>[
+  Widget build(BuildContext context) => AppListRow(
+    primary: <String>[
       row.paneDisplayName,
       if (row.title.isNotEmpty) row.title,
     ].join(', '),
-    button: true,
     onTap: onTap,
-    excludeSemantics: true,
-    child: AppPressable(
-      onTap: onTap,
-      builder: (BuildContext context, bool pressed) => AnimatedContainer(
-        duration: AppPressable.fillDuration(context, pressed),
-        curve: AppPressable.fillCurve(context),
-        color: pressed ? color.bgHigh : Colors.transparent,
-        child: _RowBox(
-          leadingInset: leadingInset,
-          child: Row(
-            children: <Widget>[
-              SizedBox(
-                width: slotWidth,
-                child: Center(
-                  child: Icon(
-                    Symbols.splitscreen_rounded,
-                    size: AppSize.iconSm,
-                    color: color.fgSecondary,
-                  ),
-                ),
+    showDivider: false,
+    contentPadding: EdgeInsets.zero,
+    primaryWidget: _RowBox(
+      leadingInset: leadingInset,
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: slotWidth,
+            child: Center(
+              child: Icon(
+                Symbols.splitscreen_rounded,
+                size: AppSize.iconSm,
+                color: color.fgSecondary,
               ),
-              const SizedBox(width: _slotGap),
-              Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    text: row.paneDisplayName,
-                    style: AppType.body.copyWith(color: color.fgSecondary),
-                    children: [
-                      if (row.title.isNotEmpty)
-                        const WidgetSpan(
-                          alignment: PlaceholderAlignment.baseline,
-                          baseline: TextBaseline.alphabetic,
-                          child: SizedBox(width: AppSpace.space2),
-                        ),
-                      if (row.title.isNotEmpty)
-                        TextSpan(
-                          text: row.title,
-                          style: AppType.caption.copyWith(
-                            color: color.fgSecondary,
-                          ),
-                        ),
-                    ],
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(width: _slotGap),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                text: row.paneDisplayName,
+                style: AppType.body.copyWith(color: color.fgSecondary),
+                children: [
+                  if (row.title.isNotEmpty)
+                    const WidgetSpan(
+                      alignment: PlaceholderAlignment.baseline,
+                      baseline: TextBaseline.alphabetic,
+                      child: SizedBox(width: AppSpace.space2),
+                    ),
+                  if (row.title.isNotEmpty)
+                    TextSpan(
+                      text: row.title,
+                      style: AppType.caption.copyWith(color: color.fgSecondary),
+                    ),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -2055,7 +1956,7 @@ class _ShellRowContent extends StatelessWidget {
 /// Priority puts the tab title beside the state, then workspace, pane, and kind beside the age.
 /// The unread mark gives the primary text strong weight and adds an accent wash.
 /// The status bar spans the row height. The last Priority row has no divider.
-/// [_RowBox] sets the height. [AppPressable] sets the pressed fill (R-32-501, R-32-609).
+/// [_RowBox] sets the height. [AppListRow] sets the pressed fill (R-32-501, R-32-609).
 class _AgentRowContent extends StatelessWidget {
   const _AgentRowContent({
     required this.row,
@@ -2217,35 +2118,22 @@ class _AgentRowContent extends StatelessWidget {
       ],
     );
 
-    return Semantics(
-      label: semanticsLabel,
-      button: onTap != null,
+    return AppListRow(
+      primary: semanticsLabel,
       onTap: onTap,
-      excludeSemantics: true,
-      child: AppPressable(
-        onTap: onTap,
-        builder: (BuildContext context, bool pressed) => AnimatedContainer(
-          duration: AppPressable.fillDuration(context, pressed),
-          curve: AppPressable.fillCurve(context),
-          color: pressed
-              ? color.bgHigh
-              : unread
-              ? color.accentSoft
-              : Colors.transparent,
-          // The bar is a positioned child over the fill, so it spans the row's height, sits at
-          // the row's leading edge and never moves the text; the wash keeps the full width.
-          child: Stack(
-            children: <Widget>[
-              lines,
-              PositionedDirectional(
-                start: axis == AgentListAxis.workspace ? _agentBarInset : 0,
-                top: 0,
-                bottom: 0,
-                child: StatusBar(state: _barStateFor(row.status)),
-              ),
-            ],
+      selected: unread,
+      showDivider: false,
+      contentPadding: EdgeInsets.zero,
+      primaryWidget: Stack(
+        children: <Widget>[
+          lines,
+          PositionedDirectional(
+            start: axis == AgentListAxis.workspace ? _agentBarInset : 0,
+            top: 0,
+            bottom: 0,
+            child: StatusBar(state: _barStateFor(row.status)),
           ),
-        ),
+        ],
       ),
     );
   }

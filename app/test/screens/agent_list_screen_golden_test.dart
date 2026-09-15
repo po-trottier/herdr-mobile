@@ -463,6 +463,24 @@ void main() {
       },
     );
 
+    testWidgets('workspace grouping iOS ($themeName)', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final fixture = _AgentListFixture();
+      final harness = _Harness(currentAttention: fixture.attention);
+      addTearDown(harness.dispose);
+      await _pumpScreen(tester, brightness, harness.build());
+      harness.messages.add(fixture.snapshot);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Workspace'));
+      await tester.pumpAndSettle();
+      await expectLater(
+        find.byType(AgentListScreen),
+        matchesGoldenFile('goldens/agent_list_workspace_ios_$themeName.png'),
+      );
+      debugDefaultTargetPlatformOverride = null;
+    });
+
     testWidgets(
       'empty state ($themeName) matches docs/31-mockups/06-agent-list.md',
       (tester) async {

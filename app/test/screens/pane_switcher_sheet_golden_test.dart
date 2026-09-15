@@ -15,7 +15,7 @@ library;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart'
-    show Brightness, MediaQueryData, Scrollable;
+    show Brightness, MediaQueryData, Scrollable, ScrollableState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/messages/pane_scroll_state.dart'
     show PaneScrollState;
@@ -192,14 +192,15 @@ void main() {
           );
           expect(find.text('Working'), findsOneWidget);
           expect(find.bySemanticsLabel('pane 3, zsh'), findsOneWidget);
-          await tester.scrollUntilVisible(
-            find.text('docs'),
-            -48,
-            scrollable: find.descendant(
-              of: find.byType(PaneSwitcherSheet),
-              matching: find.byType(Scrollable),
-            ),
-          );
+          tester
+              .state<ScrollableState>(
+                find.descendant(
+                  of: find.byType(PaneSwitcherSheet),
+                  matching: find.byType(Scrollable),
+                ),
+              )
+              .position
+              .jumpTo(0);
           await tester.pumpAndSettle();
 
           await expectLater(

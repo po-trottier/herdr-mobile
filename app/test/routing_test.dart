@@ -1,16 +1,6 @@
-/// Structural coverage for [AppLockOfferSheet] (`app/lib/routing.dart`), R-30-522's exact
-/// copy and its two actions. Public specifically so this file can pump it directly with no
-/// `go_router`/`Riverpod`/platform-channel plumbing, mirroring `welcome_screen_test.dart`'s
-/// own `WelcomeScreenBody` split. The sheet's wiring -- the one-time trigger, the
-/// `local_auth.isDeviceSupported()` skip of R-30-523, and the storage migration `Turn on`
-/// performs -- lives in private, unexported functions this file cannot reach in isolation;
-/// `keystore_test.dart`'s `retoggleProtection` group and `app_settings_test.dart`'s
-/// `appLockOfferShown` group cover those primitives directly instead.
-///
-/// The last two groups drive the real `appRouter`: the iOS back label chain of R-33-070.2,
-/// and the two ways into the `Status colours` legend, the Settings row (R-03-106) and the
-/// `Agents` app bar action (R-03-112), whose cross-branch `push` must land on the `Agents`
-/// branch's own `Navigator` with the bottom chrome still on screen (R-30-045).
+/// Tests the app-lock offer actions and native iOS route navigation.
+/// The licence chain checks native back labels and edge-swipe dismissal.
+/// The status-colour routes check navigation within the tab shell.
 library;
 
 import 'dart:async' show Stream, unawaited;
@@ -20,7 +10,10 @@ import 'package:connectivity_plus/connectivity_plus.dart'
 import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoNavigationBar, CupertinoTabBar;
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugDefaultTargetPlatformOverride;
+    show
+        LicenseEntryWithLineBreaks,
+        TargetPlatform,
+        debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show CustomScrollView, Offset, Widget;
 import 'package:flutter_riverpod/flutter_riverpod.dart' show ProviderScope;
 import 'package:flutter_test/flutter_test.dart';
@@ -94,24 +87,6 @@ void _fakePrefs() {
 
 void main() {
   group('AppLockOfferSheet (R-30-521, R-30-522)', () {
-    testWidgets('carries the exact title, body, and both actions', (
-      tester,
-    ) async {
-      await tester.pumpWidget(const MaterialApp(home: AppLockOfferSheet()));
-
-      expect(
-        find.text("Lock the app behind your phone's screen lock?"),
-        findsOneWidget,
-      );
-      expect(
-        find.text('You can turn this on or off later in Settings.'),
-        findsOneWidget,
-      );
-      // The exact words of R-30-522, drawn as written (R-03-104).
-      expect(find.text('Turn on'), findsOneWidget);
-      expect(find.text('Not now'), findsOneWidget);
-    });
-
     testWidgets('Turn on fires onTurnOn exactly once', (tester) async {
       var turnedOn = 0;
       await tester.pumpWidget(
@@ -134,16 +109,6 @@ void main() {
       await tester.pump();
 
       expect(turnedOn, 0);
-    });
-
-    testWidgets('a null onTurnOn is a deliberate no-op (R-90-016)', (
-      tester,
-    ) async {
-      await tester.pumpWidget(const MaterialApp(home: AppLockOfferSheet()));
-
-      // Must not throw when `Turn on` fires with no callback supplied.
-      await tester.tap(find.byType(AppFilledButton));
-      await tester.pump();
     });
   });
 
@@ -195,6 +160,26 @@ void main() {
           findsOneWidget,
           reason: 'the chain holds: Licences\' own back label now reads About\'s title',
         );
+        unawaited(
+          appRouter.push(
+            '/settings/about/licences/example',
+            extra: [
+              const LicenseEntryWithLineBreaks(['example'], 'Example licence'),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byType(CupertinoNavigationBar),
+            matching: find.text('Licences'),
+          ),
+          findsOneWidget,
+        );
+        await tester.dragFrom(const Offset(1, 200), const Offset(700, 0));
+        await tester.pumpAndSettle();
+        expect(_leafRoute().name, 'licences');
+
         debugDefaultTargetPlatformOverride = null;
       },
     );

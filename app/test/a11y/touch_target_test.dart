@@ -31,7 +31,7 @@ import 'package:herdr_mobile/widgets/theme/app_size.dart' show AppSize;
 import 'package:herdr_mobile/widgets/theme/app_space.dart' show AppSpace;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show MaterialApp, Scaffold, Switch;
+    show IconButton, MaterialApp, Scaffold, Switch;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
@@ -382,18 +382,22 @@ void main() {
             ),
           ),
         );
-
-        final Size chevron = tester.getSize(
-          find.byIcon(Symbols.chevron_right_rounded),
+        final Finder disclosure = find.descendant(
+          of: find.byType(AppSectionHeader),
+          matching: find.byType(IconButton),
         );
-        expect(chevron.width, AppSize.iconMd);
-        expect(chevron.height, AppSize.iconMd);
-
-        final Size target = tester.getSize(find.byType(AppSectionHeader));
+        final Size chevron = tester.getSize(
+          find.descendant(
+            of: disclosure,
+            matching: find.byIcon(Symbols.chevron_right_rounded),
+          ),
+        );
+        final Size target = tester.getSize(disclosure);
+        expect(target.width, greaterThanOrEqualTo(AppSize.targetMin));
         expect(
           target.height >= AppSize.targetMin,
           isTrue,
-          reason: 'the tier 1 header row must still meet the 48 target',
+          reason: 'the disclosure button must meet the 48 target',
         );
         expect(
           chevron.height < target.height,

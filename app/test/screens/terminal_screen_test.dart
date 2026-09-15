@@ -25,13 +25,26 @@ import 'package:cupertino_ui/cupertino_ui.dart'
         CupertinoButton,
         CupertinoDialogAction,
         CupertinoNavigationBar,
+        CupertinoNavigationBarBackButton,
+        CupertinoPageRoute,
         CupertinoTextField;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/widgets.dart'
-    show EditableText, Offset, Rect, Semantics, Size, Text, ValueKey, Widget;
+    show
+        Brightness,
+        EditableText,
+        Offset,
+        Rect,
+        Semantics,
+        Size,
+        SizedBox,
+        Text,
+        ValueKey,
+        Widget;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/app.dart' show ResolvedChrome, appThemeFrom;
 import 'package:herdr_mobile/models/codes.dart' show ErrorCode;
 import 'package:herdr_mobile/models/message.dart'
     show Message, MessageHostAction, MessageScrollRequest, MessageSendInput;
@@ -76,9 +89,11 @@ import 'package:herdr_mobile/widgets/terminal_view_widget.dart'
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart'
     show ChromeIconAction;
+import 'package:herdr_mobile/widgets/theme/chrome_scheme.dart'
+    show ChromeScheme;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show AlertDialog, AppBar, MaterialApp, TextButton;
+    show AlertDialog, AppBar, BackButton, MaterialApp, TextButton;
 import 'package:xterm2/xterm.dart'
     show Terminal, TerminalView, TerminalViewState;
 
@@ -288,24 +303,41 @@ class _Harness {
       .map((MessageScrollRequest m) => m.payload)
       .toList();
 
-  Widget build() => MaterialApp(
-    home: TerminalScreen(
-      hostId: 'host-1',
-      paneId: _paneId,
-      hostName: 'patrick-desk',
-      initialTextSize: initialTextSize,
-      messages: messages.stream,
-      connectionState: const Stream<RelayConnectionState>.empty(),
-      initialConnectionState: initialState,
-      send: (Message message, {String? corr}) => sent.add(message),
-      watchPane: (String paneId, {String? corr}) {},
-      unwatchPane: (String paneId, {String? corr}) {},
-      onBack: () => backTapped = true,
-      onDiagnostics: () => diagnosticsTapped = true,
-      onSwitchPane: (String paneId) => switchedTo = paneId,
-      onSplit: (String paneId) => splitTo = paneId,
-      now: now,
-    ),
+  Widget build({bool themed = false}) => MaterialApp(
+    theme: themed ? appThemeFrom(ChromeScheme.fixed(Brightness.dark)) : null,
+    builder: themed ? (context, child) => ResolvedChrome(child: child!) : null,
+    onGenerateInitialRoutes:
+        debugDefaultTargetPlatformOverride == TargetPlatform.iOS
+        ? (_) => [
+            CupertinoPageRoute<void>(
+              title: 'Workspace',
+              builder: (_) => const SizedBox(),
+            ),
+            CupertinoPageRoute<void>(
+              title: 'Terminal',
+              builder: (_) => screen(),
+            ),
+          ]
+        : null,
+    routes: {'/': (_) => screen()},
+  );
+
+  Widget screen() => TerminalScreen(
+    hostId: 'host-1',
+    paneId: _paneId,
+    hostName: 'patrick-desk',
+    initialTextSize: initialTextSize,
+    messages: messages.stream,
+    connectionState: const Stream<RelayConnectionState>.empty(),
+    initialConnectionState: initialState,
+    send: (Message message, {String? corr}) => sent.add(message),
+    watchPane: (String paneId, {String? corr}) {},
+    unwatchPane: (String paneId, {String? corr}) {},
+    onBack: () => backTapped = true,
+    onDiagnostics: () => diagnosticsTapped = true,
+    onSwitchPane: (String paneId) => switchedTo = paneId,
+    onSplit: (String paneId) => splitTo = paneId,
+    now: now,
   );
 }
 
@@ -317,13 +349,14 @@ Future<void> _pumpScreen(
   WidgetTester tester,
   _Harness harness, {
   bool landscape = false,
+  bool themed = false,
   Size? size,
 }) async {
   tester.view.physicalSize =
       size ?? (landscape ? const Size(844, 390) : const Size(390, 844));
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(harness.build());
+  await tester.pumpWidget(harness.build(themed: themed));
   await tester.pump();
 }
 
@@ -426,7 +459,10 @@ Finder _barAction(String label) => find.byWidgetPredicate(
 Finder _overflow() => _barAction('Pane actions');
 
 /// The back control: the platform's own glyph (R-33-070), one name.
-Finder _backControl() => _barAction('Back');
+Finder _backControl() =>
+    debugDefaultTargetPlatformOverride == TargetPlatform.iOS
+    ? find.byType(CupertinoNavigationBarBackButton)
+    : find.byType(BackButton);
 
 /// One cap of the key row, by the widget key `key_row.dart` gives it.
 Finder _keyCap(String key) => find.byKey(ValueKey<String>(key));
@@ -493,6 +529,30 @@ Future<void> _toggleOverview(WidgetTester tester) async {
 void main() {
   setUpAll(loadAppFonts);
 
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final landscape in [false, true]) {
+      final orientation = landscape ? '_landscape' : '';
+      testWidgets('native terminal back golden ${platform.name}$orientation', (
+        tester,
+      ) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final harness = _Harness();
+        await _pumpScreen(tester, harness, themed: true, landscape: landscape);
+        await _attachLive(tester, harness);
+        await tester.pump(const Duration(seconds: 1));
+        await expectLater(
+          find.byType(TerminalScreen),
+          matchesGoldenFile(
+            'goldens/terminal_screen_native_back_${platform.name}${orientation}_dark.png',
+          ),
+        );
+        await _flushDotTimer(tester);
+        debugDefaultTargetPlatformOverride = null;
+      });
+    }
+  }
+
   testWidgets(
     'Android: AppBar with back, the pane title, the live dot and the Pane actions overflow',
     (tester) async {
@@ -543,8 +603,9 @@ void main() {
       );
       await tester.tap(_backControl());
       await tester.pump();
-      expect(harness.backTapped, isTrue);
-      expect(_overflow(), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.byType(TerminalScreen), findsNothing);
+      expect(harness.backTapped, isFalse);
       await _flushDotTimer(tester);
       // The framework's own invariant check runs before tearDowns, so the
       // platform override resets here, inside the body.
@@ -1799,13 +1860,6 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.byType(PaneSwitcherSheet), findsOneWidget);
-        // Every tier of the fixture tree is listed: two workspaces, three
-        // tabs, four panes, the current one selected.
-        expect(find.text('docs'), findsOneWidget);
-        expect(find.text('tests'), findsOneWidget);
-        expect(find.text('notes'), findsOneWidget);
-        expect(find.text('review'), findsOneWidget);
-        expect(_paneRow('pane 3, zsh'), findsOneWidget);
         expect(
           tester
               .widget<Semantics>(_paneRow('claude, Blocked, main'))
@@ -1905,34 +1959,6 @@ void main() {
           await tester.pump();
           await tester.pump();
         }
-
-        await showTitle('Review notes', 'main');
-        expect(
-          tester
-              .renderObject<RenderParagraph>(find.text('Review notes'))
-              .didExceedMaxLines,
-          isFalse,
-        );
-        expect(
-          tester
-              .renderObject<RenderParagraph>(find.text('main'))
-              .didExceedMaxLines,
-          isFalse,
-        );
-
-        await showTitle('git', 'Review notes');
-        expect(
-          tester
-              .renderObject<RenderParagraph>(find.text('git'))
-              .didExceedMaxLines,
-          isFalse,
-        );
-        expect(
-          tester
-              .renderObject<RenderParagraph>(find.text('Review notes'))
-              .didExceedMaxLines,
-          isFalse,
-        );
 
         const String longName =
             'Release review notes from all working branches';

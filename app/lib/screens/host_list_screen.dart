@@ -82,15 +82,7 @@ import 'package:flutter_slidable/flutter_slidable.dart'
         SlidableAutoCloseBehavior;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show
-        AppBar,
-        CircularProgressIndicator,
-        Container,
-        PreferredSize,
-        Size,
-        SnackBar,
-        ScaffoldMessenger,
-        ValueKey;
+    show AppBar, Container, PreferredSize, Size, ValueKey;
 
 import '../core/result/result.dart' show Result, Ok, Err;
 import '../models/message.dart'
@@ -129,12 +121,14 @@ import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart' show AppSpace;
 import '../widgets/theme/app_type.dart';
+import '../widgets/theme/chrome_activity_indicator.dart';
 import '../widgets/theme/chrome_confirmation_dialog.dart'
     show showChromeConfirmationDialog;
 import '../widgets/theme/chrome_confirmation_outcome.dart'
     show ChromeConfirmationOutcome;
 import '../widgets/theme/chrome_icon_action.dart';
 import '../widgets/theme/chrome_loading_delay.dart';
+import '../widgets/theme/chrome_snackbar.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -449,18 +443,7 @@ class _HostListScreenState extends State<HostListScreen> {
     }
   }
 
-  void _showSnackbar(String message) {
-    final color = AppColor.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: color.bgRaised,
-        content: Text(
-          message,
-          style: AppType.body.copyWith(color: color.fgPrimary),
-        ),
-      ),
-    );
-  }
+  void _showSnackbar(String message) => showChromeSnackbar(context, message);
 
   List<HostListRow> get _rows {
     final rows = _records.map((record) {
@@ -831,11 +814,7 @@ class _HostListScreenState extends State<HostListScreen> {
 
   Widget _trailingFor(HostListRow row, AppColor color) {
     final Widget control = switch (row.state) {
-      HostRowState.switching => const SizedBox(
-        width: AppSize.spinner,
-        height: AppSize.spinner,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
+      HostRowState.switching => const ChromeActivityIndicator(),
       HostRowState.switchFailed || HostRowState.hostInUse => Text(
         'TRY AGAIN',
         style: AppType.monoButton.copyWith(color: color.accentText),

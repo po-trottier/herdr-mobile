@@ -5,7 +5,11 @@
 library;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoListTile, CupertinoNavigationBar;
+    show
+        CupertinoActivityIndicator,
+        CupertinoListTile,
+        CupertinoNavigationBar,
+        CupertinoSwitch;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness, CustomScrollView, Size;
@@ -17,7 +21,15 @@ import 'package:herdr_mobile/services/notifications.dart'
 import 'package:herdr_mobile/widgets/ground_grid.dart' show GroundGrid;
 import 'package:herdr_mobile/widgets/theme/app_color.dart' show AppColor;
 import 'package:material_ui/material_ui.dart'
-    show AppBar, ColoredBox, ListTile, Material, MaterialApp, Opacity;
+    show
+        AppBar,
+        CircularProgressIndicator,
+        ColoredBox,
+        ListTile,
+        Material,
+        MaterialApp,
+        Opacity,
+        Switch;
 
 NotificationSettingsScreenBody _body({
   NotificationSettingsPhase phase = NotificationSettingsPhase.normal,
@@ -56,6 +68,36 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      '$platform uses native switches and a native test-alert indicator',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        useTallSurface(tester);
+        await tester.pumpWidget(
+          MaterialApp(home: Material(child: _body(isSendingTestAlert: true))),
+        );
+        await tester.pump();
+        final isIos = platform == TargetPlatform.iOS;
+        expect(find.byType(isIos ? CupertinoSwitch : Switch), findsNWidgets(4));
+        expect(find.byType(isIos ? Switch : CupertinoSwitch), findsNothing);
+        expect(
+          find.byType(
+            isIos ? CupertinoActivityIndicator : CircularProgressIndicator,
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byType(
+            isIos ? CircularProgressIndicator : CupertinoActivityIndicator,
+          ),
+          findsNothing,
+        );
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
   testWidgets(
     'Android: a Material AppBar titled Alerts, no CupertinoNavigationBar',
     (tester) async {
@@ -71,10 +113,6 @@ void main() {
     'iOS: a CupertinoNavigationBar titled Alerts, no Material AppBar',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      // The body's own `_SwitchRow` rows always build a Material `Switch`, on either platform
-      // (`notification_settings_screen.dart`'s own doc comment names only the app bar and the
-      // test-alert row as `_isIos`-gated). Production reaches those rows through `AppShell`'s
-      // own Material `Scaffold`; this `Material` wrapper stands in for it here.
       await tester.pumpWidget(MaterialApp(home: Material(child: _body())));
       await tester.pump();
       expect(find.byType(CupertinoNavigationBar), findsOneWidget);

@@ -9,17 +9,12 @@ library;
 
 import 'dart:ui' show TextBaseline, Tristate;
 
-import 'package:flutter/rendering.dart'
-    show BoxConstraints, RenderBox, SemanticsNode;
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoListTile;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
+import 'package:flutter/rendering.dart' show BoxConstraints, RenderBox;
 import 'package:flutter/widgets.dart'
-    show
-        AnimatedContainer,
-        BoxDecoration,
-        Icon,
-        Semantics,
-        Size,
-        ValueChanged,
-        Widget;
+    show Icon, Semantics, Size, ValueChanged, Widget;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/messages/pane_scroll_state.dart'
     show PaneScrollState;
@@ -34,12 +29,11 @@ import 'package:herdr_mobile/screens/pane_switcher_sheet.dart';
 import 'package:herdr_mobile/widgets/app_section_header.dart'
     show AppSectionHeader;
 import 'package:herdr_mobile/widgets/status_bar.dart' show BarState, StatusBar;
-import 'package:herdr_mobile/widgets/theme/app_color.dart' show AppColor;
 import 'package:herdr_mobile/widgets/theme/app_size.dart' show AppSize;
 import 'package:herdr_mobile/widgets/theme/app_space.dart' show AppSpace;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show Builder, ElevatedButton, MaterialApp, Scaffold, Text;
+    show Builder, ElevatedButton, ListTile, MaterialApp, Scaffold, Text;
 
 const PaneScrollState _scroll = PaneScrollState(
   offsetFromBottom: 0,
@@ -179,9 +173,6 @@ Finder _row(String label) => find.byWidgetPredicate(
   (Widget widget) => widget is Semantics && widget.properties.label == label,
 );
 
-Semantics _rowWidget(WidgetTester tester, String label) =>
-    tester.widget<Semantics>(_row(label));
-
 void main() {
   testWidgets(
     'lists every workspace, tab and pane of the tree in three tiers; an agent row carries its '
@@ -291,48 +282,60 @@ void main() {
     );
   });
 
-  testWidgets(
-    'the current pane is the one selected row, in the wash and in the semantics state',
-    (tester) async {
-      final SemanticsHandle handle = tester.ensureSemantics();
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('$platform uses a native row for the selected pane', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final handle = tester.ensureSemantics();
       await _openSheet(tester, onSwitchPane: (_) {});
 
+      final selectedRow = _row('claude, Blocked, main');
+      final otherRow = _row('codex, Done, pane 2');
+      final nativeType = platform == TargetPlatform.iOS
+          ? CupertinoListTile
+          : ListTile;
       expect(
-        _rowWidget(tester, 'claude, Blocked, main').properties.selected,
-        isTrue,
+        find.descendant(of: selectedRow, matching: find.byType(nativeType)),
+        findsOneWidget,
       );
       expect(
-        _rowWidget(tester, 'codex, Done, pane 2').properties.selected,
-        isFalse,
+        find.descendant(of: otherRow, matching: find.byType(nativeType)),
+        findsOneWidget,
       );
-      expect(_rowWidget(tester, 'pane 3, zsh').properties.selected, isFalse);
-      expect(
-        _rowWidget(tester, 'claude, Working, review').properties.selected,
-        isFalse,
-      );
-
-      final Finder selectedRow = _row('claude, Blocked, main');
-      final SemanticsNode selected = tester.getSemantics(selectedRow);
+      final selected = tester.getSemantics(selectedRow);
       expect(selected.flagsCollection.isSelected, Tristate.isTrue);
       expect(selected.label, 'claude, Blocked, main');
-      final SemanticsNode other = tester.getSemantics(
-        _row('codex, Done, pane 2'),
-      );
-      expect(other.flagsCollection.isSelected, Tristate.isFalse);
-      final AnimatedContainer wash = tester.widget<AnimatedContainer>(
-        find.descendant(
-          of: selectedRow,
-          matching: find.byType(AnimatedContainer),
-        ),
-      );
       expect(
-        (wash.decoration! as BoxDecoration).color,
-        AppColor.of(tester.element(selectedRow)).accentSoft,
+        tester.getSemantics(otherRow).flagsCollection.isSelected,
+        Tristate.isFalse,
       );
-      // The framework checks for a live handle before tearDowns run.
+      if (platform == TargetPlatform.android) {
+        expect(
+          tester
+              .widget<ListTile>(
+                find.descendant(
+                  of: selectedRow,
+                  matching: find.byType(ListTile),
+                ),
+              )
+              .selected,
+          isTrue,
+        );
+        expect(
+          tester
+              .widget<ListTile>(
+                find.descendant(of: otherRow, matching: find.byType(ListTile)),
+              )
+              .selected,
+          isFalse,
+        );
+      }
       handle.dispose();
-    },
-  );
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
 
   testWidgets('a tap on another pane closes the sheet and hands its id to onSwitchPane; a tap on the '
       'current pane only closes the sheet', (tester) async {

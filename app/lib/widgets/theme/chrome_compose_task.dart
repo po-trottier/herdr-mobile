@@ -39,19 +39,12 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, ValueListenable, defaultTargetPlatform;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show
-        AppBar,
-        CircularProgressIndicator,
-        Icon,
-        IconButton,
-        MaterialPageRoute,
-        Scaffold,
-        TextButton;
+    show AppBar, Icon, IconButton, MaterialPageRoute, Scaffold, TextButton;
 
 import 'app_color.dart';
-import 'app_size.dart';
 import 'app_space.dart';
 import 'app_type.dart';
+import 'chrome_activity_indicator.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 
@@ -59,9 +52,6 @@ bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 /// control while [ChromeComposeConfirm.enabled] is false, per R-32-502,
 /// with no colour change, per R-32-331.
 const double _opacityDisabled = 0.38;
-
-/// The spinner stroke, the one width the in-place spinner takes.
-const double _spinnerStroke = 2;
 
 /// The confirm control's state, read live through the `confirm` listenable
 /// of [showChromeComposeTask] (added 2026-09-08, for the `Loading` and
@@ -204,7 +194,7 @@ class _ChromeComposeChrome extends StatelessWidget {
             child: Row(
               children: <Widget>[
                 // R-33-075: two titled platform buttons, no `x`. R-32-212 and
-                // R-32-526: the label is `type.mono.button` UPPER in
+                // R-32-526: the label uses `type.mono.button` in
                 // `color.accent.text`, never the control's own default text.
                 CupertinoButton(
                   onPressed: () => Navigator.of(context).pop(),
@@ -242,8 +232,7 @@ class _ChromeComposeChrome extends StatelessWidget {
   }
 }
 
-/// R-32-212, R-32-526: a text-only action label, `type.mono.button` UPPER
-/// in `color.accent.text` (R-32-213: the widget applies the case).
+/// The action label keeps the caller's case and uses the accent text color.
 class _ActionLabel extends StatelessWidget {
   const _ActionLabel(this.label);
 
@@ -251,7 +240,7 @@ class _ActionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-    label.toUpperCase(),
+    label,
     style: AppType.monoButton.copyWith(color: AppColor.of(context).accentText),
   );
 }
@@ -263,12 +252,6 @@ class _ActionSpinner extends StatelessWidget {
   const _ActionSpinner();
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: AppSize.spinner,
-    height: AppSize.spinner,
-    child: CircularProgressIndicator(
-      strokeWidth: _spinnerStroke,
-      color: AppColor.of(context).accentText,
-    ),
-  );
+  Widget build(BuildContext context) =>
+      ChromeActivityIndicator(color: AppColor.of(context).accentText);
 }

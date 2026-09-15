@@ -39,6 +39,7 @@ import 'dart:async';
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
+        CupertinoActivityIndicator,
         CupertinoActionSheet,
         CupertinoActionSheetAction,
         CupertinoListSection,
@@ -61,7 +62,8 @@ import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_settings_section.dart'
     show ChromeSettingsSection;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
-import 'package:material_ui/material_ui.dart' show MaterialApp, MenuItemButton;
+import 'package:material_ui/material_ui.dart'
+    show CircularProgressIndicator, MaterialApp, MenuItemButton;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
@@ -320,168 +322,207 @@ void main() {
         debugDefaultTargetPlatformOverride = null;
       },
     );
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      final stateThemeName = platform == TargetPlatform.iOS
+          ? 'ios_$themeName'
+          : themeName;
+      group(stateThemeName, () {
+        setUp(() => debugDefaultTargetPlatformOverride = platform);
+        tearDown(() => debugDefaultTargetPlatformOverride = null);
+        testWidgets(
+          'loading ($themeName) matches docs/31-mockups/14-devices.md',
+          (tester) async {
+            await pumpScreen(tester, brightness);
+            // Past `ChromeLoadingDelay.skeleton`'s 150 ms grace period, per R-30-004.
+            await tester.pump(const Duration(milliseconds: 200));
+            await tester.pump();
 
-    testWidgets('loading ($themeName) matches docs/31-mockups/14-devices.md', (
-      tester,
-    ) async {
-      await pumpScreen(tester, brightness);
-      // Past `ChromeLoadingDelay.skeleton`'s 150 ms grace period, per R-30-004.
-      await tester.pump(const Duration(milliseconds: 200));
-      await tester.pump();
+            // The action is present and disabled while the list is unknown (R-03-111).
+            expect(
+              tester
+                  .widget<ChromeIconAction>(find.byType(ChromeIconAction))
+                  .onPressed,
+              isNull,
+            );
 
-      // The action is present and disabled while the list is unknown (R-03-111).
-      expect(
-        tester
-            .widget<ChromeIconAction>(find.byType(ChromeIconAction))
-            .onPressed,
-        isNull,
-      );
+            await expectLater(
+              find.byType(DeviceListScreen),
+              matchesGoldenFile(
+                'goldens/device_list_screen_loading_$stateThemeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
 
-      await expectLater(
-        find.byType(DeviceListScreen),
-        matchesGoldenFile('goldens/device_list_screen_loading_$themeName.png'),
-      );
-
-      // The request this case never answers times out; elapse it so no timer is left pending.
-      await tester.pump(deviceListReplyTimeout);
-    });
-
-    testWidgets('empty ($themeName) matches docs/31-mockups/14-devices.md', (
-      tester,
-    ) async {
-      final harness = await pumpScreen(tester, brightness);
-      await harness.deliver(
-        tester,
-        Message.deviceList(DeviceList(devices: _thisPhoneOnly())),
-      );
-
-      expect(find.text('Pixel 8'), findsOneWidget);
-      expect(find.text('This phone'), findsOneWidget);
-      expect(
-        tester
-            .widget<ChromeIconAction>(find.byType(ChromeIconAction))
-            .onPressed,
-        isNotNull,
-        reason: 'Remove this phone and Remove every phone still act (R-03-105)',
-      );
-
-      await expectLater(
-        find.byType(DeviceListScreen),
-        matchesGoldenFile('goldens/device_list_screen_empty_$themeName.png'),
-      );
-    });
-
-    testWidgets('error ($themeName) matches docs/31-mockups/14-devices.md', (
-      tester,
-    ) async {
-      final harness = await pumpScreen(tester, brightness);
-      await harness.deliver(
-        tester,
-        const Message.error(
-          ErrorMessage(
-            code: ErrorCode.internalError,
-            message: 'boom: connection reset',
-            fatal: false,
-          ),
-        ),
-      );
-
-      expect(find.text('Could not read the phone list.'), findsOneWidget);
-      expect(find.text('boom: connection reset'), findsOneWidget);
-      expect(find.text('Try again'), findsOneWidget);
-
-      await expectLater(
-        find.byType(DeviceListScreen),
-        matchesGoldenFile('goldens/device_list_screen_error_$themeName.png'),
-      );
-    });
-
-    // Error, no reply (R-31-14-14): the Host never answered `device_list_request`, so after
-    // `deviceListReplyTimeout` the skeleton gives way to the same Error block, with the
-    // no-reply raw text, and `Try again`. This is the state the live review found missing:
-    // the screen used to stay on the skeleton forever.
-    testWidgets(
-      'error no reply ($themeName) matches docs/31-mockups/14-devices.md',
-      (tester) async {
-        await pumpScreen(tester, brightness);
-        await tester.pump(const Duration(milliseconds: 200));
-        await tester.pump(deviceListReplyTimeout);
-        await tester.pump();
-
-        expect(find.text('Could not read the phone list.'), findsOneWidget);
-        expect(find.text(deviceListNoReplyText), findsOneWidget);
-        expect(find.text('Try again'), findsOneWidget);
-
-        await expectLater(
-          find.byType(DeviceListScreen),
-          matchesGoldenFile(
-            'goldens/device_list_screen_error_no_reply_$themeName.png',
-          ),
-        );
-      },
-    );
-
-    testWidgets(
-      'outcome unknown ($themeName) matches docs/31-mockups/14-devices.md',
-      (tester) async {
-        final harness = await pumpScreen(tester, brightness);
-        await harness.deliver(
-          tester,
-          Message.deviceList(DeviceList(devices: _defaultDevices())),
+            // The request this case never answers times out; elapse it so no timer is left pending.
+            await tester.pump(deviceListReplyTimeout);
+          },
         );
 
-        await revokeThisPhone(tester);
+        testWidgets(
+          'empty ($themeName) matches docs/31-mockups/14-devices.md',
+          (tester) async {
+            final harness = await pumpScreen(tester, brightness);
+            await harness.deliver(
+              tester,
+              Message.deviceList(DeviceList(devices: _thisPhoneOnly())),
+            );
 
-        // The link drops before `revoke_result` arrives (R-30-518), then recovers on its own,
-        // mirroring a real reconnect: the persistent `_onConnectionState` listener returns
-        // `_connection` to `connected`, so only the `Outcome unknown` block shows, with no
-        // `Offline`/`Host in use` banner layered under it.
-        harness.connectionState.add(const RelayDisconnected());
-        await tester.pump();
-        harness.connectionState.add(const RelayConnected());
-        await tester.pump();
+            expect(find.text('Pixel 8'), findsOneWidget);
+            expect(find.text('This phone'), findsOneWidget);
+            expect(
+              tester
+                  .widget<ChromeIconAction>(find.byType(ChromeIconAction))
+                  .onPressed,
+              isNotNull,
+              reason: 'Remove this phone and Remove every phone still act (R-03-105)',
+            );
 
-        expect(find.text('This phone did not get an answer.'), findsOneWidget);
-        expect(find.text('The change may already be done.'), findsOneWidget);
-        expect(find.text('Check now'), findsOneWidget);
-        expect(find.text('Offline.'), findsNothing);
-        expect(
-          tester
-              .widget<ChromeIconAction>(find.byType(ChromeIconAction))
-              .onPressed,
-          isNull,
-          reason: 'every revoke control stays disabled (R-31-14-12)',
+            await expectLater(
+              find.byType(DeviceListScreen),
+              matchesGoldenFile(
+                'goldens/device_list_screen_empty_$stateThemeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
         );
 
-        await expectLater(
-          find.byType(DeviceListScreen),
-          matchesGoldenFile(
-            'goldens/device_list_screen_outcome_unknown_$themeName.png',
-          ),
+        testWidgets(
+          'error ($themeName) matches docs/31-mockups/14-devices.md',
+          (tester) async {
+            final harness = await pumpScreen(tester, brightness);
+            await harness.deliver(
+              tester,
+              const Message.error(
+                ErrorMessage(
+                  code: ErrorCode.internalError,
+                  message: 'boom: connection reset',
+                  fatal: false,
+                ),
+              ),
+            );
+
+            expect(find.text('Could not read the phone list.'), findsOneWidget);
+            expect(find.text('boom: connection reset'), findsOneWidget);
+            expect(find.text('Try again'), findsOneWidget);
+
+            await expectLater(
+              find.byType(DeviceListScreen),
+              matchesGoldenFile(
+                'goldens/device_list_screen_error_$stateThemeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
         );
-      },
-    );
 
-    testWidgets('removing ($themeName) matches docs/31-mockups/14-devices.md', (
-      tester,
-    ) async {
-      final harness = await pumpScreen(tester, brightness);
-      await harness.deliver(
-        tester,
-        Message.deviceList(DeviceList(devices: _defaultDevices())),
-      );
+        // Error, no reply (R-31-14-14): the Host never answered `device_list_request`, so after
+        // `deviceListReplyTimeout` the skeleton gives way to the same Error block, with the
+        // no-reply raw text, and `Try again`. This is the state the live review found missing:
+        // the screen used to stay on the skeleton forever.
+        testWidgets(
+          'error no reply ($themeName) matches docs/31-mockups/14-devices.md',
+          (tester) async {
+            await pumpScreen(tester, brightness);
+            await tester.pump(const Duration(milliseconds: 200));
+            await tester.pump(deviceListReplyTimeout);
+            await tester.pump();
 
-      await revokeThisPhone(tester);
+            expect(find.text('Could not read the phone list.'), findsOneWidget);
+            expect(find.text(deviceListNoReplyText), findsOneWidget);
+            expect(find.text('Try again'), findsOneWidget);
 
-      expect(find.text('removing'), findsOneWidget);
+            await expectLater(
+              find.byType(DeviceListScreen),
+              matchesGoldenFile(
+                'goldens/device_list_screen_error_no_reply_$stateThemeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
+        );
 
-      await expectLater(
-        find.byType(DeviceListScreen),
-        matchesGoldenFile('goldens/device_list_screen_removing_$themeName.png'),
-      );
+        testWidgets(
+          'outcome unknown ($themeName) matches docs/31-mockups/14-devices.md',
+          (tester) async {
+            final harness = await pumpScreen(tester, brightness);
+            await harness.deliver(
+              tester,
+              Message.deviceList(DeviceList(devices: _defaultDevices())),
+            );
 
-      // The revoke this case never answers times out; elapse it so no timer is left pending.
-      await tester.pump(deviceListReplyTimeout);
-    });
+            await revokeThisPhone(tester);
+
+            // The link drops before `revoke_result` arrives (R-30-518), then recovers on its own,
+            // mirroring a real reconnect: the persistent `_onConnectionState` listener returns
+            // `_connection` to `connected`, so only the `Outcome unknown` block shows, with no
+            // `Offline`/`Host in use` banner layered under it.
+            harness.connectionState.add(const RelayDisconnected());
+            await tester.pump();
+            harness.connectionState.add(const RelayConnected());
+            await tester.pump();
+
+            expect(
+              find.text('This phone did not get an answer.'),
+              findsOneWidget,
+            );
+            expect(
+              find.text('The change may already be done.'),
+              findsOneWidget,
+            );
+            expect(find.text('Check now'), findsOneWidget);
+            expect(find.text('Offline.'), findsNothing);
+            expect(
+              tester
+                  .widget<ChromeIconAction>(find.byType(ChromeIconAction))
+                  .onPressed,
+              isNull,
+              reason: 'every revoke control stays disabled (R-31-14-12)',
+            );
+
+            await expectLater(
+              find.byType(DeviceListScreen),
+              matchesGoldenFile(
+                'goldens/device_list_screen_outcome_unknown_$stateThemeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
+        );
+
+        testWidgets(
+          'removing ($themeName) matches docs/31-mockups/14-devices.md',
+          (tester) async {
+            final harness = await pumpScreen(tester, brightness);
+            await harness.deliver(
+              tester,
+              Message.deviceList(DeviceList(devices: _defaultDevices())),
+            );
+
+            await revokeThisPhone(tester);
+
+            expect(find.text('removing'), findsOneWidget);
+            expect(
+              find.byType(
+                platform == TargetPlatform.iOS
+                    ? CupertinoActivityIndicator
+                    : CircularProgressIndicator,
+              ),
+              findsOneWidget,
+            );
+            await expectLater(
+              find.byType(DeviceListScreen),
+              matchesGoldenFile(
+                'goldens/device_list_screen_removing_$stateThemeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+
+            // The revoke this case never answers times out; elapse it so no timer is left pending.
+            await tester.pump(deviceListReplyTimeout);
+          },
+        );
+      });
+    }
   }
 }

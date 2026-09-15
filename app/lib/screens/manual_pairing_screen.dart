@@ -27,8 +27,6 @@ import 'package:connectivity_plus/connectivity_plus.dart'
     show Connectivity, ConnectivityResult;
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
-        Alignment,
-        AnimatedContainer,
         Axis,
         Border,
         BorderRadius,
@@ -122,12 +120,12 @@ import '../widgets/app_text_button.dart';
 import '../widgets/key_label.dart';
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_haptic.dart';
-import '../widgets/theme/app_pressable.dart';
 import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_confirmation_dialog.dart';
+import '../widgets/theme/chrome_suggestion_chip.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -1252,10 +1250,8 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
   }
 }
 
-/// R-30-904, R-32-532: the autocomplete strip, at most six chips, docked to the bottom of
-/// the screen body directly above the keyboard inset (R-30-519: a control bound to the
-/// focused input). Section 7.11: chips of `size.row.one_line` with `space.2` vertical padding,
-/// on `color.bg.raised` under a 1 px `color.border.subtle` top rule.
+/// R-30-904, R-32-532: up to six native suggestion controls above the keyboard.
+/// The strip keeps its token height and permits horizontal scrolling.
 class _SuggestionStrip extends StatelessWidget {
   const _SuggestionStrip({
     required this.words,
@@ -1284,61 +1280,16 @@ class _SuggestionStrip extends StatelessWidget {
           children: <Widget>[
             for (var i = 0; i < words.length; i++) ...<Widget>[
               if (i > 0) const SizedBox(width: AppSpace.space2),
-              _SuggestionChip(word: words[i], onTap: () => onTap(words[i])),
+              ChromeSuggestionChip(
+                word: words[i],
+                onPressed: () => onTap(words[i]),
+              ),
             ],
           ],
         ),
       ),
     ),
   );
-}
-
-/// One autocomplete chip, callout 8 of `docs/31-mockups/03-pair-code.md`: `color.bg.high`, a
-/// 1 px `color.border.strong` border, `radius.sm`, `type.mono.phrase`; `size.row.one_line`
-/// high, so the chip is its own touch target (R-32-360). It composes `AppPressable`, the one
-/// press wrapper of section 7.1: pointer-down feedback, the press scale, the focus ring and
-/// keyboard activation come from there; this chip supplies only R-32-501's first case, a
-/// `color.bg.high` control pressing to `color.accent.primary` with its label in
-/// `color.fg.on_accent`.
-class _SuggestionChip extends StatelessWidget {
-  const _SuggestionChip({required this.word, required this.onTap});
-
-  final String word;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    return Semantics(
-      button: true,
-      label: word,
-      excludeSemantics: true,
-      child: AppPressable(
-        onTap: onTap,
-        builder: (BuildContext context, bool pressed) => AnimatedContainer(
-          duration: AppPressable.fillDuration(context, pressed),
-          curve: AppPressable.fillCurve(context),
-          height: AppSize.rowOneLine,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpace.space3),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: pressed ? color.accentPrimary : color.bgHigh,
-            border: Border.all(
-              color: pressed ? color.accentPrimary : color.borderStrong,
-              width: AppBorder.hairline,
-            ),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          child: Text(
-            word,
-            style: AppType.monoPhrase.copyWith(
-              color: pressed ? color.fgOnAccent : color.fgPrimary,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// R-30-940's banner, in the name-free form R-31-02-08 fixes for both pairing screens.

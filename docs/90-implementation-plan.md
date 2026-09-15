@@ -6595,6 +6595,12 @@ The decisions, each recorded in its owning document with a 2026-09-08 note:
   press on the raw pointer-down inside a scrolling bank; it shares the wrapper's fill duration and
   curve (`AppPressable.fillDuration`, `fillCurve`), so the contract is one. The `Done` control of
   the notification kind sheet is a plain `CupertinoButton` and is not covered.
+  **Retired 2026-09-14.** `AppPressable` and every control built on it were the app-drawn
+  imitations `R-03-059` forbids. An iOS audit against `docs/33-platform-chrome.md` found them on
+  every screen, so each one became the platform's own control (`ListTile`/`CupertinoListTile`,
+  `ActionChip`/`CupertinoButton.tinted`, `FilledButton.tonal`, `ExpansionTile`/
+  `CupertinoExpansionTile`, `Switch`/`CupertinoSwitch`, `CircularProgressIndicator`/
+  `CupertinoActivityIndicator`) behind one `chrome_*` helper each, and the file was deleted.
 - One app bar action, `ChromeIconAction` (`R-33-033` row `App bar action`, `R-33-076`): Android
   `IconButton` with tooltip, iOS `CupertinoButton` 48 wide filling the 44 bar. The three local
   UI controls that used a bare gesture box now compose it (`R-33-033`).

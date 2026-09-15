@@ -16,6 +16,8 @@
 /// `devicePixelRatio` stays fixed at 1.0.
 library;
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness, MediaQueryData;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/pane_actions_sheet.dart';
@@ -132,53 +134,61 @@ const _themes = <(String, Brightness)>[
 void main() {
   setUpAll(loadAppFonts);
 
-  for (final testCase in _cases) {
-    for (final (themeName, brightness) in _themes) {
-      testWidgets(
-        '${testCase.name} ($themeName) matches docs/31-mockups/10-pane-actions.md',
-        (tester) async {
-          tester.view.physicalSize = goldenReferenceSize;
-          tester.view.devicePixelRatio = 1.0;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
+  for (final (platformName, platform) in [
+    ('', TargetPlatform.android),
+    ('ios_', TargetPlatform.iOS),
+  ]) {
+    for (final testCase in _cases) {
+      for (final (themeName, brightness) in _themes) {
+        testWidgets(
+          '$platformName${testCase.name} ($themeName) matches docs/31-mockups/10-pane-actions.md',
+          (tester) async {
+            debugDefaultTargetPlatformOverride = platform;
+            addTearDown(() => debugDefaultTargetPlatformOverride = null);
+            tester.view.physicalSize = goldenReferenceSize;
+            tester.view.devicePixelRatio = 1.0;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
 
-          await _openSheet(
-            tester,
-            brightness: brightness,
-            agentKind: testCase.agentKind,
-            agentStatusLine: testCase.agentStatusLine,
-            linkState: testCase.linkState,
-            linkStateDetail: testCase.linkStateDetail,
-            screenReaderOn: testCase.screenReaderOn,
-          );
+            await _openSheet(
+              tester,
+              brightness: brightness,
+              agentKind: testCase.agentKind,
+              agentStatusLine: testCase.agentStatusLine,
+              linkState: testCase.linkState,
+              linkStateDetail: testCase.linkStateDetail,
+              screenReaderOn: testCase.screenReaderOn,
+            );
 
-          // Structural proof alongside the visual one: every row the wireframe names is
-          // really present, and no row R-03-101 removed came back.
-          expect(find.text('claude / main'), findsOneWidget);
-          expect(find.text('Plugin actions'), findsOneWidget);
-          expect(
-            find.text('Read the last 20 lines'),
-            findsNWidgets(testCase.screenReaderOn ? 1 : 0),
-          );
-          expect(find.text('Split right'), findsOneWidget);
-          expect(find.text('Split down'), findsOneWidget);
-          expect(find.text('Close pane'), findsOneWidget);
-          expect(find.text('Cancel'), findsOneWidget);
-          expect(find.text('Send a prompt to claude'), findsNothing);
-          expect(find.text('Copy the whole screen'), findsNothing);
-          expect(
-            find.text(testCase.linkStateDetail ?? ''),
-            findsNWidgets(testCase.linkStateDetail == null ? 0 : 1),
-          );
+            // Structural proof alongside the visual one: every row the wireframe names is
+            // really present, and no row R-03-101 removed came back.
+            expect(find.text('claude / main'), findsOneWidget);
+            expect(find.text('Plugin actions'), findsOneWidget);
+            expect(
+              find.text('Read the last 20 lines'),
+              findsNWidgets(testCase.screenReaderOn ? 1 : 0),
+            );
+            expect(find.text('Split right'), findsOneWidget);
+            expect(find.text('Split down'), findsOneWidget);
+            expect(find.text('Close pane'), findsOneWidget);
+            expect(find.text('Cancel'), findsOneWidget);
+            expect(find.text('Send a prompt to claude'), findsNothing);
+            expect(find.text('Copy the whole screen'), findsNothing);
+            expect(
+              find.text(testCase.linkStateDetail ?? ''),
+              findsNWidgets(testCase.linkStateDetail == null ? 0 : 1),
+            );
 
-          await expectLater(
-            find.byType(PaneActionsSheet),
-            matchesGoldenFile(
-              'goldens/pane_actions_sheet_${testCase.name}_$themeName.png',
-            ),
-          );
-        },
-      );
+            await expectLater(
+              find.byType(PaneActionsSheet),
+              matchesGoldenFile(
+                'goldens/pane_actions_sheet_${testCase.name}_$platformName$themeName.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
+        );
+      }
     }
   }
 }

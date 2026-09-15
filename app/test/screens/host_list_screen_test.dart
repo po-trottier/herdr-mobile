@@ -13,7 +13,7 @@ library;
 import 'dart:async';
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoButton, CupertinoNavigationBar;
+    show CupertinoActivityIndicator, CupertinoButton, CupertinoNavigationBar;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show AppBar;
@@ -527,78 +527,96 @@ void main() {
     expect(find.textContaining('isconnect'), findsNothing);
   });
 
-  testWidgets('the trailing slot holds exactly one control at a time: chevron, spinner, Try again, or '
-      'Pair again (R-31-05-15)', (tester) async {
-    int controlCount() =>
-        find.byIcon(Symbols.chevron_right_rounded).evaluate().length +
-        find.byType(CircularProgressIndicator).evaluate().length +
-        find.text('TRY AGAIN').evaluate().length +
-        find.text('PAIR AGAIN').evaluate().length;
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      '$platform: the trailing slot holds exactly one control at a time: chevron, spinner, Try again, or '
+      'Pair again (R-31-05-15)',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final indicator = platform == TargetPlatform.iOS
+            ? CupertinoActivityIndicator
+            : CircularProgressIndicator;
+        int controlCount() =>
+            find.byIcon(Symbols.chevron_right_rounded).evaluate().length +
+            find.byType(indicator).evaluate().length +
+            find.text('TRY AGAIN').evaluate().length +
+            find.text('PAIR AGAIN').evaluate().length;
 
-    // saved: the chevron alone.
-    final saved = _Harness(
-      hosts: <PairedHostRecord>[_record(hostId: 'a', hostName: 'alpha-box')],
-    );
-    addTearDown(saved.dispose);
-    await tester.pumpWidget(saved.build());
-    await tester.pumpAndSettle();
-    expect(find.byIcon(Symbols.chevron_right_rounded), findsOneWidget);
-    expect(controlCount(), 1);
+        // saved: the chevron alone.
+        final saved = _Harness(
+          hosts: <PairedHostRecord>[
+            _record(hostId: 'a', hostName: 'alpha-box'),
+          ],
+        );
+        addTearDown(saved.dispose);
+        await tester.pumpWidget(saved.build());
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Symbols.chevron_right_rounded), findsOneWidget);
+        expect(controlCount(), 1);
 
-    // switching: the spinner alone, while the attempt is still in flight. `pump`, not
-    // `pumpAndSettle` — the indeterminate spinner never settles.
-    final pendingSwitch = Completer<SwitchOutcome>();
-    final switching = _Harness(
-      hosts: <PairedHostRecord>[_record(hostId: 'a', hostName: 'alpha-box')],
-      pendingSwitch: pendingSwitch,
-    );
-    addTearDown(switching.dispose);
-    await tester.pumpWidget(switching.build());
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('alpha-box'));
-    await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(controlCount(), 1);
-    pendingSwitch.complete(
-      const SwitchSucceeded(hostId: 'a', hostName: 'alpha-box'),
-    );
-    await tester.pumpAndSettle();
+        // switching: the spinner alone, while the attempt is still in flight. `pump`, not
+        // `pumpAndSettle` — the indeterminate spinner never settles.
+        final pendingSwitch = Completer<SwitchOutcome>();
+        final switching = _Harness(
+          hosts: <PairedHostRecord>[
+            _record(hostId: 'a', hostName: 'alpha-box'),
+          ],
+          pendingSwitch: pendingSwitch,
+        );
+        addTearDown(switching.dispose);
+        await tester.pumpWidget(switching.build());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('alpha-box'));
+        await tester.pump();
+        expect(find.byType(indicator), findsOneWidget);
+        expect(controlCount(), 1);
+        pendingSwitch.complete(
+          const SwitchSucceeded(hostId: 'a', hostName: 'alpha-box'),
+        );
+        await tester.pumpAndSettle();
 
-    // switchFailed: Try again alone.
-    final failed = _Harness(
-      hosts: <PairedHostRecord>[_record(hostId: 'a', hostName: 'alpha-box')],
-      switchOutcome: const SwitchFailed(
-        hostId: 'a',
-        reason: SwitchFailureReason.other,
-        detail: 'boom',
-      ),
-    );
-    addTearDown(failed.dispose);
-    await tester.pumpWidget(failed.build());
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('alpha-box'));
-    await tester.pumpAndSettle();
-    expect(find.text('TRY AGAIN'), findsOneWidget);
-    expect(controlCount(), 1);
+        // switchFailed: Try again alone.
+        final failed = _Harness(
+          hosts: <PairedHostRecord>[
+            _record(hostId: 'a', hostName: 'alpha-box'),
+          ],
+          switchOutcome: const SwitchFailed(
+            hostId: 'a',
+            reason: SwitchFailureReason.other,
+            detail: 'boom',
+          ),
+        );
+        addTearDown(failed.dispose);
+        await tester.pumpWidget(failed.build());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('alpha-box'));
+        await tester.pumpAndSettle();
+        expect(find.text('TRY AGAIN'), findsOneWidget);
+        expect(controlCount(), 1);
 
-    // rejected: Pair again alone.
-    final rejected = _Harness(
-      hosts: <PairedHostRecord>[_record(hostId: 'a', hostName: 'alpha-box')],
-      switchOutcome: const SwitchFailed(
-        hostId: 'a',
-        reason: SwitchFailureReason.rejected,
-        detail: 'revoked',
-      ),
+        // rejected: Pair again alone.
+        final rejected = _Harness(
+          hosts: <PairedHostRecord>[
+            _record(hostId: 'a', hostName: 'alpha-box'),
+          ],
+          switchOutcome: const SwitchFailed(
+            hostId: 'a',
+            reason: SwitchFailureReason.rejected,
+            detail: 'revoked',
+          ),
+        );
+        addTearDown(rejected.dispose);
+        await tester.pumpWidget(rejected.build());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('alpha-box'));
+        await tester.pumpAndSettle();
+        expect(find.text('PAIR AGAIN'), findsOneWidget);
+        expect(controlCount(), 1);
+        debugDefaultTargetPlatformOverride = null;
+      },
     );
-    addTearDown(rejected.dispose);
-    await tester.pumpWidget(rejected.build());
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('alpha-box'));
-    await tester.pumpAndSettle();
-    expect(find.text('PAIR AGAIN'), findsOneWidget);
-    expect(controlCount(), 1);
-  });
-
+  }
   testWidgets(
     'disposing the screen mid-switch does not call setState after unmount (R-41-101)',
     (tester) async {

@@ -31,6 +31,8 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness, Widget;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart' show Ok, Result;
@@ -199,6 +201,8 @@ void main() {
   const themes = <(String, Brightness)>[
     ('dark', Brightness.dark),
     ('light', Brightness.light),
+    ('ios_dark', Brightness.dark),
+    ('ios_light', Brightness.light),
   ];
 
   Future<void> renderAndSettle(
@@ -226,126 +230,142 @@ void main() {
   }
 
   for (final (themeName, brightness) in themes) {
-    testWidgets(
-      'default ($themeName) matches docs/31-mockups/05-host-list.md',
-      (tester) async {
-        final harness = _defaultHarness();
-        await renderAndSettle(
-          tester,
-          harness,
-          brightness,
-          afterMount: _pushDefaultLiveState,
-        );
+    group(themeName, () {
+      setUp(() {
+        debugDefaultTargetPlatformOverride = themeName.startsWith('ios_')
+            ? TargetPlatform.iOS
+            : TargetPlatform.android;
+      });
+      tearDown(() => debugDefaultTargetPlatformOverride = null);
+      testWidgets(
+        'default ($themeName) matches docs/31-mockups/05-host-list.md',
+        (tester) async {
+          final harness = _defaultHarness();
+          await renderAndSettle(
+            tester,
+            harness,
+            brightness,
+            afterMount: _pushDefaultLiveState,
+          );
 
-        expect(find.text('Computers'), findsOneWidget);
-        expect(find.text('patrick-desk'), findsOneWidget);
-        expect(find.text('3 AGENTS'), findsOneWidget);
-        expect(find.text('LAST SEEN 09:14'), findsOneWidget);
-        expect(find.textContaining('LAST SEEN YESTERDAY'), findsOneWidget);
-        expect(find.text('NOT CONNECTED YET'), findsOneWidget);
-        expect(find.text('2'), findsOneWidget); // patrick-desk's badge count.
-        expect(find.text('1'), findsOneWidget); // build-box's badge count.
-        expect(find.text('Swipe a row left, then tap Forget.'), findsOneWidget);
-        // R-03-107 (amended 2026-09-09): a list with rows paints plain `color.bg.base`, no
-        // grid.
-        expect(find.byType(GroundGrid), findsNothing);
+          expect(find.text('Computers'), findsOneWidget);
+          expect(find.text('patrick-desk'), findsOneWidget);
+          expect(find.text('3 AGENTS'), findsOneWidget);
+          expect(find.text('LAST SEEN 09:14'), findsOneWidget);
+          expect(find.textContaining('LAST SEEN YESTERDAY'), findsOneWidget);
+          expect(find.text('NOT CONNECTED YET'), findsOneWidget);
+          expect(find.text('2'), findsOneWidget); // patrick-desk's badge count.
+          expect(find.text('1'), findsOneWidget); // build-box's badge count.
+          expect(
+            find.text('Swipe a row left, then tap Forget.'),
+            findsOneWidget,
+          );
+          // R-03-107 (amended 2026-09-09): a list with rows paints plain `color.bg.base`, no
+          // grid.
+          expect(find.byType(GroundGrid), findsNothing);
 
-        await expectLater(
-          find.byType(HostListScreen),
-          matchesGoldenFile('goldens/host_list_default_$themeName.png'),
-        );
-      },
-    );
-
-    testWidgets(
-      'switch_failed ($themeName) matches docs/31-mockups/05-host-list.md',
-      (tester) async {
-        final harness = _Harness(
-          hosts: <PairedHostRecord>[
-            const PairedHostRecord(hostId: 'a', hostName: 'alpha-box'),
-            const PairedHostRecord(hostId: 'b', hostName: 'beta-box'),
-          ],
-          switchOutcome: const SwitchFailed(
-            hostId: 'a',
-            reason: SwitchFailureReason.other,
-            detail: 'boom',
-          ),
-        );
-        await renderAndSettle(tester, harness, brightness);
-
-        await tester.tap(find.text('alpha-box'));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.text('No computer is connected. Choose one, or see why.'),
-          findsOneWidget,
-        );
-        expect(find.text('TRY AGAIN'), findsOneWidget);
-        expect(find.text('Could not reach this computer.'), findsOneWidget);
-
-        await expectLater(
-          find.byType(HostListScreen),
-          matchesGoldenFile('goldens/host_list_switch_failed_$themeName.png'),
-        );
-      },
-    );
-
-    testWidgets(
-      'host_in_use ($themeName) matches docs/31-mockups/05-host-list.md',
-      (tester) async {
-        final harness = _Harness(
-          hosts: <PairedHostRecord>[
-            const PairedHostRecord(hostId: 'a', hostName: 'alpha-box'),
-            const PairedHostRecord(hostId: 'b', hostName: 'beta-box'),
-          ],
-          switchOutcome: const SwitchFailed(
-            hostId: 'a',
-            reason: SwitchFailureReason.hostInUse,
-            detail: 'in use',
-          ),
-        );
-        await renderAndSettle(tester, harness, brightness);
-
-        await tester.tap(find.text('alpha-box'));
-        await tester.pumpAndSettle();
-
-        expect(find.text('IN USE ON ANOTHER PHONE'), findsOneWidget);
-        expect(find.text('TRY AGAIN'), findsOneWidget);
-        expect(find.textContaining('isconnect'), findsNothing);
-
-        await expectLater(
-          find.byType(HostListScreen),
-          matchesGoldenFile('goldens/host_list_host_in_use_$themeName.png'),
-        );
-      },
-    );
-
-    testWidgets('empty ($themeName) matches docs/31-mockups/05-host-list.md', (
-      tester,
-    ) async {
-      final harness = _Harness();
-      await renderAndSettle(tester, harness, brightness);
-      await precacheBrandMark(tester, find.byType(HostListScreen));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Computers'), findsOneWidget);
-      // No row, and no hint pointing at a swipe gesture with nothing to swipe.
-      expect(find.text('Swipe a row left, then tap Forget.'), findsNothing);
-      // R-03-107 (amended 2026-09-09): the empty block sits on the ground grid inside the mark.
-      expect(
-        find.descendant(
-          of: find.descendant(
-            of: find.byType(GroundGrid),
-            matching: find.byType(EmptyMark),
-          ),
-          matching: find.text('No computer yet.'),
-        ),
-        findsOneWidget,
+          await expectLater(
+            find.byType(HostListScreen),
+            matchesGoldenFile('goldens/host_list_default_$themeName.png'),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        },
       );
 
-      await expectLater(
-        find.byType(HostListScreen),
-        matchesGoldenFile('goldens/host_list_empty_$themeName.png'),
+      testWidgets(
+        'switch_failed ($themeName) matches docs/31-mockups/05-host-list.md',
+        (tester) async {
+          final harness = _Harness(
+            hosts: <PairedHostRecord>[
+              const PairedHostRecord(hostId: 'a', hostName: 'alpha-box'),
+              const PairedHostRecord(hostId: 'b', hostName: 'beta-box'),
+            ],
+            switchOutcome: const SwitchFailed(
+              hostId: 'a',
+              reason: SwitchFailureReason.other,
+              detail: 'boom',
+            ),
+          );
+          await renderAndSettle(tester, harness, brightness);
+
+          await tester.tap(find.text('alpha-box'));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.text('No computer is connected. Choose one, or see why.'),
+            findsOneWidget,
+          );
+          expect(find.text('TRY AGAIN'), findsOneWidget);
+          expect(find.text('Could not reach this computer.'), findsOneWidget);
+
+          await expectLater(
+            find.byType(HostListScreen),
+            matchesGoldenFile('goldens/host_list_switch_failed_$themeName.png'),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        },
+      );
+
+      testWidgets(
+        'host_in_use ($themeName) matches docs/31-mockups/05-host-list.md',
+        (tester) async {
+          final harness = _Harness(
+            hosts: <PairedHostRecord>[
+              const PairedHostRecord(hostId: 'a', hostName: 'alpha-box'),
+              const PairedHostRecord(hostId: 'b', hostName: 'beta-box'),
+            ],
+            switchOutcome: const SwitchFailed(
+              hostId: 'a',
+              reason: SwitchFailureReason.hostInUse,
+              detail: 'in use',
+            ),
+          );
+          await renderAndSettle(tester, harness, brightness);
+
+          await tester.tap(find.text('alpha-box'));
+          await tester.pumpAndSettle();
+
+          expect(find.text('IN USE ON ANOTHER PHONE'), findsOneWidget);
+          expect(find.text('TRY AGAIN'), findsOneWidget);
+          expect(find.textContaining('isconnect'), findsNothing);
+
+          await expectLater(
+            find.byType(HostListScreen),
+            matchesGoldenFile('goldens/host_list_host_in_use_$themeName.png'),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        },
+      );
+
+      testWidgets(
+        'empty ($themeName) matches docs/31-mockups/05-host-list.md',
+        (tester) async {
+          final harness = _Harness();
+          await renderAndSettle(tester, harness, brightness);
+          await precacheBrandMark(tester, find.byType(HostListScreen));
+          await tester.pumpAndSettle();
+
+          expect(find.text('Computers'), findsOneWidget);
+          // No row, and no hint pointing at a swipe gesture with nothing to swipe.
+          expect(find.text('Swipe a row left, then tap Forget.'), findsNothing);
+          // R-03-107 (amended 2026-09-09): the empty block sits on the ground grid inside the mark.
+          expect(
+            find.descendant(
+              of: find.descendant(
+                of: find.byType(GroundGrid),
+                matching: find.byType(EmptyMark),
+              ),
+              matching: find.text('No computer yet.'),
+            ),
+            findsOneWidget,
+          );
+
+          await expectLater(
+            find.byType(HostListScreen),
+            matchesGoldenFile('goldens/host_list_empty_$themeName.png'),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        },
       );
     });
   }

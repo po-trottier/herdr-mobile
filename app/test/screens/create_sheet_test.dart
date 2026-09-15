@@ -4,8 +4,12 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/material.dart' show MaterialApp, Offset;
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoNavigationBarBackButton;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/app.dart' show sdkMaterialLocalizations;
 import 'package:herdr_mobile/models/codes.dart';
 import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/agent_summary.dart';
@@ -21,7 +25,14 @@ import 'package:herdr_mobile/screens/create_sheet.dart';
 import 'package:herdr_mobile/services/relay.dart';
 import 'package:herdr_mobile/widgets/app_list_row.dart';
 import 'package:material_ui/material_ui.dart'
-    show AlertDialog, Builder, ElevatedButton, Scaffold, Text;
+    show
+        AlertDialog,
+        BackButton,
+        Builder,
+        ElevatedButton,
+        MaterialApp,
+        Scaffold,
+        Text;
 
 WorkspaceSummary _workspace({
   String id = 'ws-1',
@@ -95,6 +106,7 @@ Future<void> _openSheet(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: sdkMaterialLocalizations,
       home: Builder(
         builder: (context) => Scaffold(
           body: ElevatedButton(
@@ -118,6 +130,74 @@ Future<void> _openSheet(
 }
 
 void main() {
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('${platform.name}: native back returns to the create menu', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      final semantics = tester.ensureSemantics();
+      try {
+        final harness = _Harness();
+        addTearDown(harness.dispose);
+        await _openSheet(
+          tester,
+          harness,
+          snapshot: _snapshot(
+            workspaces: [
+              _workspace(),
+              _workspace(id: 'ws-2', name: 'other-space'),
+            ],
+          ),
+          onCreated: (_) {},
+        );
+        await tester.tap(find.text('New tab...'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(
+            platform == TargetPlatform.iOS
+                ? CupertinoNavigationBarBackButton
+                : BackButton,
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.bySemanticsLabel('Back'));
+        await tester.pumpAndSettle();
+        expect(find.text('New space'), findsOneWidget);
+        expect(find.text('New tab in which space?'), findsNothing);
+        expect(harness.sent, isEmpty);
+        await tester.tap(find.text('New tab...'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('herdr-relay'));
+        await tester.pump();
+        expect(
+          tester.getSemantics(find.bySemanticsLabel('Back')),
+          matchesSemantics(
+            label: 'Back',
+            isButton: true,
+            hasEnabledState: true,
+          ),
+        );
+        await tester.tap(find.bySemanticsLabel('Back'), warnIfMissed: false);
+        await tester.pump();
+        expect(find.text('New tab in which space?'), findsOneWidget);
+        expect(harness.sent.whereType<MessageHostAction>(), hasLength(1));
+        await harness.deliver(
+          tester,
+          const Message.hostActionAck(
+            HostActionAck(
+              action: HostActionKind.tabCreate,
+              success: true,
+              resultId: 'tab-new',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      } finally {
+        semantics.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
   testWidgets(
     'New space sends workspace.create and, on a host_action_ack with result_id, calls '
     'onCreated with CreatedWorkspace and closes the sheet',

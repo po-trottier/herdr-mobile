@@ -63,12 +63,7 @@ import 'package:go_router/go_router.dart'
         StatefulShellRoute;
 import 'package:local_auth/local_auth.dart' show LocalAuthentication;
 import 'package:material_ui/material_ui.dart'
-    show
-        Container,
-        MaterialPage,
-        ScaffoldMessenger,
-        SnackBar,
-        showModalBottomSheet;
+    show Container, MaterialPage, showModalBottomSheet;
 import 'package:package_info_plus/package_info_plus.dart' show PackageInfo;
 
 import 'core/result/result.dart' show Err, Ok, Result;
@@ -134,41 +129,28 @@ import 'widgets/theme/app_color.dart';
 import 'widgets/theme/app_size.dart';
 import 'widgets/theme/app_space.dart';
 import 'widgets/theme/app_type.dart';
+import 'widgets/theme/chrome_snackbar.dart' show showChromeSnackbar;
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 
-/// R-33-070.2: the previous-page title `CupertinoNavigationBar`'s automatic back label needs.
-/// `pageBuilder` -- a real `CupertinoPage`/`MaterialPage`, not the plain `builder:` every other
-/// route in this file still uses -- is the only way to give a route a `title` that Flutter's
-/// own `CupertinoRouteTransitionMixin` reads back as the *next* pushed route's previous-title,
-/// per `cupertino_ui`'s own `_BackLabel` (it only fires when both the current and the previous
-/// route are `CupertinoPageRoute`s, which plain `builder:`'s `MaterialPage` never is on any
-/// platform -- confirmed by reading `go_router`'s `pageBuilderForMaterialApp`).
-///
-/// Applied to the routes something is genuinely pushed on top of, within that same
-/// `Navigator` (`/settings`, `/hosts/:hostId/notifications`, `/settings/about`,
-/// `/settings/about/licences`, and since 2026-09-09 `/hosts/:hostId/devices`, whose detail
-/// screen `device_list_screen.dart` pushes itself): a route nothing pushes on top of needs no
-/// title, since nothing ever reads it. The same `_BackLabel` also requires the *current* route
-/// to be a `CupertinoPageRoute` before it reads the previous title at all, so a leaf route that
-/// wants its own bar to read `Settings` back takes the `CupertinoPage` too, with no `title`:
-/// `/settings/status-colours` does (2026-09-09, R-03-106). The leaf routes still built with
-/// plain `builder:` (`/settings/notifications`, `/hosts/:hostId/diagnostics`,
-/// `/settings/about/licences/:package`) therefore show a blank back label on iOS; that
-/// pre-existing gap is disclosed here, not fixed by this change.
-/// A route reached only through `parentNavigatorKey: rootNavigatorKey`
-/// (`/hosts`, the terminal route) sits, on the root `Navigator`, below just `AppShell`'s own
-/// single `StatefulShellRoute` page -- one page standing for the whole three-tab shell, not a
-/// single screen -- so no per-screen title exists there for this mechanism to read regardless
-/// of what `title:` this function is given; that residual gap is disclosed, not silently
-/// papered over with a wrong title.
+/// Native route transitions and automatic iOS previous-page labels (R-33-070.2).
 Page<void> _platformPage({
   required LocalKey key,
   required Widget child,
   String? title,
+  bool fullscreenDialog = false,
 }) => _isIos
-    ? CupertinoPage<void>(key: key, title: title, child: child)
-    : MaterialPage<void>(key: key, child: child);
+    ? CupertinoPage<void>(
+        key: key,
+        title: title,
+        fullscreenDialog: fullscreenDialog,
+        child: child,
+      )
+    : MaterialPage<void>(
+        key: key,
+        fullscreenDialog: fullscreenDialog,
+        child: child,
+      );
 
 /// The `/hosts/:hostId/panes/:paneId/actions` route body (R-03-055; `docs/31-mockups/
 /// 18-actions.md` R-31-18-01, amended 2026-09-09): the plugin actions screen scoped to the
@@ -466,8 +448,12 @@ final GoRouter appRouter = GoRouter(
                 ).read(relayConnectionProvider).lastHostInfo?.hostId;
                 return hostId == null ? '/hosts' : '/hosts/$hostId/agents';
               },
-              builder: (BuildContext context, GoRouterState state) =>
-                  const Center(),
+              pageBuilder: (BuildContext context, GoRouterState state) =>
+                  _platformPage(
+                    key: state.pageKey,
+                    title: 'Workspace',
+                    child: const Center(),
+                  ),
             ),
             // R-31-06-01 real route (docs/30-ux-spec.md row 06, R-30-021). Wrapped in
             // `_AgentListRoute` rather than built inline: R-03-091/R-30-521 fire the one-time
@@ -476,8 +462,14 @@ final GoRouter appRouter = GoRouter(
             GoRoute(
               path: '/hosts/:hostId/agents',
               name: 'agent-list',
-              builder: (BuildContext context, GoRouterState state) =>
-                  _AgentListRoute(hostId: state.pathParameters['hostId']!),
+              pageBuilder: (BuildContext context, GoRouterState state) =>
+                  _platformPage(
+                    key: state.pageKey,
+                    title: 'Workspace',
+                    child: _AgentListRoute(
+                      hostId: state.pathParameters['hostId']!,
+                    ),
+                  ),
             ),
           ],
         ),
@@ -498,8 +490,12 @@ final GoRouter appRouter = GoRouter(
                     ? '/hosts'
                     : '/hosts/$hostId/notifications';
               },
-              builder: (BuildContext context, GoRouterState state) =>
-                  const Center(),
+              pageBuilder: (BuildContext context, GoRouterState state) =>
+                  _platformPage(
+                    key: state.pageKey,
+                    title: 'Notifications',
+                    child: const Center(),
+                  ),
             ),
             // R-30-021 real route (docs/30-ux-spec.md row 07, decided 2026-09-04). The
             // `closedPane` query parameter is `routeNotificationTap`'s R-30-511 `pane closed`
@@ -589,20 +585,30 @@ final GoRouter appRouter = GoRouter(
             GoRoute(
               path: '/hosts/:hostId/diagnostics',
               name: 'diagnostics',
-              builder: (BuildContext context, GoRouterState state) =>
-                  _DiagnosticsRoute(hostId: state.pathParameters['hostId']!),
+              pageBuilder: (BuildContext context, GoRouterState state) =>
+                  _platformPage(
+                    key: state.pageKey,
+                    title: 'Diagnostics',
+                    child: _DiagnosticsRoute(
+                      hostId: state.pathParameters['hostId']!,
+                    ),
+                  ),
             ),
             // `/settings/notifications` (docs/30-ux-spec.md row 12), already referenced by
             // `agent_list_screen.dart`'s `onOpenAlertsSettings` above.
             GoRoute(
               path: '/settings/notifications',
               name: 'settings-notifications',
-              builder: (BuildContext context, GoRouterState state) =>
-                  NotificationSettingsScreen(
-                    service: ProviderScope.containerOf(
-                      context,
-                      listen: false,
-                    ).read(notificationsServiceProvider),
+              pageBuilder: (BuildContext context, GoRouterState state) =>
+                  _platformPage(
+                    key: state.pageKey,
+                    title: 'Notifications',
+                    child: NotificationSettingsScreen(
+                      service: ProviderScope.containerOf(
+                        context,
+                        listen: false,
+                      ).read(notificationsServiceProvider),
+                    ),
                   ),
             ),
             // `/hosts/:hostId/devices` (docs/30-ux-spec.md row 14). `localDeviceId` needs an
@@ -686,19 +692,25 @@ final GoRouter appRouter = GoRouter(
             GoRoute(
               path: '/settings/about/licences/:package',
               name: 'licence-detail',
-              builder: (BuildContext context, GoRouterState state) {
+              pageBuilder: (BuildContext context, GoRouterState state) {
                 final String packageName = state.pathParameters['package']!;
                 final Object? extra = state.extra;
                 if (extra is List<LicenseEntry>) {
-                  return LicenceDetailScreen(
-                    packageName: packageName,
-                    entries: extra,
+                  return _platformPage(
+                    key: state.pageKey,
+                    child: LicenceDetailScreen(
+                      packageName: packageName,
+                      entries: extra,
+                    ),
                   );
                 }
                 // A direct deep link, never a link this app itself creates: re-derives the
                 // same data `loadLicensedPackages` already gave the index page, per that
                 // function's own doc comment ("always show the same data from one load").
-                return _LicenceDetailRoute(packageName: packageName);
+                return _platformPage(
+                  key: state.pageKey,
+                  child: _LicenceDetailRoute(packageName: packageName),
+                );
               },
             ),
           ],
@@ -721,7 +733,7 @@ final GoRouter appRouter = GoRouter(
       path: '/hosts',
       name: 'hosts',
       parentNavigatorKey: rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) {
+      pageBuilder: (BuildContext context, GoRouterState state) {
         final container = ProviderScope.containerOf(context, listen: false);
         final RelayConnection conn = container.read(relayConnectionProvider);
         final AgentStatusService agentStatus = container.read(
@@ -732,39 +744,43 @@ final GoRouter appRouter = GoRouter(
         final KeystoreService keystore = container.read(
           keystoreServiceProvider,
         );
-        return HostListScreen(
-          pairedHosts: plainStore.pairedHosts,
-          messages: conn.messages,
-          connectionState: conn.connectionState,
-          initialConnectionState: conn.isConnected
-              ? const RelayConnected()
-              : const RelayDisconnected(),
-          connectedHostId: conn.lastHostInfo?.hostId,
-          unseenAttention: agentStatus.unseenAttention,
-          currentAttention: agentStatus.currentAttention,
-          thisDeviceName: () => _thisDeviceName(plainStore),
-          onSwitch: (PairedHostRecord target) async => switchToHost(
-            connection: conn,
-            keystore: keystore,
-            plainStore: plainStore,
-            gate: gate,
-            target: target,
-            hasNetwork: await _defaultHasNetwork(),
+        return _platformPage(
+          key: state.pageKey,
+          title: 'Hosts',
+          child: HostListScreen(
+            pairedHosts: plainStore.pairedHosts,
+            messages: conn.messages,
+            connectionState: conn.connectionState,
+            initialConnectionState: conn.isConnected
+                ? const RelayConnected()
+                : const RelayDisconnected(),
+            connectedHostId: conn.lastHostInfo?.hostId,
+            unseenAttention: agentStatus.unseenAttention,
+            currentAttention: agentStatus.currentAttention,
+            thisDeviceName: () => _thisDeviceName(plainStore),
+            onSwitch: (PairedHostRecord target) async => switchToHost(
+              connection: conn,
+              keystore: keystore,
+              plainStore: plainStore,
+              gate: gate,
+              target: target,
+              hasNetwork: await _defaultHasNetwork(),
+            ),
+            onForget: (PairedHostRecord target) => forgetHost(
+              keystore: keystore,
+              plainStore: plainStore,
+              hostId: target.hostId,
+            ),
+            onSwitched: (String hostId) {
+              if (appRouter.state.uri.path == '/hosts') {
+                context.go('/hosts/$hostId/agents');
+              }
+            },
+            onPairAnother: () => unawaited(context.push('/pair/scan')),
+            onOpenDiagnostics: (String hostId) =>
+                unawaited(context.push('/hosts/$hostId/diagnostics')),
+            attemptOnLoad: _takeColdStartAttempt(),
           ),
-          onForget: (PairedHostRecord target) => forgetHost(
-            keystore: keystore,
-            plainStore: plainStore,
-            hostId: target.hostId,
-          ),
-          onSwitched: (String hostId) {
-            if (appRouter.state.uri.path == '/hosts') {
-              context.go('/hosts/$hostId/agents');
-            }
-          },
-          onPairAnother: () => unawaited(context.push('/pair/scan')),
-          onOpenDiagnostics: (String hostId) =>
-              unawaited(context.push('/hosts/$hostId/diagnostics')),
-          attemptOnLoad: _takeColdStartAttempt(),
         );
       },
       routes: <RouteBase>[
@@ -786,7 +802,7 @@ final GoRouter appRouter = GoRouter(
       path: '/hosts/:hostId/panes/:paneId',
       name: 'terminal',
       parentNavigatorKey: rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) {
+      pageBuilder: (BuildContext context, GoRouterState state) {
         final container = ProviderScope.containerOf(context, listen: false);
         final RelayConnection conn = container.read(relayConnectionProvider);
         final AppSettingsService settings = container.read(
@@ -794,42 +810,50 @@ final GoRouter appRouter = GoRouter(
         );
         final String hostId = state.pathParameters['hostId']!;
         final String paneId = state.pathParameters['paneId']!;
-        return TerminalScreen(
-          hostId: hostId,
-          paneId: paneId,
-          hostName: conn.lastHostInfo?.hostName ?? hostId,
-          messages: conn.messages,
-          connectionState: conn.connectionState,
-          initialConnectionState: conn.isConnected
-              ? const RelayConnected()
-              : const RelayDisconnected(),
-          send: conn.send,
-          watchPane: conn.watchPane,
-          unwatchPane: conn.unwatchPane,
-          // R-30-210: the ladder position the person chose in Settings
-          // seeds the grid; a pinch steps it for the screen only.
-          initialTextSize: settings.current.terminalTextSize,
-          initialHostTheme: conn.lastHostInfo?.theme,
-          onBack: () => context.pop(),
-          // R-03-113 item 1: the hierarchy switcher sheet moves to a sibling pane in place,
-          // so the terminal route is replaced, never stacked.
-          onSwitchPane: (String switchedPaneId) =>
-              context.pushReplacement('/hosts/$hostId/panes/$switchedPaneId'),
-          // The new terminal requests the tree once after the split acknowledgement.
-          onSplit: (String newPaneId) =>
-              context.pushReplacement('/hosts/$hostId/panes/$newPaneId'),
-          // R-03-055: the pane action sheet's `Plugin actions` row (mockup 10
-          // callout 5) opens this pane's plugin actions, the nested route below.
-          onOpenPluginActions: () =>
-              unawaited(context.push('/hosts/$hostId/panes/$paneId/actions')),
-          onDiagnostics: () =>
-              unawaited(context.push('/hosts/$hostId/diagnostics')),
-          onRevoked: () =>
-              unawaited(_handleHostRevoked(context: context, hostId: hostId)),
-          onFrameState: (TerminalFrameState frame) => ProviderScope.containerOf(
-            context,
-            listen: false,
-          ).read(lastFrameStateProvider).value = (hostId: hostId, state: frame),
+        return _platformPage(
+          key: state.pageKey,
+          title: 'Terminal',
+          child: TerminalScreen(
+            hostId: hostId,
+            paneId: paneId,
+            hostName: conn.lastHostInfo?.hostName ?? hostId,
+            messages: conn.messages,
+            connectionState: conn.connectionState,
+            initialConnectionState: conn.isConnected
+                ? const RelayConnected()
+                : const RelayDisconnected(),
+            send: conn.send,
+            watchPane: conn.watchPane,
+            unwatchPane: conn.unwatchPane,
+            // R-30-210: the ladder position the person chose in Settings
+            // seeds the grid; a pinch steps it for the screen only.
+            initialTextSize: settings.current.terminalTextSize,
+            initialHostTheme: conn.lastHostInfo?.theme,
+            onBack: () => context.pop(),
+            // R-03-113 item 1: the hierarchy switcher sheet moves to a sibling pane in place,
+            // so the terminal route is replaced, never stacked.
+            onSwitchPane: (String switchedPaneId) =>
+                context.pushReplacement('/hosts/$hostId/panes/$switchedPaneId'),
+            // The new terminal requests the tree once after the split acknowledgement.
+            onSplit: (String newPaneId) =>
+                context.pushReplacement('/hosts/$hostId/panes/$newPaneId'),
+            // R-03-055: the pane action sheet's `Plugin actions` row (mockup 10
+            // callout 5) opens this pane's plugin actions, the nested route below.
+            onOpenPluginActions: () =>
+                unawaited(context.push('/hosts/$hostId/panes/$paneId/actions')),
+            onDiagnostics: () =>
+                unawaited(context.push('/hosts/$hostId/diagnostics')),
+            onRevoked: () =>
+                unawaited(_handleHostRevoked(context: context, hostId: hostId)),
+            onFrameState: (TerminalFrameState frame) =>
+                ProviderScope.containerOf(
+                  context,
+                  listen: false,
+                ).read(lastFrameStateProvider).value = (
+                  hostId: hostId,
+                  state: frame,
+                ),
+          ),
         );
       },
       routes: <RouteBase>[
@@ -842,10 +866,14 @@ final GoRouter appRouter = GoRouter(
           path: 'actions',
           name: 'pane-actions',
           parentNavigatorKey: rootNavigatorKey,
-          builder: (BuildContext context, GoRouterState state) =>
-              _PaneActionsRoute(
-                hostId: state.pathParameters['hostId']!,
-                paneId: state.pathParameters['paneId']!,
+          pageBuilder: (BuildContext context, GoRouterState state) =>
+              _platformPage(
+                key: state.pageKey,
+                title: 'Actions',
+                child: _PaneActionsRoute(
+                  hostId: state.pathParameters['hostId']!,
+                  paneId: state.pathParameters['paneId']!,
+                ),
               ),
         ),
       ],
@@ -859,40 +887,45 @@ final GoRouter appRouter = GoRouter(
       path: '/lock',
       name: 'lock',
       parentNavigatorKey: rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) {
+      pageBuilder: (BuildContext context, GoRouterState state) {
         final BiometricGate gate = ProviderScope.containerOf(
           context,
           listen: false,
         ).read(biometricGateProvider);
         final String? held = state.uri.queryParameters['from'];
-        return LockScreen(
-          gate: gate,
-          onUnlocked: () {
-            final bool canGoBack = context.canPop();
-            if (canGoBack) {
-              context.pop();
-            }
-            if (held != null && held.isNotEmpty) {
+        return _platformPage(
+          key: state.pageKey,
+          title: 'Locked',
+          fullscreenDialog: true,
+          child: LockScreen(
+            gate: gate,
+            onUnlocked: () {
+              final bool canGoBack = context.canPop();
               if (canGoBack) {
-                unawaited(context.push(held));
-              } else {
-                // A notification tap or an R-22-034 deep link reaching `/lock` straight
-                // from `_resolveStartupRedirect`, with nothing under this cold-started
-                // lock: `go`, never `push`, or this screen -- now unlocked and never
-                // popped -- stays a stale page under the held route, and back from it
-                // lands the person on a dead lock screen instead of R-30-031's "the
-                // route that opened it".
-                context.go(held);
+                context.pop();
               }
-            } else if (!canGoBack) {
-              // docs/31-mockups/04-lock.md Navigation, "Out, success": "If
-              // neither, /hosts... This screen MUST NOT choose a per-Host
-              // route of its own." A cold start with no held route and
-              // nothing to pop back to lands here, never on a computer this
-              // file picked itself.
-              context.go('/hosts');
-            }
-          },
+              if (held != null && held.isNotEmpty) {
+                if (canGoBack) {
+                  unawaited(context.push(held));
+                } else {
+                  // A notification tap or an R-22-034 deep link reaching `/lock` straight
+                  // from `_resolveStartupRedirect`, with nothing under this cold-started
+                  // lock: `go`, never `push`, or this screen -- now unlocked and never
+                  // popped -- stays a stale page under the held route, and back from it
+                  // lands the person on a dead lock screen instead of R-30-031's "the
+                  // route that opened it".
+                  context.go(held);
+                }
+              } else if (!canGoBack) {
+                // docs/31-mockups/04-lock.md Navigation, "Out, success": "If
+                // neither, /hosts... This screen MUST NOT choose a per-Host
+                // route of its own." A cold start with no held route and
+                // nothing to pop back to lands here, never on a computer this
+                // file picked itself.
+                context.go('/hosts');
+              }
+            },
+          ),
         );
       },
     ),
@@ -902,9 +935,13 @@ final GoRouter appRouter = GoRouter(
       path: '/welcome',
       name: 'welcome',
       parentNavigatorKey: rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) => WelcomeScreen(
-        onScanPressed: () => unawaited(context.push('/pair/scan')),
-        onManualPressed: () => unawaited(context.push('/pair/manual')),
+      pageBuilder: (BuildContext context, GoRouterState state) => _platformPage(
+        key: state.pageKey,
+        title: 'Welcome',
+        child: WelcomeScreen(
+          onScanPressed: () => unawaited(context.push('/pair/scan')),
+          onManualPressed: () => unawaited(context.push('/pair/manual')),
+        ),
       ),
       routes: <RouteBase>[
         _pairManualDeepLinkRoute(name: 'welcome-pair-manual-deeplink'),
@@ -918,24 +955,28 @@ final GoRouter appRouter = GoRouter(
       path: '/pair/scan',
       name: 'pair-scan',
       parentNavigatorKey: rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) {
+      pageBuilder: (BuildContext context, GoRouterState state) {
         final container = ProviderScope.containerOf(context, listen: false);
         final RelayConnection conn = container.read(relayConnectionProvider);
         final BiometricGate gate = container.read(biometricGateProvider);
-        return QrScanScreen(
-          connection: conn,
-          gate: gate,
-          keystore: container.read(keystoreServiceProvider),
-          plainStore: PlainStore(),
-          hasConnectedHost: conn.isConnected,
-          // R-31-02: "Out, fallback: /pair/manual", "Out, back: the previous route" --
-          // the two pairing screens swap in place, they never stack. `push` here (the
-          // reported bug) let repeated toggling grow the stack without bound; back then
-          // had to walk every earlier pairing screen instead of landing on the route
-          // that opened the flow.
-          onManualEntry: () => context.pushReplacement('/pair/manual'),
-          onPaired: (PairingOutcome outcome, PairingInput input) =>
-              context.go('/hosts/${outcome.hostId}/agents'),
+        return _platformPage(
+          key: state.pageKey,
+          title: 'Scan QR code',
+          child: QrScanScreen(
+            connection: conn,
+            gate: gate,
+            keystore: container.read(keystoreServiceProvider),
+            plainStore: PlainStore(),
+            hasConnectedHost: conn.isConnected,
+            // R-31-02: "Out, fallback: /pair/manual", "Out, back: the previous route" --
+            // the two pairing screens swap in place, they never stack. `push` here (the
+            // reported bug) let repeated toggling grow the stack without bound; back then
+            // had to walk every earlier pairing screen instead of landing on the route
+            // that opened the flow.
+            onManualEntry: () => context.pushReplacement('/pair/manual'),
+            onPaired: (PairingOutcome outcome, PairingInput input) =>
+                context.go('/hosts/${outcome.hostId}/agents'),
+          ),
         );
       },
     ),
@@ -948,8 +989,11 @@ final GoRouter appRouter = GoRouter(
       path: '/pair/manual',
       name: 'pair-manual',
       parentNavigatorKey: rootNavigatorKey,
-      builder: (BuildContext context, GoRouterState state) =>
-          _ManualPairingRoute(link: state.uri.queryParameters['link']),
+      pageBuilder: (BuildContext context, GoRouterState state) => _platformPage(
+        key: state.pageKey,
+        title: 'Pair with code',
+        child: _ManualPairingRoute(link: state.uri.queryParameters['link']),
+      ),
     ),
     // The cold-start decision. See this file's `appRouter` doc comment and
     // [_resolveStartupRedirect]'s own doc comment.
@@ -959,8 +1003,8 @@ final GoRouter appRouter = GoRouter(
       parentNavigatorKey: rootNavigatorKey,
       redirect: (BuildContext context, GoRouterState state) =>
           _resolveStartupRedirect(context, state),
-      builder: (BuildContext context, GoRouterState state) =>
-          const SizedBox.shrink(),
+      pageBuilder: (BuildContext context, GoRouterState state) =>
+          _platformPage(key: state.pageKey, child: const SizedBox.shrink()),
     ),
   ],
 );
@@ -1317,8 +1361,11 @@ Future<ManualPairingResult> _attemptManualPairing({
 GoRoute _pairManualDeepLinkRoute({required String name}) => GoRoute(
   path: 'pair/manual',
   name: name,
-  builder: (BuildContext context, GoRouterState state) =>
-      _ManualPairingRoute(link: state.uri.queryParameters['link']),
+  pageBuilder: (BuildContext context, GoRouterState state) => _platformPage(
+    key: state.pageKey,
+    title: 'Pair with code',
+    child: _ManualPairingRoute(link: state.uri.queryParameters['link']),
+  ),
 );
 
 /// The `/pair/manual` route body. Loads the EFF word list
@@ -1700,8 +1747,7 @@ Future<void> _openCreateSheet(BuildContext context) async {
     // never-completed handshake) reached the screen. Report the same sentence the
     // dropped-link `Err` below surfaces (R-30-807's offline wording family), never nothing.
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text(notConnectedMessage)));
+      showChromeSnackbar(context, notConnectedMessage);
     }
     return;
   }
@@ -1714,8 +1760,7 @@ Future<void> _openCreateSheet(BuildContext context) async {
     // R-30-803: the real cause (for example `pane_actions.dart`'s `notConnectedMessage` on a
     // down link), never a fixed sentence that hides it.
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(result.message)));
+      showChromeSnackbar(context, result.message);
     }
     return;
   }
@@ -1761,8 +1806,7 @@ Future<void> _refreshTreeAfterCreate(
     send: conn.send,
   );
   if (result is Err<TreeSnapshot> && context.mounted) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(result.message)));
+    showChromeSnackbar(context, result.message);
   }
 }
 

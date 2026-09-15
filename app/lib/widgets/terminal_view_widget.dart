@@ -73,13 +73,13 @@ import 'package:xterm2/xterm.dart'
 import '../models/messages/theme_palette.dart';
 import 'theme/app_color.dart';
 import 'theme/app_motion.dart';
-import 'theme/app_pressable.dart';
-import 'theme/app_radius.dart';
 import 'theme/app_size.dart';
 import 'theme/app_space.dart';
 import 'theme/app_type.dart';
 import 'theme/chrome_gesture_timing.dart';
 import 'theme/chrome_loading_delay.dart';
+import 'theme/chrome_strip_action.dart';
+import 'theme/chrome_tonal_button.dart';
 import 'treatments.dart';
 
 /// `opacity.dim`, per `docs/32-design-language.md` section 5.4's opacity
@@ -1206,23 +1206,22 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     required Widget child,
     VoidCallback? onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: color.bgRaised,
-          border: Border.symmetric(
-            horizontal: BorderSide(color: color.borderSubtle),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            vertical: AppSpace.space3,
-            horizontal: AppSpace.space4,
-          ),
-          child: child,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.bgRaised,
+        border: Border.symmetric(
+          horizontal: BorderSide(color: color.borderSubtle),
         ),
       ),
+      child: onTap == null
+          ? Padding(
+              padding: const EdgeInsets.symmetric(
+                vertical: AppSpace.space3,
+                horizontal: AppSpace.space4,
+              ),
+              child: child,
+            )
+          : ChromeStripAction(onTap: onTap, child: child),
     );
   }
 
@@ -1388,7 +1387,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     return Positioned(
       bottom: AppSpace.space4,
       right: AppSpace.space4,
-      child: _JumpToBottomPill(color: color, onTap: _jumpToBottom),
+      child: _JumpToBottomPill(onTap: _jumpToBottom),
     );
   }
 
@@ -1459,65 +1458,15 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
 
 void unawaited(Future<void> future) {}
 
-/// The jump-to-bottom pill of R-32-540's anatomy: `size.pill` high inside a
-/// `size.target.min` target, `color.bg.high` under a `color.border.strong`
-/// hairline at `radius.full`, the `vertical_align_bottom` glyph and
-/// `type.label`, `space.3` horizontal padding. The target stands above the
-/// pill, so the pill itself stays `space.4` above the strip. It composes
-/// `AppPressable` like every other button: pressed, per R-32-501's first
-/// case, `color.accent.primary` with the glyph and the label in
-/// `color.fg.on_accent`, on the press scale of R-32-609.
+/// The platform's tonal action returns the terminal to its live end.
 class _JumpToBottomPill extends StatelessWidget {
-  const _JumpToBottomPill({required this.color, required this.onTap});
-
-  final AppColor color;
+  const _JumpToBottomPill({required this.onTap});
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return AppPressable(
-      onTap: onTap,
-      radius: AppRadius.full,
-      builder: (BuildContext context, bool pressed) {
-        final Color ink = pressed ? color.fgOnAccent : color.fgPrimary;
-        return SizedBox(
-          height: AppSize.targetMin,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: AnimatedContainer(
-              duration: AppPressable.fillDuration(context, pressed),
-              curve: AppPressable.fillCurve(context),
-              height: AppSize.pill,
-              padding: const EdgeInsets.symmetric(horizontal: AppSpace.space3),
-              decoration: BoxDecoration(
-                color: pressed ? color.accentPrimary : color.bgHigh,
-                borderRadius: BorderRadius.circular(AppRadius.full),
-                border: Border.all(
-                  color: pressed ? color.accentPrimary : color.borderStrong,
-                  width: AppBorder.hairline,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    // R-32-540: `vertical_align_bottom`, "to the end",
-                    // never a bare downward arrow.
-                    Symbols.vertical_align_bottom_rounded,
-                    size: AppSize.iconMd,
-                    color: ink,
-                    fill: 0,
-                    weight: 400,
-                    grade: 0,
-                  ),
-                  const SizedBox(width: AppSpace.space1),
-                  Text('to bottom', style: AppType.label.copyWith(color: ink)),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => ChromeTonalButton(
+    onPressed: onTap,
+    icon: Symbols.vertical_align_bottom_rounded,
+    child: const Text('to bottom'),
+  );
 }

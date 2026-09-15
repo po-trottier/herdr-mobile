@@ -49,8 +49,8 @@ import 'package:herdr_mobile/services/connectivity.dart'
 import 'package:herdr_mobile/services/keystore.dart' show KeystoreService;
 import 'package:herdr_mobile/services/plain_store.dart' show PlainStore;
 import 'package:herdr_mobile/services/relay.dart' show RelayConnection;
-import 'package:herdr_mobile/widgets/app_list_row.dart' show AppListRow;
 import 'package:local_auth/local_auth.dart' show LocalAuthentication;
+import 'package:material_ui/material_ui.dart' show ListTile, Switch;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -304,12 +304,7 @@ void main() {
     );
   }
 
-  // The iOS branch: `CupertinoPageScaffold` over `ChromeSettingsSection`'s inset-grouped
-  // `CupertinoListSection`, every row a `CupertinoListTile` through `ChromeListRow` (R-33-073,
-  // amended 2026-09-08). The frames prove three things at once. No `Text` falls back to
-  // `MaterialApp`'s yellow double underline (R-41-020); the section's own separators are the
-  // only dividers, because no `AppListRow` renders on iOS, so no row hairline stacks on the
-  // section's into a 2 px line (R-32-515); and the toggle rows trail a `CupertinoSwitch`.
+  // iOS uses native grouped rows, separators, and switches.
   for (final (themeName, brightness) in _themes) {
     testWidgets(
       'default_ios ($themeName) matches docs/31-mockups/15-appearance.md',
@@ -383,7 +378,8 @@ void main() {
           const Offset(0, -200),
         );
         await tester.pumpAndSettle();
-        expect(find.byType(AppListRow), findsNothing);
+        expect(find.byType(ListTile), findsNothing);
+        expect(find.byType(Switch), findsNothing);
         expect(find.byType(CupertinoSwitch), findsWidgets);
         for (final label in <String>['App Lock', 'Alerts', 'About']) {
           expect(

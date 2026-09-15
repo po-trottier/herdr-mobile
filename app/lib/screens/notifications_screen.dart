@@ -40,6 +40,7 @@ import 'dart:math' as math;
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoButton,
+        CupertinoTheme,
         CupertinoNavigationBar,
         CupertinoPageScaffold,
         kMinInteractiveDimensionCupertino;
@@ -48,7 +49,6 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart'
     show
-        AnimatedContainer,
         AnimationStyle,
         Border,
         BorderRadius,
@@ -71,16 +71,13 @@ import 'package:flutter/widgets.dart'
         Icon,
         IconData,
         LayoutBuilder,
-        MainAxisAlignment,
         MainAxisSize,
         MediaQuery,
         Navigator,
         Padding,
-        PositionedDirectional,
         Radius,
         Row,
         SafeArea,
-        Semantics,
         SingleTickerProviderStateMixin,
         SizedBox,
         SliverChildBuilderDelegate,
@@ -90,8 +87,6 @@ import 'package:flutter/widgets.dart'
         SliverPersistentHeader,
         SliverPersistentHeaderDelegate,
         SliverToBoxAdapter,
-        Stack,
-        StackFit,
         State,
         StatefulWidget,
         StatelessWidget,
@@ -116,10 +111,11 @@ import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
         AppBar,
-        Colors,
         IconButton,
         RoundedRectangleBorder,
         Scaffold,
+        TextButton,
+        Theme,
         showModalBottomSheet;
 
 import '../core/result/result.dart' show Err, Result;
@@ -127,20 +123,21 @@ import '../models/messages/agent_status_kind.dart';
 import '../services/agent_status.dart' show NotificationItem;
 import '../services/notifications.dart' show ageTickPeriod;
 import '../widgets/app_ground.dart' show EmptyMark;
+import '../widgets/app_list_row.dart';
 import '../widgets/app_section_header.dart';
 import '../widgets/app_strip.dart';
 import '../widgets/app_text_button.dart';
 import '../widgets/ground_grid.dart' show GroundGrid;
-import '../widgets/status_bar.dart' show BarState, StatusBar;
+import '../widgets/status_bar.dart' show BarState;
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_motion.dart' show AppMotion;
-import '../widgets/theme/app_pressable.dart' show AppPressable;
 import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_confirmation_dialog.dart';
 import '../widgets/theme/chrome_confirmation_outcome.dart';
+import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -837,16 +834,23 @@ class _NotificationRowState extends State<_NotificationRow>
     super.dispose();
   }
 
-  /// R-32-576: one revealed action is as wide as its `type.caption` label plus `space.3` on
-  /// each side, floored at `size.target.min`; the label grows with the text scale and the
-  /// action with it (R-32-210, R-32-363).
+  /// Measure the platform label and reserve the native button padding and glyph.
   double _actionWidth(BuildContext context, String label) {
     final TextPainter painter = TextPainter(
-      text: TextSpan(text: label, style: AppType.caption),
+      text: TextSpan(
+        text: label,
+        style: _isIos
+            ? CupertinoTheme.of(context).textTheme.actionTextStyle
+            : Theme.of(context).textTheme.labelLarge,
+      ),
       textDirection: TextDirection.ltr,
       textScaler: MediaQuery.textScalerOf(context),
     )..layout();
-    final double width = painter.width + AppSpace.space3 * 2;
+    final double width =
+        painter.width +
+        (_isIos ? AppSpace.space5 : AppSpace.space4) * 2 +
+        AppSize.iconMd +
+        AppSpace.space2;
     painter.dispose();
     return math.max(AppSize.targetMin, width);
   }
@@ -877,56 +881,47 @@ class _NotificationRowState extends State<_NotificationRow>
     _controller.reduceMotion = MediaQuery.disableAnimationsOf(context);
     void markRead() => widget.onMarkSeen(paneId);
     void remove() => widget.onRemove(paneId);
-    return Semantics(
-      customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
-        if (!entry.seen)
-          const CustomSemanticsAction(label: 'Mark as read'): markRead,
-        const CustomSemanticsAction(label: 'Remove'): remove,
-      },
-      // R-32-576: the pane extent is derived from the action width, so it needs the row's own
-      // width.
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) => Slidable(
-          controller: _controller,
-          groupTag: _slidableGroupTag,
-          startActionPane: entry.seen
-              ? null
-              : _pane(
-                  constraints,
-                  // `Mark as seen` in the R-32-401 map.
-                  icon: Symbols.done_all_rounded,
-                  label: 'Mark as read',
-                  onTap: markRead,
-                  leading: true,
-                ),
-          endActionPane: _pane(
-            constraints,
-            // `Remove one notification, destructive` in the R-32-401 map (2026-09-08).
-            icon: Symbols.delete_outline_rounded,
-            label: 'Remove',
-            onTap: remove,
-            leading: false,
-          ),
-          child: _RowContent(
-            entry: entry,
-            color: widget.color,
-            showDivider: widget.showDivider,
-            onTap: () => widget.onOpenPane(paneId),
-            onActions: () => widget.onOpenActions(entry),
-            now: widget.now,
-          ),
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) => Slidable(
+        controller: _controller,
+        groupTag: _slidableGroupTag,
+        startActionPane: entry.seen
+            ? null
+            : _pane(
+                constraints,
+                // `Mark as seen` in the R-32-401 map.
+                icon: Symbols.done_all_rounded,
+                label: 'Mark as read',
+                onTap: markRead,
+                leading: true,
+              ),
+        endActionPane: _pane(
+          constraints,
+          // `Remove one notification, destructive` in the R-32-401 map (2026-09-08).
+          icon: Symbols.delete_outline_rounded,
+          label: 'Remove',
+          onTap: remove,
+          leading: false,
+        ),
+        child: _RowContent(
+          entry: entry,
+          color: widget.color,
+          showDivider: widget.showDivider,
+          onTap: () => widget.onOpenPane(paneId),
+          onActions: () => widget.onOpenActions(entry),
+          now: widget.now,
+          customActions: <CustomSemanticsAction, VoidCallback>{
+            if (!entry.seen)
+              const CustomSemanticsAction(label: 'Mark as read'): markRead,
+            const CustomSemanticsAction(label: 'Remove'): remove,
+          },
         ),
       ),
     );
   }
 }
 
-/// One revealed action of a swipe pane, per section 7.25: fill `color.bg.raised`, a
-/// `border.hairline` `color.border.strong` edge where the pane meets the row (its trailing edge
-/// on the [leading] pane, its leading edge on the trailing pane), the icon at `size.icon.md`
-/// above the label at `type.caption`, gap `space.1`, both in `color.fg.primary`, full row
-/// height. Pressed: `color.bg.high` and the R-32-609 scale. A tap acts, then closes the reveal
-/// (R-30-297: the swipe itself never acts).
+/// A platform action inside the existing swipe reveal.
 class _SwipeAction extends StatelessWidget {
   const _SwipeAction({
     required this.icon,
@@ -934,7 +929,6 @@ class _SwipeAction extends StatelessWidget {
     required this.leading,
     required this.onTap,
   });
-
   final IconData icon;
   final String label;
   final bool leading;
@@ -943,108 +937,65 @@ class _SwipeAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
-    final BorderSide edge = BorderSide(
-      color: color.borderStrong,
-      width: AppBorder.hairline,
+    void act() {
+      onTap();
+      unawaited(Slidable.of(context)?.close());
+    }
+
+    final Widget glyph = Icon(
+      icon,
+      size: AppSize.iconMd,
+      color: leading ? null : color.statusError,
     );
     return Expanded(
-      child: Semantics(
-        button: true,
-        label: label,
-        excludeSemantics: true,
-        child: AppPressable(
-          onTap: () {
-            onTap();
-            unawaited(Slidable.of(context)?.close());
-          },
-          builder: (BuildContext context, bool pressed) => AnimatedContainer(
-            duration: AppPressable.fillDuration(context, pressed),
-            curve: AppPressable.fillCurve(context),
-            decoration: BoxDecoration(
-              color: pressed ? color.bgHigh : color.bgRaised,
-              border: leading ? Border(right: edge) : Border(left: edge),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Icon(icon, size: AppSize.iconMd, color: color.fgPrimary),
-                const SizedBox(height: AppSpace.space1),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.caption.copyWith(color: color.fgPrimary),
+      child: ColoredBox(
+        color: color.bgRaised,
+        child: Center(
+          child: _isIos
+              ? CupertinoButton(
+                  onPressed: act,
+                  foregroundColor: color.accentText,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      glyph,
+                      const SizedBox(width: AppSpace.space2),
+                      Text(label),
+                    ],
+                  ),
+                )
+              : TextButton.icon(
+                  onPressed: act,
+                  icon: glyph,
+                  label: Text(label),
                 ),
-              ],
-            ),
-          ),
         ),
       ),
     );
   }
 }
 
-/// One sheet action row of [_NotificationsScreenState._showRowActions], per section 7.16 and
-/// R-32-405: `size.row.one_line` high, the icon at `size.icon.md` in `color.fg.primary` then
-/// `space.3`, the label in `type.body` `color.fg.primary`. Pressed: `color.bg.high` and the
-/// R-32-609 scale. The shape of `pane_actions_sheet.dart`'s own `_ActionRow`, duplicated per
-/// this file's header note.
+/// A native action row in the notification sheet.
 class _SheetActionRow extends StatelessWidget {
   const _SheetActionRow({
     required this.icon,
     required this.label,
     required this.onTap,
   });
-
   final IconData icon;
   final String label;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    return Semantics(
-      button: true,
-      label: label,
-      onTap: onTap,
-      excludeSemantics: true,
-      child: AppPressable(
-        onTap: onTap,
-        builder: (BuildContext context, bool pressed) => AnimatedContainer(
-          duration: AppPressable.fillDuration(context, pressed),
-          curve: AppPressable.fillCurve(context),
-          height: AppSize.rowOneLine,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpace.space4),
-          color: pressed ? color.bgHigh : Colors.transparent,
-          child: Row(
-            children: <Widget>[
-              Icon(icon, size: AppSize.iconMd, color: color.fgPrimary),
-              const SizedBox(width: AppSpace.space3),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.body.copyWith(color: color.fgPrimary),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ChromeListRow.sheet(
+    title: label,
+    leading: Icon(icon, size: AppSize.iconMd),
+    destructive: icon == Symbols.delete_outline_rounded,
+    onTap: onTap,
+  );
 }
 
-/// The row's two-line anatomy (callouts 5 to 8): line one is the phrase with the age at its
-/// trailing edge, the two on one alphabetic baseline; line two is the `space › tab › pane`
-/// breadcrumb alone; then the actions control. No dot: the status is the word in the phrase,
-/// one mark for one fact (R-03-058). An unread row carries its one composed unread signal, the
-/// leading `border.attention` bar in `color.accent.primary`, `type.body.strong` and the
-/// `color.accent.soft` wash; a read row draws none of the three (R-31-07-03). Pressed:
-/// `color.bg.high` and the R-32-609 scale, through [AppPressable]; the bar and the divider ride
-/// along, so the row presses as one piece.
+/// A native notification row with its status, age, and action menu.
 class _RowContent extends StatelessWidget {
   const _RowContent({
     required this.entry,
@@ -1053,136 +1004,69 @@ class _RowContent extends StatelessWidget {
     required this.onTap,
     required this.onActions,
     required this.now,
+    required this.customActions,
   });
-
   final NotificationItem entry;
   final AppColor color;
   final bool showDivider;
   final VoidCallback onTap;
   final VoidCallback onActions;
   final DateTime Function() now;
+  final Map<CustomSemanticsAction, VoidCallback> customActions;
 
   @override
   Widget build(BuildContext context) {
     final String phrase = _phraseFor(entry);
     final String? age = _formatAge(entry.item.at, now: now);
     final List<String> segments = _segmentsFor(entry);
-    // R-32-574: one node, the separator spoken as a comma.
     final String semanticsLabel = <String>[
-      phrase,
       segments.join(', '),
       ?age,
       if (!entry.seen) 'unread',
     ].join(', ');
-
-    final Widget lines = Padding(
-      // The trailing control's own target centres a 20 dp glyph, so the blank that target
-      // adds is taken off the row inset: the glyph's visible edge sits on the same `space.4`
-      // inset every other row's trailing text ends at (R-30-230).
-      padding: EdgeInsets.only(
+    return AppListRow(
+      semanticsValue: semanticsLabel,
+      customSemanticsActions: customActions,
+      preserveTrailingSemantics: true,
+      primary: phrase,
+      primaryWidget: ExcludeSemantics(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                phrase,
+                style: (entry.seen ? AppType.body : AppType.bodyStrong)
+                    .copyWith(color: color.fgPrimary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (age != null) ...<Widget>[
+              const SizedBox(width: AppSpace.space3),
+              Text(
+                age,
+                style: AppType.caption.copyWith(color: color.fgSecondary),
+              ),
+            ],
+          ],
+        ),
+      ),
+      secondary: segments.join(_breadcrumbSeparator),
+      selected: !entry.seen,
+      state: _barStateFor(entry.item.status),
+      showDivider: showDivider,
+      contentPadding: EdgeInsets.only(
         left: AppSpace.space4,
         right: AppSpace.space4 - _menuGlyphInset,
       ),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: ExcludeSemantics(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          phrase,
-                          style:
-                              (entry.seen ? AppType.body : AppType.bodyStrong)
-                                  .copyWith(color: color.fgPrimary),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (age != null) ...<Widget>[
-                        const SizedBox(width: AppSpace.space3),
-                        Text(
-                          age,
-                          style: AppType.caption.copyWith(
-                            color: color.fgSecondary,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  Text(
-                    segments.join(_breadcrumbSeparator),
-                    style: AppType.caption.copyWith(color: color.fgSecondary),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // Callout 11: the visible way to the row's actions (decided 2026-09-08 by the
-          // product owner; the swipes of R-31-07-09 stay shortcuts).
-          _IconAction(
-            icon: Symbols.more_vert_rounded,
-            label: 'Notification actions',
-            onTap: onActions,
-          ),
-        ],
+      trailing: _IconAction(
+        icon: Symbols.more_vert_rounded,
+        label: 'Notification actions',
+        onTap: onActions,
       ),
-    );
-
-    // The row is one labelled button node (R-32-515); its text is excluded so the label is not
-    // read twice, while the actions control of callout 11 stays a second, visible button node
-    // under it (R-30-298 for the swipe actions, `customSemanticsActions` merged in above).
-    return Semantics(
-      label: semanticsLabel,
-      button: true,
       onTap: onTap,
-      child: AppPressable(
-        onTap: onTap,
-        // The fill animates on the `AnimatedContainer`; the bar is a positioned child over it,
-        // flush to the leading edge and as tall as the row, so it never insets the text.
-        builder: (BuildContext context, bool pressed) => AnimatedContainer(
-          duration: AppPressable.fillDuration(context, pressed),
-          curve: AppPressable.fillCurve(context),
-          height: AppSize.rowTwoLine,
-          color: pressed
-              ? color.bgHigh
-              : entry.seen
-              ? Colors.transparent
-              : color.accentSoft,
-          child: Stack(
-            fit: StackFit.expand,
-            children: <Widget>[
-              Column(
-                children: <Widget>[
-                  Expanded(child: lines),
-                  if (showDivider)
-                    Padding(
-                      padding: const EdgeInsets.only(left: AppSpace.space4),
-                      child: Container(
-                        height: AppBorder.hairline,
-                        color: color.borderSubtle,
-                      ),
-                    ),
-                ],
-              ),
-              PositionedDirectional(
-                start: 0,
-                top: 0,
-                bottom: 0,
-                child: StatusBar(state: _barStateFor(entry.item.status)),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

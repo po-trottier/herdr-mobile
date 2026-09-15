@@ -74,6 +74,7 @@ import 'widgets/theme/app_radius.dart' show AppBorder;
 import 'widgets/theme/app_size.dart';
 import 'widgets/theme/app_type.dart';
 import 'widgets/theme/chrome_scheme.dart';
+import 'widgets/theme/chrome_snackbar.dart' show chromeSnackbarTheme;
 
 /// SDK `MaterialLocalizations`, added alongside `material_ui`'s own
 /// auto-appended delegate, never replacing it. `AdaptiveTextSelectionToolbar`
@@ -376,6 +377,7 @@ ThemeData appThemeFrom(ColorScheme colorScheme) {
     scaffoldBackgroundColor: tokens.bgBase,
     dividerColor: tokens.borderSubtle,
     splashFactory: NoSplash.splashFactory,
+    snackBarTheme: chromeSnackbarTheme(tokens),
     cupertinoOverrideTheme: CupertinoThemeData(
       textTheme: CupertinoTextThemeData(
         textStyle: TextStyle(
@@ -388,6 +390,22 @@ ThemeData appThemeFrom(ColorScheme colorScheme) {
         // `type.mono.button`). The button sets the colour itself.
         actionTextStyle: const CupertinoTextThemeData().actionTextStyle
             .copyWith(fontFamily: AppType.interfaceFontFamily),
+        navActionTextStyle: const CupertinoTextThemeData().navActionTextStyle
+            .copyWith(
+              fontFamily: AppType.interfaceFontFamily,
+              color: tokens.fgPrimary,
+            ),
+        navTitleTextStyle: const CupertinoTextThemeData().navTitleTextStyle
+            .copyWith(
+              fontFamily: AppType.interfaceFontFamily,
+              color: tokens.fgPrimary,
+            ),
+        navLargeTitleTextStyle: const CupertinoTextThemeData()
+            .navLargeTitleTextStyle
+            .copyWith(
+              fontFamily: AppType.interfaceFontFamily,
+              color: tokens.fgPrimary,
+            ),
       ),
       barBackgroundColor: tokens.bgRaised,
       brightness: colorScheme.brightness,

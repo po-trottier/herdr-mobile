@@ -9,7 +9,8 @@ library;
 
 import 'dart:async';
 
-import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoNavigationBar;
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoActivityIndicator, CupertinoListTile, CupertinoNavigationBar;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart'
@@ -27,7 +28,8 @@ import 'package:herdr_mobile/widgets/app_ground.dart' show EmptyMark;
 import 'package:herdr_mobile/widgets/ground_grid.dart' show GroundGrid;
 import 'package:herdr_mobile/widgets/theme/app_color.dart' show AppColor;
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
-import 'package:material_ui/material_ui.dart' show AppBar, MaterialApp;
+import 'package:material_ui/material_ui.dart'
+    show AppBar, CircularProgressIndicator, ListTile, MaterialApp;
 
 class _Harness {
   _Harness()
@@ -351,63 +353,85 @@ void main() {
     },
   );
 
-  testWidgets(
-    'invoking an action with no pane_id in the ack shows the snackbar, never a route',
-    (WidgetTester tester) async {
-      const entry = ActionListEntry(
-        pluginId: 'herdr-sidebar',
-        actionId: 'toggle',
-        title: 'Toggle sidebar',
-      );
-      final harness = _Harness();
-      addTearDown(harness.dispose);
-      String? openedHostId;
-      String? openedPaneId;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ActionsScreen(
-            hostId: 'host-1',
-            hostName: 'patrick-desk',
-            messages: harness.messages.stream,
-            connectionState: harness.connectionState.stream,
-            send: harness.send,
-            onOpenPane: (hostId, paneId) {
-              openedHostId = hostId;
-              openedPaneId = paneId;
-            },
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      '${platform.name}: invoking an action without pane_id shows a native notice',
+      (WidgetTester tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        const entry = ActionListEntry(
+          pluginId: 'herdr-sidebar',
+          actionId: 'toggle',
+          title: 'Toggle sidebar',
+        );
+        final harness = _Harness();
+        addTearDown(harness.dispose);
+        String? openedHostId;
+        String? openedPaneId;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ActionsScreen(
+              hostId: 'host-1',
+              hostName: 'patrick-desk',
+              messages: harness.messages.stream,
+              connectionState: harness.connectionState.stream,
+              send: harness.send,
+              onOpenPane: (hostId, paneId) {
+                openedHostId = hostId;
+                openedPaneId = paneId;
+              },
+            ),
           ),
-        ),
-      );
-      await harness.deliver(
-        tester,
-        const Message.actionList(ActionList(actions: [entry])),
-      );
+        );
+        await harness.deliver(
+          tester,
+          const Message.actionList(ActionList(actions: [entry])),
+        );
 
-      await tester.tap(find.text('Toggle sidebar'));
-      await tester.pump();
-      final invokeSent = harness.sent
-          .whereType<MessageHostAction>()
-          .last
-          .payload;
-      expect(invokeSent.action, HostActionKind.pluginInvoke);
-      expect(invokeSent.pluginId, 'herdr-sidebar');
-      expect(invokeSent.actionId, 'toggle');
+        expect(
+          find.ancestor(
+            of: find.text('Toggle sidebar'),
+            matching: find.byType(
+              platform == TargetPlatform.iOS ? CupertinoListTile : ListTile,
+            ),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Toggle sidebar'));
+        await tester.pump();
+        expect(
+          find.byType(
+            platform == TargetPlatform.iOS
+                ? CupertinoActivityIndicator
+                : CircularProgressIndicator,
+          ),
+          findsOneWidget,
+        );
+        final invokeSent = harness.sent
+            .whereType<MessageHostAction>()
+            .last
+            .payload;
+        expect(invokeSent.action, HostActionKind.pluginInvoke);
+        expect(invokeSent.pluginId, 'herdr-sidebar');
+        expect(invokeSent.actionId, 'toggle');
 
-      await harness.deliver(
-        tester,
-        const Message.hostActionAck(
-          HostActionAck(action: HostActionKind.pluginInvoke, success: true),
-        ),
-      );
+        await harness.deliver(
+          tester,
+          const Message.hostActionAck(
+            HostActionAck(action: HostActionKind.pluginInvoke, success: true),
+          ),
+        );
 
-      expect(
-        find.text('Sent Toggle sidebar. Agents shows what exists now.'),
-        findsOneWidget,
-      );
-      expect(openedHostId, isNull);
-      expect(openedPaneId, isNull);
-    },
-  );
+        expect(
+          find.text('Sent Toggle sidebar. Agents shows what exists now.'),
+          findsOneWidget,
+        );
+        expect(openedHostId, isNull);
+        expect(openedPaneId, isNull);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
 
   testWidgets('invoking an action whose ack names a pane offers the route, and a tap on the strip '
       'takes it (R-31-18-13)', (WidgetTester tester) async {

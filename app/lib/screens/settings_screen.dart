@@ -60,10 +60,8 @@ import 'package:material_ui/material_ui.dart'
         ExcludeSemantics,
         FocusNode,
         Scaffold,
-        ScaffoldMessenger,
         SegmentedButton,
         Slider,
-        SnackBar,
         showModalBottomSheet;
 
 import '../core/result/result.dart' show Ok, Err;
@@ -90,6 +88,7 @@ import '../widgets/theme/app_type.dart' show AppType;
 import '../widgets/theme/chrome_list_row.dart' show ChromeListRow;
 import '../widgets/theme/chrome_settings_section.dart'
     show ChromeSettingsSection;
+import '../widgets/theme/chrome_snackbar.dart' show showChromeSnackbar;
 import '../widgets/treatments.dart' show Treatment;
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -430,7 +429,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showSnackbar(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    showChromeSnackbar(context, text);
   }
 
   @override

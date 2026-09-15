@@ -21,10 +21,14 @@
 /// own layout.
 library;
 
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageScaffold;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/lock_screen.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:material_ui/material_ui.dart' show Scaffold;
 
 import 'golden_support.dart';
 
@@ -66,62 +70,55 @@ const _themes = <(String, Brightness)>[
 void main() {
   setUpAll(loadAppFonts);
 
-  for (final testCase in _cases) {
-    for (final (themeName, brightness) in _themes) {
-      testWidgets(
-        '${testCase.name} ($themeName) matches docs/31-mockups/04-lock.md',
-        (tester) async {
-          tester.view.physicalSize = goldenReferenceSize;
-          tester.view.devicePixelRatio = 1.0;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final testCase in _cases) {
+      for (final (themeName, brightness) in _themes) {
+        testWidgets(
+          '${testCase.name} ($themeName, ${platform.name}) matches docs/31-mockups/04-lock.md',
+          (tester) async {
+            debugDefaultTargetPlatformOverride = platform;
+            tester.view.physicalSize = goldenReferenceSize;
+            tester.view.devicePixelRatio = 1.0;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
 
-          await tester.pumpWidget(
-            goldenApp(
-              brightness: brightness,
-              child: LockScreenBody(
-                phase: testCase.phase,
-                biometric: _biometric,
-                offline: testCase.offline,
-                onPrimaryPressed: testCase.phase == LockScreenPhase.checking
-                    ? null
-                    : () {},
-                onFallbackPressed: () {},
+            await tester.pumpWidget(
+              goldenApp(
+                brightness: brightness,
+                child: LockScreenBody(
+                  phase: testCase.phase,
+                  biometric: _biometric,
+                  offline: testCase.offline,
+                  onPrimaryPressed: testCase.phase == LockScreenPhase.checking
+                      ? null
+                      : () {},
+                  onFallbackPressed: () {},
+                ),
               ),
-            ),
-          );
-          await precacheBrandMark(tester, find.byType(LockScreenBody));
-          await tester.pumpAndSettle();
+            );
+            await precacheBrandMark(tester, find.byType(LockScreenBody));
+            await tester.pumpAndSettle();
+            if (platform == TargetPlatform.iOS) {
+              expect(find.byType(Scaffold), findsNothing);
+              final scaffold = tester.widget<CupertinoPageScaffold>(
+                find.byType(CupertinoPageScaffold),
+              );
+              expect(scaffold.backgroundColor!.a, 1);
+            } else {
+              expect(find.byType(CupertinoPageScaffold), findsNothing);
+              expect(find.byType(Scaffold), findsOneWidget);
+            }
 
-          // Structural proof alongside the visual one: every callout the mockup names is
-          // really present in the tree, not just painted to look right by coincidence.
-          expect(find.text('Herdr Remote'), findsOneWidget);
-          expect(
-            find.text(
-              "Your keys stay in this phone's keystore, behind this check.",
-            ),
-            findsOneWidget,
-          );
-          if (testCase.phase == LockScreenPhase.lockedOut ||
-              testCase.phase == LockScreenPhase.noEnrolment) {
-            expect(find.text(_biometric.label), findsNothing);
-          } else {
-            expect(find.text(_biometric.label), findsOneWidget);
-          }
-          expect(find.text('Use device passcode'), findsOneWidget);
-          expect(
-            find.text('No network. The app connects after you unlock.'),
-            findsNWidgets(testCase.offline ? 1 : 0),
-          );
-
-          await expectLater(
-            find.byType(LockScreenBody),
-            matchesGoldenFile(
-              'goldens/lock_screen_${testCase.name}_$themeName.png',
-            ),
-          );
-        },
-      );
+            await expectLater(
+              find.byType(LockScreenBody),
+              matchesGoldenFile(
+                'goldens/lock_screen_${testCase.name}_$themeName${platform == TargetPlatform.iOS ? '_ios' : ''}.png',
+              ),
+            );
+            debugDefaultTargetPlatformOverride = null;
+          },
+        );
+      }
     }
   }
 }

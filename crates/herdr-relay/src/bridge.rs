@@ -1832,18 +1832,27 @@ fn bridge_thread(
             Ok(BridgeRequest::RevokeDevice(request, corr)) => {
                 let mut guard = lock(&state);
                 let host: &mut HostState = &mut guard;
+                // R-11-065: the reply is queued BEFORE the registry fires the close
+                // signal. `serve_session` drains `out_rx` when the signal lands, so a
+                // close fired first can find the queue still empty and send the fatal
+                // `revoked` error ahead of `revoke_result`.
                 let outcome = Bridge::<HerdrClient>::revoke_device_request(
                     &mut host.store,
                     &host.paths,
                     request,
-                    Some(&host.registry),
+                    None,
                 );
                 match outcome {
                     Ok(reply) => {
-                        if let Message::RevokeResult(result) = &reply {
-                            finish_wire_revoke(host, result);
-                        }
+                        let result = match &reply {
+                            Message::RevokeResult(result) => Some(result.clone()),
+                            _ => None,
+                        };
                         let _ = out_tx.send((reply, corr));
+                        if let Some(result) = result {
+                            host.registry.close_for_revocation(&result);
+                            finish_wire_revoke(host, &result);
+                        }
                     }
                     Err(err) => {
                         let mapped = crate::watch::map_watch_error(&err);

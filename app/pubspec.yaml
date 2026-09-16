@@ -22,7 +22,7 @@ dependencies:
   flutter_riverpod: 3.4.2
 
   # Navigation and deep links.
-  go_router: 18.0.0
+  go_router: 18.0.1
 
   # Transport. R-20-009.
   web_socket_channel: 3.0.3

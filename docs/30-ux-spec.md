@@ -555,7 +555,7 @@ easiest thing to trigger by accident in a pocket.
 | Jump to the bottom | Tap the `to bottom` pill, or drag to the bottom, which resumes the live follow on its own | no |
 | Pan the columns | One finger horizontal drag, only when the grid is wider than the screen | no |
 | Change the terminal font size | Two finger pinch. It steps through the seven sizes in `R-30-210` and never lands between them | no |
-| Zoom the QR camera | Two-finger pinch on the viewfinder, per `R-31-02-13` | no |
+| Zoom the QR camera | Multiply the gesture-start factor by the cumulative two-finger pinch scale; clamp to the device range, per `R-31-02-13` | no |
 | Force a read | Pull down from the top of the grid while already at the bottom | no |
 | Move the cursor | The arrow keys in the key row. There is no gesture for this | yes |
 | Esc, Tab | The `esc` and `tab` keys in the key row | yes |

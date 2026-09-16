@@ -47,7 +47,7 @@ import 'package:cupertino_ui/cupertino_ui.dart'
 import 'package:device_info_plus/device_info_plus.dart' show DeviceInfoPlugin;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
-import 'package:flutter/services.dart' show MethodChannel;
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:flutter/widgets.dart'
     show
         AnimatedBuilder,
@@ -61,6 +61,8 @@ import 'package:flutter/widgets.dart'
         Container,
         CrossAxisAlignment,
         CustomPaint,
+        HitTestBehavior,
+        IgnorePointer,
         CustomPainter,
         EdgeInsets,
         ExcludeSemantics,
@@ -113,6 +115,7 @@ import '../models/frame.dart' show frameProtocolVersion;
 import '../models/messages/device_info.dart' as messages show DeviceInfo;
 import '../models/messages/platform.dart' as messages show Platform;
 import '../services/biometric_gate.dart';
+import '../services/camera_zoom.dart';
 import '../services/keystore.dart' show KeystoreService;
 import '../services/origin.dart'
     show RelayOriginErrorCode, RelayOriginException;
@@ -433,18 +436,51 @@ class _Viewfinder extends StatefulWidget {
 
 class _ViewfinderState extends State<_Viewfinder>
     with SingleTickerProviderStateMixin {
-  double _zoom = 0;
-  double _pinchStart = 0;
+  CameraZoomRange? _zoomRange;
+  double _zoom = 1;
+  double _pinchStart = 1;
+  double _pinchTarget = 1;
 
-  void _setZoom(double scale) {
-    setState(() => _zoom = scale.clamp(0.0, 1.0));
+  @override
+  void initState() {
+    super.initState();
+    widget.controller?.addListener(_syncZoom);
+    if (widget.zoomEnabled) unawaited(_loadZoomRange());
+  }
+
+  Future<void> _loadZoomRange() async {
     final controller = widget.controller;
-    if (controller != null) {
-      unawaited(
-        _zoom == 0
-            ? controller.resetZoomScale()
-            : controller.setZoomScale(_zoom),
-      );
+    if (controller == null) return;
+    final range = await CameraZoomRange.load();
+    if (!mounted || controller != widget.controller) return;
+    setState(() {
+      _zoomRange = range;
+      if (range != null) {
+        _zoom = range.factorFromScale(controller.value.zoomScale);
+      }
+    });
+  }
+
+  void _syncZoom() {
+    final range = _zoomRange;
+    final controller = widget.controller;
+    if (range == null || controller == null) return;
+    final factor = range.factorFromScale(controller.value.zoomScale);
+    if (_zoom != factor) setState(() => _zoom = factor);
+  }
+
+  Future<void> _setZoom(double factor, {bool animated = false}) async {
+    final range = _zoomRange;
+    final controller = widget.controller;
+    if (range == null || controller == null) return;
+    final target = factor.clamp(range.min, range.max);
+    setState(() => _zoom = target);
+    try {
+      await range.setFactor(controller, target, animated: animated);
+    } on PlatformException {
+      if (mounted) setState(() => _zoomRange = null);
+    } on MobileScannerException {
+      if (mounted) setState(() => _zoomRange = null);
     }
   }
 
@@ -462,17 +498,22 @@ class _ViewfinderState extends State<_Viewfinder>
   @override
   void didUpdateWidget(_Viewfinder oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.pairing != widget.pairing) {
-      _syncFade();
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?.removeListener(_syncZoom);
+      widget.controller?.addListener(_syncZoom);
+      _zoomRange = null;
     }
+    if (widget.zoomEnabled &&
+        (!oldWidget.zoomEnabled || oldWidget.controller != widget.controller)) {
+      unawaited(_loadZoomRange());
+    }
+    if (oldWidget.pairing != widget.pairing) _syncFade();
   }
 
   void _syncFade() {
     final bool run = widget.pairing && !MediaQuery.disableAnimationsOf(context);
     if (run) {
-      if (!_fade.isAnimating) {
-        _fade.repeat(reverse: true);
-      }
+      if (!_fade.isAnimating) _fade.repeat(reverse: true);
     } else {
       _fade
         ..stop()
@@ -482,6 +523,7 @@ class _ViewfinderState extends State<_Viewfinder>
 
   @override
   void dispose() {
+    widget.controller?.removeListener(_syncZoom);
     _fade.dispose();
     super.dispose();
   }
@@ -490,11 +532,27 @@ class _ViewfinderState extends State<_Viewfinder>
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
     final bool reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final range = _zoomRange;
+    final canZoom = widget.zoomEnabled && range != null;
     return GestureDetector(
-      onScaleStart: widget.zoomEnabled ? (_) => _pinchStart = _zoom : null,
-      onScaleUpdate: widget.zoomEnabled
-          ? (details) => _setZoom(_pinchStart + (details.scale - 1) * 0.5)
+      behavior: HitTestBehavior.opaque,
+      onScaleStart: canZoom
+          ? (_) {
+              _pinchStart = _zoom;
+              _pinchTarget = _zoom;
+            }
           : null,
+      onScaleUpdate: canZoom
+          ? (details) {
+              if (details.pointerCount < 2) return;
+              _pinchTarget = (_pinchStart * details.scale).clamp(
+                range.min,
+                range.max,
+              );
+              unawaited(_setZoom(_pinchTarget, animated: !reduceMotion));
+            }
+          : null,
+      onScaleEnd: canZoom ? (_) => unawaited(_setZoom(_pinchTarget)) : null,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final double side = constraints.maxWidth > 0
@@ -504,47 +562,82 @@ class _ViewfinderState extends State<_Viewfinder>
             fit: StackFit.expand,
             children: <Widget>[
               if (widget.controller != null)
-                ExcludeSemantics(
-                  child: MobileScanner(controller: widget.controller),
+                IgnorePointer(
+                  child: ExcludeSemantics(
+                    child: MobileScanner(controller: widget.controller),
+                  ),
                 ),
-              ExcludeSemantics(
-                child: AnimatedBuilder(
-                  animation: _fade,
-                  builder: (context, _) {
-                    final Color frameColor = widget.pairing && reduceMotion
-                        ? color.fgSecondary
-                        : Color.lerp(
-                            color.accentPrimary,
-                            color.fgSecondary,
-                            AppMotion.curveMove.transform(_fade.value),
-                          )!;
-                    return CustomPaint(
-                      size: Size(constraints.maxWidth, constraints.maxHeight),
-                      painter: _ViewfinderPainter(
-                        scrimColor: color.bgBase.withValues(alpha: _opacityDim),
-                        frameColor: frameColor,
-                        frameSide: side,
-                      ),
-                    );
-                  },
-                ),
-              ),
-              PositionedDirectional(
-                end: (constraints.maxWidth - side) / 2 + AppSpace.space4,
-                bottom: (constraints.maxHeight - side) / 2 + AppSpace.space4,
-                child: Semantics(
-                  label: _zoom == 0 ? 'Zoom in' : 'Zoom out',
-                  child: ChromeTonalButton(
-                    onPressed: widget.zoomEnabled
-                        ? () => _setZoom(_zoom == 0 ? 0.5 : 0)
-                        : null,
-                    child: Text(_zoom == 0 ? '1x' : '2x'),
+              IgnorePointer(
+                child: ExcludeSemantics(
+                  child: AnimatedBuilder(
+                    animation: _fade,
+                    builder: (context, _) {
+                      final Color frameColor = widget.pairing && reduceMotion
+                          ? color.fgSecondary
+                          : Color.lerp(
+                              color.accentPrimary,
+                              color.fgSecondary,
+                              AppMotion.curveMove.transform(_fade.value),
+                            )!;
+                      return CustomPaint(
+                        size: Size(constraints.maxWidth, constraints.maxHeight),
+                        painter: _ViewfinderPainter(
+                          scrimColor: color.bgBase.withValues(
+                            alpha: _opacityDim,
+                          ),
+                          frameColor: frameColor,
+                          frameSide: side,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
+              if (range != null)
+                PositionedDirectional(
+                  start: AppSpace.space4,
+                  end: AppSpace.space4,
+                  bottom: (constraints.maxHeight - side) / 2 + AppSpace.space4,
+                  child: Center(
+                    child: Material(
+                      color: color.bgBase,
+                      borderRadius: BorderRadius.circular(AppRadius.full),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          for (final factor in range.presets)
+                            _zoomButton(factor, canZoom),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _zoomButton(double factor, bool enabled) {
+    final label =
+        '${factor == factor.roundToDouble() ? factor.toInt() : factor}x';
+    final selected = (_zoom - factor).abs() < 0.01;
+    final VoidCallback? onPressed = enabled
+        ? () => unawaited(_setZoom(factor))
+        : null;
+    return Semantics(
+      label: 'Zoom $label',
+      button: true,
+      selected: selected,
+      enabled: enabled,
+      onTap: onPressed,
+      excludeSemantics: true,
+      child: SizedBox(
+        height: AppSize.targetMin,
+        child: selected
+            ? ChromeTonalButton(onPressed: onPressed, child: Text(label))
+            : AppTextButton(label: label, onPressed: onPressed),
       ),
     );
   }

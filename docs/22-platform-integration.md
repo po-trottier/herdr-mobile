@@ -485,6 +485,57 @@ identical pairing input record.
 The entry is six words, never a numeric digit code. An earlier numeric pairing-code format was
 retired in favor of the six-word phrase; see `docs/decisions/ADR-004-pairing-phrase-and-routing.md`.
 
+### 5.4 Camera Zoom Bridge
+
+**R-22-088** The app MUST use `dev.herdr.herdr_mobile/camera_zoom` for device zoom capabilities.
+`getRange` MUST return raw `minZoom`, `maxZoom`, `wideZoom`, and `switchOverFactors`.
+The Dart service MUST divide raw factors by `wideZoom` to obtain the display range.
+The UI contract belongs to `R-31-02-13`; this rule owns only the native bridge and conversion.
+
+On iOS, the bridge MUST observe `AVCaptureSession.didStartRunningNotification` and read the running
+session's video input device. This is the actual device that the scanner selected, not a second
+camera chosen by the app. The pinned plugin normally selects a virtual triple camera, dual camera,
+or wide camera, in that order. The bridge MUST read that device's available zoom bounds and
+virtual-device switch-over factors. `wideZoom` MUST identify the wide-camera factor, with `1` for a
+device without a wider constituent camera. `setZoom` MUST accept `{zoom: rawFactor, animated: bool}`
+and set that device's exact raw factor within its available bounds. This path MUST bypass the
+plugin's raw-factor cap of `5`; that cap does not mean display magnification of `5x`. Preset taps
+MAY ramp to the target. Pinch updates and reduced motion MUST set the factor without a ramp.
+
+On Android, the bridge MUST use the `ProcessCameraProvider` singleton and
+`CameraSelector.DEFAULT_BACK_CAMERA`, as the plugin does. It MUST read
+`getCameraInfo(selector).zoomState.value` for the selected camera's minimum and maximum ratios. It
+MUST NOT infer this range from the first Camera2 device ID. Android returns `wideZoom: 1` and an
+empty `switchOverFactors` list. The Dart service MUST apply the requested ratio through the plugin's
+`setZoomScale`, which uses CameraX `setLinearZoom`. For factor `f`, minimum `m`, and maximum `M`,
+use `(1 / m - 1 / f) / (1 / m - 1 / M)`. Clamp the factor to the range and the normalized result to
+`0..1`. Handle a fixed range without division by zero.
+
+If the running device or valid range is unavailable, report no range. Never substitute a fabricated
+maximum. The app MUST leave scanning available without zoom controls, per `R-31-02-13`.
+
+API evidence, not additional product rules:
+
+- [Pinned Dart controller][camera-controller-740] clamps `setZoomScale` to `0..1`.
+- [Pinned iOS implementation][camera-ios-740] applies the raw-factor cap and establishes the
+  wide-camera reference factor.
+- [Pinned iOS selector][camera-selector-740] defines the default triple/dual/wide discovery order.
+- [Pinned Android implementation][camera-android-740] uses the default back-camera selector and
+  calls `setLinearZoom`.
+- [CameraX zoom documentation][camera-zoom] defines linear zoom as linear field-of-view control,
+  not linear magnification.
+- [CameraX ZoomState][camera-state] defines the selected camera's minimum and maximum zoom ratios.
+- [ProcessCameraProvider][camera-provider] defines the process singleton and selector-based camera
+  information API.
+
+[camera-controller-740]: https://github.com/juliansteenbakker/mobile_scanner/blob/v7.4.0/lib/src/mobile_scanner_controller.dart
+[camera-ios-740]: https://github.com/juliansteenbakker/mobile_scanner/blob/v7.4.0/darwin/mobile_scanner/Sources/mobile_scanner/MobileScannerPlugin.swift
+[camera-selector-740]: https://github.com/juliansteenbakker/mobile_scanner/blob/v7.4.0/darwin/mobile_scanner/Sources/mobile_scanner/MobileScannerCameraSelector.swift
+[camera-android-740]: https://github.com/juliansteenbakker/mobile_scanner/blob/v7.4.0/android/src/main/kotlin/dev/steenbakker/mobile_scanner/MobileScanner.kt
+[camera-zoom]: https://developer.android.com/media/camera/camerax/configuration#camera-control
+[camera-state]: https://developer.android.com/reference/androidx/camera/core/ZoomState
+[camera-provider]: https://developer.android.com/reference/androidx/camera/lifecycle/ProcessCameraProvider
+
 ---
 
 ## 6. Deep Link Handling for `herdr-remote://pair`

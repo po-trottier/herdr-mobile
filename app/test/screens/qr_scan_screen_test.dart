@@ -9,6 +9,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Tristate;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cryptography/cryptography.dart';
@@ -34,7 +35,6 @@ import 'package:herdr_mobile/services/plain_store.dart';
 import 'package:herdr_mobile/services/relay.dart';
 import 'package:herdr_mobile/widgets/app_text_button.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
-import 'package:herdr_mobile/widgets/theme/chrome_tonal_button.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show AppBar, IconButton, Material, MaterialApp;
@@ -63,6 +63,7 @@ void main() {
     for (final name in [
       'dev.fluttercommunity.plus/connectivity_status',
       'dev.steenbakker.mobile_scanner/scanner/method',
+      'dev.herdr.herdr_mobile/camera_zoom',
     ]) {
       messenger.setMockMethodCallHandler(
         MethodChannel(name),
@@ -330,55 +331,154 @@ void main() {
     });
   }
 
-  testWidgets('zoom button and pinch control the camera', (tester) async {
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('camera presets use real factors on ${platform.name}', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      final calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('dev.herdr.herdr_mobile/camera_zoom'),
+        (call) async {
+          calls.add(call);
+          return call.method == 'getRange'
+              ? {
+                  'minZoom': 1.0,
+                  'maxZoom': 8.0,
+                  'wideZoom': 1.0,
+                  'switchOverFactors': <double>[],
+                }
+              : null;
+        },
+      );
+      final camera = _TestCamera();
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: QrScanScreenBody(phase: QrScanPhase.ready, controller: camera),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final label in ['1x', '2x', '5x']) {
+        expect(find.text(label), findsOneWidget);
+      }
+      expect(find.text('0.5x'), findsNothing);
+      await tester.tap(find.text('5x'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSemantics(find.text('5x')).flagsCollection.isSelected,
+        Tristate.isTrue,
+      );
+      if (platform == TargetPlatform.iOS) {
+        expect(calls.last.method, 'setZoom');
+        expect(calls.last.arguments, {'zoom': 5.0, 'animated': false});
+      } else {
+        expect(camera.zoom, closeTo((1 - 1 / 5) / (1 - 1 / 8), 0.000001));
+      }
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await camera.dispose();
+      semantics.dispose();
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
+  testWidgets('wide camera presets respect the available range', (
+    tester,
+  ) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('dev.herdr.herdr_mobile/camera_zoom'),
+      (_) async => {
+        'minZoom': 1.0,
+        'maxZoom': 4.0,
+        'wideZoom': 2.0,
+        'switchOverFactors': [2.0],
+      },
+    );
     final camera = _TestCamera();
     await tester.pumpWidget(
       MaterialApp(
         home: QrScanScreenBody(phase: QrScanPhase.ready, controller: camera),
       ),
     );
-    await tester.tap(find.text('1x'));
-    await tester.pump();
-    expect(camera.zoom, 0.5);
-    await tester.tap(find.text('2x'));
-    await tester.pump();
-    expect(camera.zoom, 0);
-    final center = tester.getCenter(find.byType(MobileScanner));
-    final first = await tester.startGesture(
-      center - const Offset(30, 0),
-      pointer: 1,
-    );
-    final second = await tester.startGesture(
-      center + const Offset(30, 0),
-      pointer: 2,
-    );
-    await tester.pump();
-    await first.moveTo(center - const Offset(90, 0));
-    await second.moveTo(center + const Offset(90, 0));
-    await tester.pump();
-    expect(camera.zoom, greaterThan(0));
-    await first.up();
-    await second.up();
+    await tester.pumpAndSettle();
+    for (final label in ['0.5x', '1x', '2x']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.text('5x'), findsNothing);
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     await camera.dispose();
   });
+
+  testWidgets('pinch uses the gesture start ratio and keeps the last ratio', (
+    tester,
+  ) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('dev.herdr.herdr_mobile/camera_zoom'),
+      (_) async => {
+        'minZoom': 1.0,
+        'maxZoom': 8.0,
+        'wideZoom': 1.0,
+        'switchOverFactors': <double>[],
+      },
+    );
+    final camera = _TestCamera();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QrScanScreenBody(phase: QrScanPhase.ready, controller: camera),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final center = tester.getCenter(find.byType(MobileScanner));
+    Future<void> pinch() async {
+      final first = await tester.startGesture(
+        center - const Offset(40, 0),
+        pointer: 1,
+      );
+      final second = await tester.startGesture(
+        center + const Offset(40, 0),
+        pointer: 2,
+      );
+      await tester.pump();
+      await first.moveTo(center - const Offset(60, 0));
+      await second.moveTo(center + const Offset(60, 0));
+      await tester.pump();
+      await first.moveTo(center - const Offset(80, 0));
+      await second.moveTo(center + const Offset(80, 0));
+      await tester.pump();
+      await first.up();
+      await second.up();
+    }
+
+    await pinch();
+    expect(camera.zoom, closeTo((1 - 1 / 2) / (1 - 1 / 8), 0.000001));
+    await pinch();
+    expect(camera.zoom, closeTo((1 - 1 / 4) / (1 - 1 / 8), 0.000001));
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await camera.dispose();
+  });
+
   for (final phase in [
+    QrScanPhase.ready,
     QrScanPhase.cameraStarting,
     QrScanPhase.cameraUnavailable,
   ]) {
-    testWidgets('zoom is unavailable during ${phase.name}', (tester) async {
+    testWidgets('zoom is hidden without a range during ${phase.name}', (
+      tester,
+    ) async {
+      final camera = _TestCamera();
       await tester.pumpWidget(
-        MaterialApp(home: QrScanScreenBody(phase: phase)),
+        MaterialApp(
+          home: QrScanScreenBody(phase: phase, controller: camera),
+        ),
       );
-      final zoom = find.widgetWithText(ChromeTonalButton, '1x');
-      if (phase == QrScanPhase.cameraStarting) {
-        expect(tester.widget<ChromeTonalButton>(zoom).onPressed, isNull);
-      } else {
-        expect(zoom, findsNothing);
-      }
+      await tester.pumpAndSettle();
+      expect(find.text('1x'), findsNothing);
+      expect(find.text('2x'), findsNothing);
+      expect(find.text('5x'), findsNothing);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await camera.dispose();
     });
   }
-
   for (final code in [
     MobileScannerErrorCode.permissionDenied,
     MobileScannerErrorCode.genericError,

@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
   pull_request:
 
 jobs:
@@ -20,25 +22,61 @@ jobs:
       run:
         working-directory: crates
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup component add rustfmt clippy
       - run: cargo fmt --check
       - run: cargo clippy -p herdr-relay -p herdr-relay-proto --all-targets --all-features -- -D warnings
       - run: cargo test -p herdr-relay -p herdr-relay-proto
 
-  # The relay builds, lints and tests only through its Dockerfile
-  # (docs/12-relay-hosting.md R-12-012). ubuntu-latest ships Docker, so no setup action
-  # is needed.
-
+  # The relay uses the Dockerfile for both gates and publication (R-12-012).
   relay-container:
     name: Relay container
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
       - name: Build test image (fmt, clippy, tests)
-        run: docker build --target test -f crates/herdr-relay-hub/Dockerfile .
-      - name: Build final image
-        run: docker build -f crates/herdr-relay-hub/Dockerfile -t herdr-relay-hub .
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: crates/herdr-relay-hub/Dockerfile
+          target: test
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=relay-test
+          cache-to: type=gha,mode=max,scope=relay-test
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ghcr.io/po-trottier/herdr-relay-hub
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=match,pattern=v(.*),group=1,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=pr
+      - name: Build and publish final image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: crates/herdr-relay-hub/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=relay-image
+          cache-to: type=gha,mode=max,scope=relay-image
 
   # Host plugin release cross-builds (docs/90-implementation-plan.md §5.2, Phase 11,
   # requested by WP-11; docs/00-overview.md hard requirement 4: the plugin MUST work
@@ -64,7 +102,7 @@ jobs:
       run:
         working-directory: crates
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release -p herdr-relay --target ${{ matrix.target }}
 
@@ -77,8 +115,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: subosito/flutter-action@v2.23.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: "3.47.0"
       - run: flutter pub get
@@ -100,8 +138,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: subosito/flutter-action@v2.23.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: "3.47.0"
       - run: flutter pub get

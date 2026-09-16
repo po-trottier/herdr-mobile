@@ -36,6 +36,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CameraZoomChannel(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, biometricGateChannel)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

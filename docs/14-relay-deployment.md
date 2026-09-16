@@ -32,7 +32,7 @@ tested targets. Other distributions that ship Docker and a systemd init are expe
 ```yaml
 services:
   relay:
-    image: ghcr.io/herdr/herdr-relay-hub:v1.0.0
+    image: ghcr.io/po-trottier/herdr-relay-hub:latest
     container_name: herdr-relay-hub
     restart: unless-stopped
     environment:
@@ -79,9 +79,16 @@ Save the Caddyfile beside `compose.yaml`. Start both services with:
 docker compose up -d
 ```
 
-**R-14-011** The image reference `ghcr.io/herdr/herdr-relay-hub:v1.0.0` is a placeholder. The
-operator replaces it with the actual published image tag. The relay binary inside the container is
-a static musl Linux binary.
+**R-14-011** The supported image MUST be `ghcr.io/po-trottier/herdr-relay-hub:latest`.
+The container contains the static musl Linux binary. R-40-058 owns image publication and tag rules.
+Pull the supported image with:
+
+```bash
+docker pull ghcr.io/po-trottier/herdr-relay-hub:latest
+```
+
+GHCR packages are private on first publication. The package owner MUST set this package to public
+for an operator to pull it without credentials.
 
 **R-14-012** The relay container MUST be named `herdr-relay-hub`. Its restart policy MUST be
 `unless-stopped`.
@@ -244,6 +251,11 @@ This profile is a **single instance** behind one reverse proxy on one VM. It doe
   supported in version 1.
 
 ## Sources
+
+- GitHub Actions package publication — <https://docs.github.com/en/actions/publishing-packages/publishing-docker-images>.
+  Confirms GHCR login with `GITHUB_TOKEN`, `packages: write`, and Docker metadata and build actions.
+- GitHub Container Registry — <https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry>.
+  Confirms the initial private visibility and anonymous pulls for public container packages.
 
 - `docs/12-relay-hosting.md` — endpoint definitions, size and rate limits, log-field allow list,
   metric names, alert conditions

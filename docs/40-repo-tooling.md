@@ -496,6 +496,7 @@ app/
 │   │   ├── agent_status.dart
 │   │   ├── app_settings.dart
 │   │   ├── biometric_gate.dart
+│   │   ├── camera_zoom.dart      # Owner: CameraZoom (R-90-018)
 │   │   ├── chord_latch.dart
 │   │   ├── composer.dart
 │   │   ├── connectivity.dart
@@ -702,7 +703,8 @@ app/
 │       ├── build.gradle.kts
 │       └── src/main/
 │           ├── AndroidManifest.xml
-│           ├── kotlin/.../
+│           ├── kotlin/dev/herdr/herdr_mobile/
+│           │   ├── CameraZoomChannel.kt # Owner: CameraZoom (R-90-018)
 │           │   └── MainActivity.kt
 │           └── res/
 │               ├── drawable-mdpi/
@@ -714,6 +716,7 @@ app/
     ├── Podfile
     └── Runner/
         ├── AppDelegate.swift
+        ├── CameraZoomChannel.swift # Owner: CameraZoom (R-90-018)
         ├── ChromeReduceTransparencyChannel.swift
         ├── Info.plist
         ├── Assets.xcassets/
@@ -748,7 +751,7 @@ implementation reads it and never regenerates it, so no work package owns a path
 ├── copilot-instructions.md
 ├── dependabot.yml
 └── workflows/
-    └── ci.yml
+    └── ci.yml                  # Owner: WP-0-a (R-90-018); gates and image publication
 ```
 
 `ci.yml` holds every gate of §6, including the optional `ios` job. `dependabot.yml` holds the daily
@@ -1044,6 +1047,24 @@ Continuous integration belongs to the implementation phase. Phase 0 created it:
 
 CI runs on a platform that provides Linux, Windows and macOS runners. `.github/workflows/ci.yml` is
 that configuration.
+
+| Gate | Job | Required result |
+| --- | --- | --- |
+| Native Rust | `rust` | R-41-114 and R-41-115 |
+| Relay container and image publication | `relay-container` | R-12-012 and R-40-058 |
+| Host release targets | `host-release` | R-90-016, Phase 11 |
+| Android app | `flutter` | §7.2.3 |
+| iOS app | `ios` | Optional; R-90-012 |
+
+**R-40-058** The `relay-container` job MUST build the Dockerfile test and final stages on pull requests.
+It MUST NOT publish a pull request build.
+It MUST publish the R-14-011 image on pushes to `main` and `v*` tags.
+A `main` build MUST publish `latest` and `sha-<short>` tags.
+A `v<version>` build MUST publish `<version>` without changing `latest`.
+Manual runs MUST publish only from `main` or a `v*` tag; other refs build only.
+The job MUST use SHA-pinned actions, `GITHUB_TOKEN`, and the GitHub Actions build cache.
+It MUST build `linux/amd64` from the repository root.
+The Dockerfile's target and `COPY` paths require this platform and context.
 
 ### 6.1 Scheduled dependency updates
 

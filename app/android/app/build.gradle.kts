@@ -41,6 +41,8 @@ android {
 }
 
 dependencies {
+    // Expose mobile_scanner's existing CameraX dependency at the same version for compilation.
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 

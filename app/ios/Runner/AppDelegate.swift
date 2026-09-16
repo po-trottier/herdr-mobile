@@ -21,6 +21,9 @@ import UIKit
   /// `dev.herdr.herdr_mobile/app_settings` channel, "open" method.
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    CameraZoomChannel.register(
+      with: engineBridge.pluginRegistry.registrar(forPlugin: "CameraZoomChannel")
+    )
 
     let chromeReduceTransparencyRegistrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "ChromeReduceTransparencyChannel"

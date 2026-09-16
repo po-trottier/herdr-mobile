@@ -4,9 +4,8 @@
 /// (R-32-012). The sheet-based failures open a modal route from the stateful orchestrator, so
 /// they are not bodies this file can construct.
 ///
-/// Every case passes `controller: null`, so `_Viewfinder` paints the scrim and the corner marks
-/// over the ground grid and no camera preview. That makes the scrim measurable: the grid lines
-/// inside the frame stay at full contrast and the lines outside sit under `opacity.dim`.
+/// Ready cases use a camera controller and native zoom range without a camera feed.
+/// Other cases omit the controller and show no zoom controls.
 ///
 /// The `pairing` case runs the corner-mark fade of the mockup's `Loading, pairing` row, a
 /// repeating animation `pumpAndSettle` would never settle, so that case pumps exactly one
@@ -17,12 +16,25 @@ library;
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
-import 'package:flutter/widgets.dart' show Brightness;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/qr_scan_screen.dart';
 import 'package:herdr_mobile/widgets/theme/app_motion.dart' show AppMotion;
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'golden_support.dart';
+
+class _GoldenCamera extends MobileScannerController {
+  _GoldenCamera() : super(autoStart: false) {
+    value = value.copyWith(zoomScale: 0);
+  }
+
+  @override
+  Stream<BarcodeCapture> get barcodes => const Stream.empty();
+
+  @override
+  Future<void> setZoomScale(double scale) async {}
+}
 
 class _Case {
   const _Case(
@@ -95,12 +107,39 @@ void main() {
           if (testCase.ios) {
             debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
           }
+          final camera = testCase.phase == QrScanPhase.ready
+              ? _GoldenCamera()
+              : null;
+          final messenger = tester.binding.defaultBinaryMessenger;
+          const zoomChannel = MethodChannel(
+            'dev.herdr.herdr_mobile/camera_zoom',
+          );
+          const scannerChannel = MethodChannel(
+            'dev.steenbakker.mobile_scanner/scanner/method',
+          );
+          messenger.setMockMethodCallHandler(scannerChannel, (_) async => null);
+          messenger.setMockMethodCallHandler(zoomChannel, (call) async {
+            return call.method == 'getRange'
+                ? {
+                    'minZoom': 1.0,
+                    'maxZoom': 8.0,
+                    'wideZoom': 1.0,
+                    'switchOverFactors': <double>[],
+                  }
+                : null;
+          });
+          addTearDown(() async {
+            await camera?.dispose();
+            messenger.setMockMethodCallHandler(zoomChannel, null);
+            messenger.setMockMethodCallHandler(scannerChannel, null);
+          });
 
           await tester.pumpWidget(
             goldenApp(
               brightness: brightness,
               child: QrScanScreenBody(
                 phase: testCase.phase,
+                controller: camera,
                 connectingHost: '172.16.188.73:8080',
                 onCancel: () {},
                 hasConnectedHost: testCase.hasConnectedHost,
@@ -115,8 +154,9 @@ void main() {
               ),
             ),
           );
+          await tester.pump();
           if (testCase.zoomed) {
-            await tester.tap(find.text('1x'));
+            await tester.tap(find.text('5x'));
             await tester.pumpAndSettle();
           }
           if (testCase.phase == QrScanPhase.pairing) {

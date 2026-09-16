@@ -219,15 +219,21 @@ The four values the app takes from it:
   During pairing, disable `Type it in` and keep `Cancel` enabled in the panel of `R-31-02-14`.
   The screen MUST NOT show a connection state before pairing starts.
   Replace the camera start hint when the platform reports no usable camera.
-- **R-31-02-13** The viewfinder MUST support a two-finger pinch from the current zoom scale.
-  `GestureDetector.onScaleUpdate` MUST call `MobileScannerController.setZoomScale` with a value
-  clamped to `0..1`.
-  One `ChromeTonalButton` MUST sit at the bottom-trailing corner of the viewfinder.
-  Its `1x` and `2x` labels MUST toggle between scale `0` and `0.5`.
-  Its semantics MUST be `Zoom in` and `Zoom out`, respectively.
-  Use `resetZoomScale()` to restore the initial camera zoom.
-  The button and pinch MUST stay disabled while the camera starts or is unavailable.
-  The button MUST use the platform control, per `R-03-059`, and the minimum target of `R-30-290`.
+- **R-31-02-13** The viewfinder MUST support two-finger pinch and device-range presets.
+ The camera bridge in `R-22-088` owns range discovery and factor conversion.
+ Show `0.5x`, `1x`, `2x`, and `5x` only when the device range permits each value.
+ If the maximum is below `5x`, include that maximum without a duplicate preset.
+ Labels MUST represent actual magnification relative to the wide camera, not a normalized plugin scale.
+ Use `CupertinoButton` on iOS. Use `TextButton` and selected `FilledButton.tonal` on Android.
+ Each preset MUST expose toggled selection semantics and its ratio, for example `Zoom 5x`.
+ Keep the native selected appearance and the minimum target in `R-30-290`.
+ At gesture start, save the current factor. Multiply that factor by each pinch update's cumulative scale.
+ Clamp the result to the device range. Do not multiply the previous update by the cumulative scale.
+ Do not replace preset labels with a synthetic zoom label during pinch.
+ Decorative overlays MUST ignore pointer events so transparent areas do not block the viewfinder gesture.
+ Preset buttons MUST remain interactive above those overlays.
+ Disable zoom while the camera starts or is unavailable. Hide the controls when no valid range is available.
+ Never invent a fallback range. Reduced motion MUST disable the iOS zoom ramp.
 - **R-31-02-14** A committed scan MUST immediately replace the bottom bar with a connecting panel.
   Show the `CONNECTING` eyebrow, `Connecting to <host>...` in `type.body`, and a `ChromeActivityIndicator`.
   `<host>` MUST contain only the relay host and optional port, such as `172.16.188.73:8080`.
@@ -272,6 +278,8 @@ None.
 
 ## Sources
 
+- [CameraX ZoomMath.getLinearZoomFromZoomRatio][camerax-zoommath] - reciprocal ratio conversion
+  used by the bridge in `R-22-088`.
 - [Apple Support: Zoom in or out in Camera on iPhone][apple-camera] — camera pinch and zoom
   controls.
 - [MobileScannerController.setZoomScale][scanner-zoom] — camera zoom API.
@@ -291,3 +299,4 @@ None.
 
 [apple-camera]: https://support.apple.com/guide/iphone/camera-basics-iph263472f78/ios
 [scanner-zoom]: https://pub.dev/documentation/mobile_scanner/7.4.0/mobile_scanner/MobileScannerController/setZoomScale.html
+[camerax-zoommath]: https://github.com/androidx/androidx/blob/androidx-main/camera/camera-camera2/src/main/java/androidx/camera/camera2/internal/ZoomMath.kt

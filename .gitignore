@@ -19,7 +19,7 @@
 /node_modules/
 
 # Rust build output (crates/Cargo.toml workspace, Phase 0 onward).
-/crates/target/
+/crates/target*/
 
 # ── Agent-local files ────────────────────────────────────────────────────────
 # Personal, per-machine agent instructions. The shared instructions live in

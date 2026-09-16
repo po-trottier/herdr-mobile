@@ -153,8 +153,8 @@ once and the compiler enforces agreement between the two sides.
 
 There is **no built-in relay**. You run your own, or you use one a person you trust runs. The pairing
 link carries its address, so the app ships with no default server and phones home to nobody.
-[`docs/14-relay-deployment.md`](docs/14-relay-deployment.md) is a copy-ready profile: one public Linux
-VM, Docker and Caddy.
+[`docs/14-relay-deployment.md`](docs/14-relay-deployment.md) is a copy-ready profile: one Docker host,
+the relay container and a Cloudflare Tunnel. No public IP and no inbound port.
 
 Pairing uses a QR code on the workstation. The fallback is six words you can read out loud. One phone
 connects to a Host at a time, and a paired phone has full control of the terminal.

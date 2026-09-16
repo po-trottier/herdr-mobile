@@ -5,11 +5,13 @@
 //! relay instance without fighting a lazily-initialized global (R-41-038: no silent
 //! substitute for an unset value, just the stated default).
 
-/// The five Phase 8 environment variables this crate reads itself. `HERDR_RELAY_LISTEN`
+/// The environment variables that this crate reads. `HERDR_RELAY_LISTEN`
 /// and `HERDR_RELAY_METRICS_LISTEN` are bind addresses `main.rs` reads directly, since
 /// only `main.rs` binds a `TcpListener` (R-14-014).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Config {
+    /// `HERDR_RELAY_CLIENT_IP_HEADER`, default empty (R-12-071).
+    pub(crate) client_ip_header: String,
     /// `HERDR_RELAY_MAX_HANDLES`, default `4096` (R-12-034).
     pub(crate) max_handles: usize,
     /// `HERDR_RELAY_CONNECTION_RATE`, default `10` (R-12-031).
@@ -29,6 +31,7 @@ impl Config {
     /// else — it is simply not a value, so the stated default applies).
     pub(crate) fn from_env() -> Self {
         Self {
+            client_ip_header: std::env::var("HERDR_RELAY_CLIENT_IP_HEADER").unwrap_or_default(),
             max_handles: env_usize("HERDR_RELAY_MAX_HANDLES", 4096),
             connection_rate_per_sec: env_usize("HERDR_RELAY_CONNECTION_RATE", 10),
             frame_rate_per_sec: env_usize("HERDR_RELAY_FRAME_RATE", 100),

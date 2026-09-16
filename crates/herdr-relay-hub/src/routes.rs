@@ -114,7 +114,8 @@ async fn host_upgrade(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    accept(ws, &headers, state, addr.ip(), &handle, Role::Host)
+    let ip = client_ip(&headers, addr.ip(), &state.config.client_ip_header);
+    accept(ws, &headers, state, ip, &handle, Role::Host)
 }
 
 async fn device_upgrade(
@@ -124,7 +125,18 @@ async fn device_upgrade(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    accept(ws, &headers, state, addr.ip(), &handle, Role::Device)
+    let ip = client_ip(&headers, addr.ip(), &state.config.client_ip_header);
+    accept(ws, &headers, state, ip, &handle, Role::Device)
+}
+
+/// Resolves the address for both per-IP limits (R-12-071).
+fn client_ip(headers: &HeaderMap, peer: IpAddr, header_name: &str) -> IpAddr {
+    headers
+        .get(header_name)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(peer)
 }
 
 /// Liveness probe: `200 ok`, no handle, session id, IP address or peer count
@@ -176,9 +188,34 @@ fn requests_subprotocol(headers: &HeaderMap) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::HeaderValue;
+    #[test]
+    fn trusted_client_ip_header() {
+        let peer = "192.0.2.1".parse().unwrap();
+        for (value, expected) in [
+            (None, peer),
+            (Some("198.51.100.2"), "198.51.100.2".parse().unwrap()),
+            (
+                Some(" 198.51.100.3 , 192.0.2.2"),
+                "198.51.100.3".parse().unwrap(),
+            ),
+            (Some("garbage"), peer),
+            (Some("garbage, 198.51.100.2"), peer),
+            (Some("2001:db8::1"), "2001:db8::1".parse().unwrap()),
+        ] {
+            let mut headers = axum::http::HeaderMap::new();
+            if let Some(value) = value {
+                headers.insert("x-forwarded-for", HeaderValue::from_str(value).unwrap());
+            }
+            assert_eq!(
+                super::client_ip(&headers, peer, "X-Forwarded-For"),
+                expected
+            );
+            assert_eq!(super::client_ip(&headers, peer, ""), peer);
+        }
+    }
 
     use super::{healthz, requests_subprotocol};
+    use axum::http::HeaderValue;
 
     /// `/healthz` returns `200 ok` (R-12-010).
     #[tokio::test]

@@ -144,7 +144,7 @@ Read in this order. Each document states its own numbered rules, cited as `R-<pr
 | `11-relay-protocol.md` | The wire protocol between Host, relay and Device. |
 | `12-relay-hosting.md` | Relay architecture and hosting requirements. |
 | `13-security-pairing.md` | Cryptography, pairing, Device identity and revocation. |
-| `14-relay-deployment.md` | The supported public deployment profile. Operator-ready Docker and Caddy commands. |
+| `14-relay-deployment.md` | The supported public deployment profile. Operator-ready Docker Compose with a Cloudflare Tunnel. |
 | `15-nvidia-brev-relay-experiment.md` | Internal NVIDIA Brev deployment experiment. Not a product dependency. |
 | `20-mobile-framework.md` | The framework decision, the app stack, and the project layout. |
 | `21-terminal-rendering.md` | The terminal emulator library, render strategy, font and input mapping. |

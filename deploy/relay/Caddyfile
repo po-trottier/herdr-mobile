@@ -1,4 +1,0 @@
-# docs/14-relay-deployment.md R-14-021. The hostname comes from RELAY_HOSTNAME (R-14-024).
-{$RELAY_HOSTNAME} {
-    reverse_proxy relay:8080
-}

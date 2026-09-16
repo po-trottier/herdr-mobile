@@ -99,9 +99,8 @@ The relay is a purpose-built WebSocket server. The Host connects to
 `wss://<relay>/device/<handle>`. The relay pairs the two sockets by handle and copies frames
 bidirectionally. Frames are Noise ciphertext. No plaintext exists on the relay.
 
-A reverse proxy (normally Caddy) terminates public TLS. The supported deployment uses a private
-Compose network, where Caddy forwards WebSocket connections to the `relay:8080` service
-(`docs/14-relay-deployment.md` R-14-021 and R-14-022).
+Cloudflare Tunnel provides public TLS for the supported deployment. See
+`docs/14-relay-deployment.md` R-14-021 and R-14-022 for the deployment profile.
 
 ### Option B — SSH Reverse Tunnel to a Bastion
 
@@ -251,14 +250,14 @@ the uncompressed JSON envelope size that `docs/11-relay-protocol.md` R-11-035 bo
 cap is enforced by the sender before compression and by the receiver after decompression, both
 inside the Noise session (R-11-233, R-11-234), never by the relay.
 
-**R-12-031** The relay MUST limit new WebSocket connections to 10 per second per source IP address.
+**R-12-031** The relay MUST limit new WebSocket connections to 10 per second per client IP (R-12-071).
 A connection that exceeds the limit receives `rate_limited` (`4008`).
 
 **R-12-032** The relay MUST limit the frame rate to 100 frames per second per connection. A peer
 that exceeds the limit receives `rate_limited` (`4008`).
 
 **R-12-033** The relay MUST limit the handle-registration rate to 5 new handles per second from the
-same source IP address. Exceeding the limit receives `rate_limited` (`4008`).
+same client IP (R-12-071). Exceeding the limit receives `rate_limited` (`4008`).
 
 **R-12-034** The relay MUST limit the total registered handles to the configured maximum. The default
 is `4096`. Exceeding the maximum receives `rate_limited` (`4008`). This limit protects the in-memory
@@ -290,6 +289,18 @@ NOT attempt to persist or recover the handle map. Peers reconnect with the same 
 relay creates a fresh registration. This is the restart behaviour that R-12-013 implies, stated
 explicitly for the crash case. No peer receives advance notice; the Device detects the drop
 through the WebSocket close or the ping timeout (R-12-022) and reconnects with backoff.
+
+**R-12-071** `HERDR_RELAY_CLIENT_IP_HEADER` is a string with an empty default.
+When empty, the relay MUST use the TCP peer IP for R-12-031 and R-12-033.
+Otherwise, the relay MUST read the named request header.
+The relay MUST parse its first comma-separated entry as an IP address.
+The relay MUST remove whitespace around that entry and accept IPv4 and IPv6.
+If the header is absent or the entry is invalid, the relay MUST use the TCP peer IP.
+The variable MUST name a trusted client-IP header when the relay is behind a proxy or tunnel.
+The proxy or tunnel MUST replace that header with the client IP and prevent direct access to the relay.
+The variable MUST stay empty when clients connect directly.
+A client-controlled header would defeat the limits.
+The relay MUST NOT log the header value or the IP address (R-12-042).
 
 ## Logging
 
@@ -350,7 +361,8 @@ at `trace` or `debug` level. The `tracing` subscriber MUST filter frame bodies b
 
 ## TLS and Cryptography
 
-The reverse proxy in front of the relay, normally Caddy, terminates the public TLS hop. The relay
+The ingress in front of the relay terminates the public TLS hop; in the supported profile that is
+Cloudflare's edge, reached through a `cloudflared` tunnel (`docs/14-relay-deployment.md`). The relay
 binary still links the platform TLS stack through its HTTP and WebSocket libraries, because it may
 serve TLS directly in a single-host deployment and because its client-side test harness connects
 outward.
@@ -361,8 +373,9 @@ The relay links the platform TLS stack.
 
 ## Deployment Paths
 
-The relay has one supported deployment profile: a public Linux VM running the relay container behind
-Caddy. See `docs/14-relay-deployment.md`.
+The relay has one supported deployment profile: a Docker host running the relay container beside a
+`cloudflared` tunnel connector, with no public IP and no inbound port. See
+`docs/14-relay-deployment.md`.
 
 An internal NVIDIA experiment using Brev direct instances is documented separately. It is not a
 product dependency. See `docs/15-nvidia-brev-relay-experiment.md`.

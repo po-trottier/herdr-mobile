@@ -281,8 +281,10 @@ count, frame byte total (R-12-014).
 
 ### 2.8 TLS wording
 
-**R-11-122**: The reverse proxy in front of the relay, normally Caddy, terminates the public TLS
-hop (R-14-020). The relay binary still links the platform TLS stack through its HTTP and WebSocket
+**R-11-122**: The ingress in front of the relay terminates the public TLS hop; in the supported
+profile that is Cloudflare's edge, reached through a tunnel (`docs/14-relay-deployment.md` §
+"Cloudflare Tunnel", R-14-013). The relay binary still links the platform TLS stack through its
+HTTP and WebSocket
 library dependencies. The relay performs **no application-layer payload decryption and holds no
 Noise keys.** The statement "the Hub binary has zero crypto dependencies" is retired. Rationale: the
 relay's `axum` and `tokio-tungstenite` dependencies link `rustls` or the platform native TLS stack,
@@ -2116,7 +2118,7 @@ specify the real compression and fragmentation design (R-11-229 to R-11-239).
 - `docs/13-security-pairing.md` — rules R-13-001 to R-13-066 (cryptography, pairing, identity,
   revocation, phrase semantics).
 - `docs/14-relay-deployment.md` — rules R-14-001 to R-14-071 (the supported public deployment
-  profile, reverse proxy, Caddy).
+  profile, Cloudflare Tunnel).
 - `docs/20-mobile-framework.md` — rules R-20-001 to R-20-040 (app stack, compression, dependency
   versions, the swipe-action package).
 - `docs/21-terminal-rendering.md` — rules R-21-001 to R-21-020 (terminal rendering).

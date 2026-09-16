@@ -140,6 +140,27 @@ The relay service MUST publish no host port.
 
 Port 80 is published for certificate issuance and renewal.
 
+**R-14-024** An operator whose Compose tool manages only `compose.yaml` and `.env` (Arcane and
+similar UIs) MAY replace the `./Caddyfile` bind mount of R-14-010 with a Compose inline config.
+The Caddyfile text MUST stay the R-14-021 text; only its delivery changes:
+
+```yaml
+  caddy:
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+
+configs:
+  caddyfile:
+    content: |
+      ${RELAY_HOSTNAME} {
+          reverse_proxy relay:8080
+      }
+```
+
+`RELAY_HOSTNAME` is set in the project's `.env` file. Every other line of R-14-010 stays as
+written. Inline `configs.content` needs Compose 2.23.1 or later.
+
 **R-14-023** Caddy handles the WebSocket upgrade automatically. The `reverse_proxy` directive
 forwards the `Connection: Upgrade` and `Upgrade: websocket` headers without extra configuration.
 
@@ -261,4 +282,6 @@ This profile is a **single instance** behind one reverse proxy on one VM. It doe
   metric names, alert conditions
 
 - Docker Compose file reference — `https://docs.docker.com/reference/compose-file/`.
+- Docker Compose `configs` top-level element — `https://docs.docker.com/reference/compose-file/configs/`.
+  Confirms inline `content` for a config, available since Compose 2.23.1.
 - Caddy 2.11.4 release — `https://github.com/caddyserver/caddy/releases/tag/v2.11.4`.

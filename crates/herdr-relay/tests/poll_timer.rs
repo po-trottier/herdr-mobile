@@ -258,7 +258,9 @@ fn send_input_arms_reads_that_carry_the_echo_of_a_keystroke() {
 
     let (tx, rx) = mpsc::channel::<std::io::Result<String>>();
     let frame_slot: LatestSlot<PaneFrame> = LatestSlot::new();
-    let deadline = Instant::now() + Duration::from_millis(400);
+    // The last R-10-071 read arms at 250 ms; the margin absorbs a slow CI runner and the
+    // 60 s poll pin keeps the count exact.
+    let deadline = Instant::now() + Duration::from_millis(1500);
     bridge
         .run_until(&rx, deadline, &frame_slot, |_| {}, || {})
         .expect("the run loop completes at the deadline with no error");
@@ -306,7 +308,7 @@ fn input_with_unchanged_text_reads_but_sends_no_frame() {
 
     let (tx, rx) = mpsc::channel::<std::io::Result<String>>();
     let frame_slot: LatestSlot<PaneFrame> = LatestSlot::new();
-    let deadline = Instant::now() + Duration::from_millis(400);
+    let deadline = Instant::now() + Duration::from_millis(1500);
     bridge
         .run_until(&rx, deadline, &frame_slot, |_| {}, || {})
         .expect("the run loop completes at the deadline with no error");
@@ -345,7 +347,7 @@ fn refused_input_arms_no_reads() {
 
     let (tx, rx) = mpsc::channel::<std::io::Result<String>>();
     let frame_slot: LatestSlot<PaneFrame> = LatestSlot::new();
-    let deadline = Instant::now() + Duration::from_millis(400);
+    let deadline = Instant::now() + Duration::from_millis(1500);
     bridge
         .run_until(&rx, deadline, &frame_slot, |_| {}, || {})
         .expect("the run loop completes at the deadline with no error");

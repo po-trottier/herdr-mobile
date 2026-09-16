@@ -555,6 +555,7 @@ easiest thing to trigger by accident in a pocket.
 | Jump to the bottom | Tap the `to bottom` pill, or drag to the bottom, which resumes the live follow on its own | no |
 | Pan the columns | One finger horizontal drag, only when the grid is wider than the screen | no |
 | Change the terminal font size | Two finger pinch. It steps through the seven sizes in `R-30-210` and never lands between them | no |
+| Zoom the QR camera | Two-finger pinch on the viewfinder, per `R-31-02-13` | no |
 | Force a read | Pull down from the top of the grid while already at the bottom | no |
 | Move the cursor | The arrow keys in the key row. There is no gesture for this | yes |
 | Esc, Tab | The `esc` and `tab` keys in the key row | yes |
@@ -1169,7 +1170,9 @@ another.
     `08-terminal.md`, `13-connection.md`, `14-devices.md` and `18-actions.md`.
 - **R-30-947** A failed switch, with its exact outcome. Two paths reach it: a switch a person
   started from a row tap, and a pairing that failed after `R-30-945` had already disconnected the
-  previous computer. Both end the same way, with nothing connected and everything still saved.
+  previous computer. Both end the same way, with nothing connected and everything still saved. A
+  pairing cancelled after that disconnect MUST also land on `/hosts` with nothing connected; the app
+  MUST NOT restore the previous connection.
   - The app MUST NOT start a switch while the phone has no network. The tap MUST show the offline
     state instead, per `R-30-805` and `R-30-806`, and MUST leave the current computer connected.
     Dropping it would give up the cheap reconnect that `R-11-125` holds, and gain nothing.

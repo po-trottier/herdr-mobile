@@ -10,6 +10,7 @@
 /// before it checks anything else, so a hand-picked short fixture can never validate here.
 library;
 
+import 'dart:async' show Completer;
 import 'dart:convert' show base64Url;
 import 'dart:io' show File;
 import 'dart:typed_data' show Uint8List;
@@ -39,7 +40,12 @@ import 'package:herdr_mobile/screens/manual_pairing_screen.dart';
 import 'package:herdr_mobile/services/keystore.dart';
 import 'package:herdr_mobile/services/origin.dart' show RelayOrigin;
 import 'package:herdr_mobile/services/pairing.dart'
-    show PairingInput, PairingOutcome, autocompleteWords, persistPairing;
+    show
+        PairingCancellation,
+        PairingInput,
+        PairingOutcome,
+        autocompleteWords,
+        persistPairing;
 import 'package:herdr_mobile/services/plain_store.dart';
 import 'package:herdr_mobile/widgets/app_filled_button.dart';
 import 'package:herdr_mobile/widgets/ground_grid.dart';
@@ -210,7 +216,7 @@ void main() {
         MaterialApp(
           home: ManualPairingScreen(
             effWords: words,
-            onPair: (input) async {
+            onPair: (input, cancellation) async {
               pressedWith = ManualPairingSucceeded(
                 PairingOutcome(
                   hostId: 'host-1',
@@ -310,7 +316,7 @@ void main() {
         home: ManualPairingScreen(
           effWords: words,
           savedRelayOrigin: savedOrigin,
-          onPair: (input) async {
+          onPair: (input, cancellation) async {
             final result = await persistPairing(
               keystore: keystore,
               plainStore: plainStore,
@@ -772,8 +778,46 @@ void main() {
     );
   });
 
+  testWidgets('Cancel aborts pairing and ignores a late failure', (
+    tester,
+  ) async {
+    final pending = Completer<ManualPairingResult>();
+    PairingCancellation? cancellation;
+    var cancelledSwitches = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ManualPairingScreen(
+          effWords: words,
+          onCancelled: () => cancelledSwitches++,
+          onPair: (input, token) {
+            cancellation = token;
+            return pending.future;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _fillValidPhrase(tester);
+    await tester.ensureVisible(find.text('Pair'));
+    await tester.tap(find.text('Pair'));
+    await tester.pump();
+    expect(find.text('CONNECTING'), findsOneWidget);
+    expect(find.text('Connecting to relay.example.com...'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(cancellation!.isCancelled, isTrue);
+    expect(cancelledSwitches, 0);
+    expect(find.text('Pairing cancelled.'), findsOneWidget);
+    pending.complete(
+      const ManualPairingFailed(ManualPairingFailureCode.linkFailed),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Try again'), findsNothing);
+    expect(find.text('Pair'), findsOneWidget);
+  });
+
   group('Post-attempt failures (mockup 03 states table)', () {
-    testWidgets('a link failure keeps the typed words, shows the link-failure sentence with '
+    testWidgets('a link failure keeps the typed words, shows the safe transport cause and '
         'the raw cause, and keeps the primary action enabled as Try again '
         '(R-31-03-13, R-30-803, R-30-804)', (WidgetTester tester) async {
       const rawCause =
@@ -782,7 +826,7 @@ void main() {
         MaterialApp(
           home: ManualPairingScreen(
             effWords: words,
-            onPair: (input) async => const ManualPairingFailed(
+            onPair: (input, cancellation) async => const ManualPairingFailed(
               ManualPairingFailureCode.linkFailed,
               detail: rawCause,
             ),
@@ -801,12 +845,10 @@ void main() {
 
       // The sentence of R-31-03-13 and the raw cause of R-30-803 both show.
       expect(
-        find.text(
-          'Could not pair. Check the network and the six words, then try again.',
-        ),
+        find.textContaining('Could not reach relay.example.com:'),
         findsOneWidget,
       );
-      expect(find.text(rawCause), findsOneWidget);
+      expect(find.text(rawCause), findsNothing);
 
       // Every field keeps what the person typed.
       final fields = find.byType(CupertinoTextField);
@@ -833,7 +875,7 @@ void main() {
         MaterialApp(
           home: ManualPairingScreen(
             effWords: words,
-            onPair: (input) async => const ManualPairingFailed(
+            onPair: (input, cancellation) async => const ManualPairingFailed(
               ManualPairingFailureCode.phraseAttempts,
             ),
           ),
@@ -893,7 +935,7 @@ void main() {
             effWords: words,
             initialInput: input,
             isConnected: true,
-            onPair: (value) async {
+            onPair: (value, cancellation) async {
               submitted = value;
               calls++;
               return const ManualPairingFailed(
@@ -959,7 +1001,7 @@ void main() {
                     )
                   : null,
               isConnected: true,
-              onPair: (_) async {
+              onPair: (_, cancellation) async {
                 calls++;
                 return const ManualPairingFailed(
                   ManualPairingFailureCode.linkFailed,
@@ -1009,7 +1051,7 @@ void main() {
               host: 'saved.example.com',
             ),
             initialInput: input,
-            onPair: (value) async {
+            onPair: (value, cancellation) async {
               submitted = value;
               return const ManualPairingFailed(
                 ManualPairingFailureCode.linkFailed,

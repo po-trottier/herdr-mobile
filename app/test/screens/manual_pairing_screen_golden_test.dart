@@ -17,7 +17,7 @@ library;
 
 import 'dart:async' show Completer;
 import 'dart:convert' show base64Url;
-import 'dart:io' show File;
+import 'dart:io' show File, SocketException, OSError;
 import 'dart:typed_data' show Uint8List;
 
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoTextField;
@@ -28,7 +28,8 @@ import 'package:flutter/widgets.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/manual_pairing_screen.dart';
 import 'package:herdr_mobile/services/origin.dart' show RelayOrigin;
-import 'package:herdr_mobile/services/pairing.dart' show PairingInput;
+import 'package:herdr_mobile/services/pairing.dart'
+    show PairingInput, PairingCancellation;
 import 'package:herdr_mobile/widgets/app_filled_button.dart'
     show AppFilledButton;
 
@@ -103,7 +104,10 @@ const _cases = <_Case>[
     fill: _Fill.all,
     result: ManualPairingFailed(
       ManualPairingFailureCode.linkFailed,
-      detail: 'WebSocketException: Connection refused',
+      cause: SocketException(
+        'Connection refused',
+        osError: OSError('Connection refused', 111),
+      ),
     ),
   ),
 ];
@@ -133,8 +137,10 @@ void main() {
           }
 
           final pending = Completer<ManualPairingResult>();
-          Future<ManualPairingResult> onPair(PairingInput input) =>
-              testCase.loading
+          Future<ManualPairingResult> onPair(
+            PairingInput input,
+            PairingCancellation cancellation,
+          ) => testCase.loading
               ? pending.future
               : Future<ManualPairingResult>.value(testCase.result);
 
@@ -197,6 +203,17 @@ void main() {
               } else {
                 await tester.pumpAndSettle();
               }
+          }
+          if (testCase.loading) {
+            expect(find.text('CONNECTING'), findsOneWidget);
+            expect(find.text('Cancel'), findsOneWidget);
+            await expectLater(
+              find.byType(ManualPairingScreen),
+              matchesGoldenFile(
+                'goldens/manual_pairing_loading_$themeName.png',
+              ),
+            );
+            return;
           }
           // R-03-128: actions stay pinned while the form returns to its start.
           FocusManager.instance.primaryFocus?.unfocus();

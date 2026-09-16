@@ -103,6 +103,7 @@ import '../services/origin.dart'
 import '../services/pairing.dart'
     show
         PairingInput,
+        PairingCancellation,
         PairingOutcome,
         PhraseErrorCode,
         PhraseException,
@@ -113,11 +114,13 @@ import '../services/pairing.dart'
         parsePairingUri,
         splitPastedPhrase,
         validatePhrase;
+import '../services/pairing_failure.dart';
 import '../widgets/app_filled_button.dart';
 import '../widgets/app_section_header.dart';
 import '../widgets/app_strip.dart';
 import '../widgets/app_text_button.dart';
 import '../widgets/key_label.dart';
+import '../widgets/pairing_connecting_panel.dart';
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_haptic.dart';
 import '../widgets/theme/app_radius.dart';
@@ -197,12 +200,6 @@ String _originSentenceFor(RelayOriginErrorCode code) => switch (code) {
 const String _handleMalformedSentence =
     'That computer address is malformed. Read the code again.';
 
-/// The one sentence mockup `03-pair-code.md` R-31-03-13 fixes for a link failure. The
-/// pairing error text table of `docs/30-ux-spec.md` owns no code for it, so it lives here
-/// rather than in [_sentenceFor].
-const String _linkFailedSentence =
-    'Could not pair. Check the network and the six words, then try again.';
-
 /// R-30-940's headline, and the name-free detail line R-31-02-08 fixes for both pairing
 /// screens ("`/pair/manual` MUST use this same variant"): `host_in_use` arrives before the
 /// Noise tunnel exists, so no computer name is known yet.
@@ -233,7 +230,8 @@ final class ManualPairingSucceeded extends ManualPairingResult {
 /// or a local step that failed, or a handshake that failed while the phrase still has
 /// tries left), per mockup `03-pair-code.md` R-31-03-13.
 final class ManualPairingFailed extends ManualPairingResult {
-  const ManualPairingFailed(this.code, {this.detail});
+  const ManualPairingFailed(this.code, {this.detail, this.cause});
+  final Object? cause;
   final ManualPairingFailureCode code;
 
   /// The raw cause text of a [ManualPairingFailureCode.linkFailed], shown in
@@ -263,6 +261,7 @@ class ManualPairingScreen extends StatefulWidget {
     this.onPair,
     this.onPaired,
     this.onScanInstead,
+    this.onCancelled,
   });
 
   /// The bundled EFF long word list (R-13-025), for [validatePhrase]'s and
@@ -285,7 +284,13 @@ class ManualPairingScreen extends StatefulWidget {
   /// Fires when `Pair` is pressed with every field valid (R-31-03-04). A caller drives the
   /// actual `attemptPairing` handshake and reports back one [ManualPairingResult]. `null` is a
   /// deliberate no-op (R-90-016).
-  final Future<ManualPairingResult> Function(PairingInput input)? onPair;
+  final Future<ManualPairingResult> Function(
+    PairingInput input,
+    PairingCancellation cancellation,
+  )?
+  onPair;
+
+  final VoidCallback? onCancelled;
 
   /// Fires once [onPair] reports [ManualPairingSucceeded]. Per R-31-04-10's sibling rule on
   /// `/lock`, this widget never decides where to go next; a caller supplies that.
@@ -320,11 +325,12 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
   );
 
   bool _submitting = false;
+  bool _pairingCancelled = false;
+  PairingCancellation? _cancellation;
   bool _offline = false;
   bool _hostInUse = false;
   bool _linkFailed = false;
   bool _linkStarted = false;
-  String? _linkFailureDetail;
 
   String? _originError;
   String? _handleError;
@@ -392,6 +398,7 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
     for (final node in _wordFocusNodes) {
       node.dispose();
     }
+    _cancellation?.cancel();
     super.dispose();
   }
 
@@ -536,7 +543,6 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
       _wordErrorMessage = message;
       _phraseLevelError = null;
       _linkFailed = false;
-      _linkFailureDetail = null;
     });
     unawaited(AppHaptic.error());
     _announce(message);
@@ -627,7 +633,6 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
       _wordErrorMessage = wordMessage;
       _phraseLevelError = phraseLevel;
       _linkFailed = false;
-      _linkFailureDetail = null;
     });
     final announcement = wordMessage ?? phraseLevel;
     if (announcement != null) {
@@ -703,7 +708,6 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
       _wordErrorMessage = null;
       _phraseLevelError = null;
       _linkFailed = false;
-      _linkFailureDetail = null;
     });
     FocusScope.of(context).unfocus();
   }
@@ -741,25 +745,33 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
     }
     setState(() {
       _submitting = true;
+      _pairingCancelled = false;
       _hostInUse = false;
       _linkFailed = false;
-      _linkFailureDetail = null;
     });
-    final result = await onPair(inputResult.value);
-    if (!mounted) {
+    FocusScope.of(context).unfocus();
+    final cancellation = PairingCancellation();
+    _cancellation = cancellation;
+    final result = await onPair(inputResult.value, cancellation);
+    if (!mounted || cancellation.isCancelled) {
       return;
     }
     switch (result) {
       case ManualPairingSucceeded(:final outcome):
         setState(() => _submitting = false);
         unawaited(AppHaptic.commit());
+        cancellation.complete();
         widget.onPaired?.call(outcome);
-      case ManualPairingFailed(:final code, :final detail):
-        _showFailure(code, detail);
+      case ManualPairingFailed(:final code, :final detail, :final cause):
+        _showFailure(code, detail, cause);
     }
   }
 
-  void _showFailure(ManualPairingFailureCode code, [String? detail]) {
+  void _showFailure(
+    ManualPairingFailureCode code, [
+    String? detail,
+    Object? cause,
+  ]) {
     switch (code) {
       case ManualPairingFailureCode.phraseExpired:
         final sentence = _sentenceFor(PhraseErrorCode.phraseExpired);
@@ -767,7 +779,6 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
           _submitting = false;
           _phraseLevelError = sentence;
           _linkFailed = false;
-          _linkFailureDetail = null;
         });
         _announce(sentence);
       case ManualPairingFailureCode.phraseAttempts:
@@ -781,7 +792,6 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
           _wordErrorMessage = null;
           _phraseLevelError = sentence;
           _linkFailed = false;
-          _linkFailureDetail = null;
         });
         _announce(sentence);
       case ManualPairingFailureCode.hostInUse:
@@ -789,19 +799,25 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
           _submitting = false;
           _hostInUse = true;
           _linkFailed = false;
-          _linkFailureDetail = null;
         });
       // R-31-03-13: the words stay, `Pair` stays enabled as the one
       // `Try again` of R-30-804, and the raw cause shows under the sentence
       // per R-30-803.
       case ManualPairingFailureCode.linkFailed:
+        final sentence = pairingFailureSentence(
+          cause ?? detail,
+          Uri.tryParse(_originController.text)?.authority ?? 'relay',
+          secrets: [
+            _handleController.text,
+            _wordControllers.map((controller) => controller.text).join('-'),
+          ],
+        );
         setState(() {
           _submitting = false;
           _linkFailed = true;
-          _linkFailureDetail = detail;
-          _phraseLevelError = _linkFailedSentence;
+          _phraseLevelError = sentence;
         });
-        _announce(_linkFailedSentence);
+        _announce(sentence);
     }
   }
 
@@ -1013,7 +1029,29 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
       ),
     );
     // R-03-127: forms use plain ground, including the pinned actions.
-    final ground = SizedBox.expand(child: body);
+    final ground = SizedBox.expand(
+      child: _submitting
+          ? SafeArea(
+              child: PairingConnectingPanel(
+                host:
+                    Uri.tryParse(_originController.text)?.authority ?? 'relay',
+                onCancel: () {
+                  if (!_submitting) return;
+                  final cancellation = _cancellation;
+                  cancellation?.cancel();
+                  unawaited(AppHaptic.select());
+                  setState(() {
+                    _submitting = false;
+                    _pairingCancelled = true;
+                  });
+                  if (cancellation?.disconnectedHost ?? false) {
+                    widget.onCancelled?.call();
+                  }
+                },
+              ),
+            )
+          : body,
+    );
     if (_isIos) {
       return CupertinoPageScaffold(
         backgroundColor: color.bgBase,
@@ -1166,19 +1204,13 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
       rows.add(const SizedBox(height: AppSpace.space2));
       rows.add(Treatment.error(label: _wordErrorMessage!));
     }
+    if (_pairingCancelled) {
+      rows.add(const SizedBox(height: AppSpace.space2));
+      rows.add(const Treatment.ok(label: 'Pairing cancelled.'));
+    }
     if (_phraseLevelError != null) {
       rows.add(const SizedBox(height: AppSpace.space2));
       rows.add(Treatment.error(label: _phraseLevelError!));
-    }
-    // R-30-803: the link-failure state shows the raw cause under the sentence.
-    if (_linkFailureDetail != null) {
-      rows.add(const SizedBox(height: AppSpace.space2));
-      rows.add(
-        Text(
-          _linkFailureDetail!,
-          style: AppType.monoCode.copyWith(color: color.fgPrimary),
-        ),
-      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

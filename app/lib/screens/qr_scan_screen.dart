@@ -64,15 +64,18 @@ import 'package:flutter/widgets.dart'
         CustomPainter,
         EdgeInsets,
         ExcludeSemantics,
+        GestureDetector,
         Expanded,
         LayoutBuilder,
         MainAxisSize,
         MediaQuery,
         Navigator,
         Padding,
+        PositionedDirectional,
         Radius,
         Row,
         SafeArea,
+        Semantics,
         SingleTickerProviderStateMixin,
         SizedBox,
         Stack,
@@ -114,6 +117,7 @@ import '../services/keystore.dart' show KeystoreService;
 import '../services/origin.dart'
     show RelayOriginErrorCode, RelayOriginException;
 import '../services/pairing.dart';
+import '../services/pairing_failure.dart';
 import '../services/plain_store.dart' show PlainStore;
 import '../services/relay.dart';
 import '../widgets/app_filled_button.dart';
@@ -121,6 +125,7 @@ import '../widgets/app_text_button.dart';
 import '../widgets/eyebrow.dart';
 import '../widgets/ground_grid.dart';
 import '../widgets/key_label.dart';
+import '../widgets/pairing_connecting_panel.dart';
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_haptic.dart';
 import '../widgets/theme/app_motion.dart';
@@ -129,6 +134,7 @@ import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_icon_action.dart';
+import '../widgets/theme/chrome_tonal_button.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -171,8 +177,9 @@ enum QrScanPhase {
 
 /// One inline hint issue: the scanner keeps running and the hint takes `treat.error`.
 final class QrHintIssue {
-  const QrHintIssue(this.text);
+  const QrHintIssue(this.text, {this.isError = true});
   final String text;
+  final bool isError;
 }
 
 /// One single-action informational bottom sheet (`relay_origin_insecure`,
@@ -228,6 +235,8 @@ class QrScanScreenBody extends StatelessWidget {
     this.onManualEntry,
     this.onHelp,
     this.onOpenSettings,
+    this.connectingHost = '',
+    this.onCancel,
   });
 
   final QrScanPhase phase;
@@ -256,6 +265,8 @@ class QrScanScreenBody extends StatelessWidget {
   final VoidCallback? onManualEntry;
   final VoidCallback? onHelp;
   final VoidCallback? onOpenSettings;
+  final String connectingHost;
+  final VoidCallback? onCancel;
 
   static const String _defaultHint =
       'Point the camera at the QR code in the Relay pane on your computer.';
@@ -309,26 +320,34 @@ class QrScanScreenBody extends StatelessWidget {
       _ => _Viewfinder(
         controller: controller,
         pairing: phase == QrScanPhase.pairing,
+        zoomEnabled: phase == QrScanPhase.ready,
       ),
     };
 
     final Widget body = Column(
       children: <Widget>[
         Expanded(child: preview),
-        _BottomBar(
-          color: color,
-          hintText: _hintText,
-          hintIsError: hint != null,
-          hasConnectedHost: hasConnectedHost,
-          switchCaption: _switchCaption,
-          offline: offline,
-          offlineStrip: _offlineStrip,
-          phase: phase,
-          onManualEntry: phase == QrScanPhase.pairing ? null : onManualEntry,
-          onOpenSettings: phase == QrScanPhase.permissionDenied
-              ? onOpenSettings
-              : null,
-        ),
+        if (phase == QrScanPhase.pairing && fingerprintText == null)
+          PairingConnectingPanel(
+            host: connectingHost,
+            onCancel: onCancel ?? () {},
+          )
+        else
+          _BottomBar(
+            color: color,
+            hintText: _hintText,
+            hintIsError: hint?.isError ?? false,
+            hintIsOk: hint != null && !hint!.isError,
+            hasConnectedHost: hasConnectedHost,
+            switchCaption: _switchCaption,
+            offline: offline,
+            offlineStrip: _offlineStrip,
+            phase: phase,
+            onManualEntry: phase == QrScanPhase.pairing ? null : onManualEntry,
+            onOpenSettings: phase == QrScanPhase.permissionDenied
+                ? onOpenSettings
+                : null,
+          ),
       ],
     );
 
@@ -398,10 +417,15 @@ class QrScanScreenBody extends StatelessWidget {
 /// reduced motion (R-32-606, R-30-730) nothing runs: the marks hold `color.fg.secondary`, the
 /// fade's far end, so the state still reads without motion.
 class _Viewfinder extends StatefulWidget {
-  const _Viewfinder({required this.controller, required this.pairing});
+  const _Viewfinder({
+    required this.controller,
+    required this.pairing,
+    required this.zoomEnabled,
+  });
 
   final MobileScannerController? controller;
   final bool pairing;
+  final bool zoomEnabled;
 
   @override
   State<_Viewfinder> createState() => _ViewfinderState();
@@ -409,6 +433,21 @@ class _Viewfinder extends StatefulWidget {
 
 class _ViewfinderState extends State<_Viewfinder>
     with SingleTickerProviderStateMixin {
+  double _zoom = 0;
+  double _pinchStart = 0;
+
+  void _setZoom(double scale) {
+    setState(() => _zoom = scale.clamp(0.0, 1.0));
+    final controller = widget.controller;
+    if (controller != null) {
+      unawaited(
+        _zoom == 0
+            ? controller.resetZoomScale()
+            : controller.setZoomScale(_zoom),
+      );
+    }
+  }
+
   late final AnimationController _fade = AnimationController(
     vsync: this,
     duration: AppMotion.durationSlow,
@@ -451,7 +490,11 @@ class _ViewfinderState extends State<_Viewfinder>
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
     final bool reduceMotion = MediaQuery.disableAnimationsOf(context);
-    return ExcludeSemantics(
+    return GestureDetector(
+      onScaleStart: widget.zoomEnabled ? (_) => _pinchStart = _zoom : null,
+      onScaleUpdate: widget.zoomEnabled
+          ? (details) => _setZoom(_pinchStart + (details.scale - 1) * 0.5)
+          : null,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final double side = constraints.maxWidth > 0
@@ -461,26 +504,43 @@ class _ViewfinderState extends State<_Viewfinder>
             fit: StackFit.expand,
             children: <Widget>[
               if (widget.controller != null)
-                MobileScanner(controller: widget.controller),
-              AnimatedBuilder(
-                animation: _fade,
-                builder: (context, _) {
-                  final Color frameColor = widget.pairing && reduceMotion
-                      ? color.fgSecondary
-                      : Color.lerp(
-                          color.accentPrimary,
-                          color.fgSecondary,
-                          AppMotion.curveMove.transform(_fade.value),
-                        )!;
-                  return CustomPaint(
-                    size: Size(constraints.maxWidth, constraints.maxHeight),
-                    painter: _ViewfinderPainter(
-                      scrimColor: color.bgBase.withValues(alpha: _opacityDim),
-                      frameColor: frameColor,
-                      frameSide: side,
-                    ),
-                  );
-                },
+                ExcludeSemantics(
+                  child: MobileScanner(controller: widget.controller),
+                ),
+              ExcludeSemantics(
+                child: AnimatedBuilder(
+                  animation: _fade,
+                  builder: (context, _) {
+                    final Color frameColor = widget.pairing && reduceMotion
+                        ? color.fgSecondary
+                        : Color.lerp(
+                            color.accentPrimary,
+                            color.fgSecondary,
+                            AppMotion.curveMove.transform(_fade.value),
+                          )!;
+                    return CustomPaint(
+                      size: Size(constraints.maxWidth, constraints.maxHeight),
+                      painter: _ViewfinderPainter(
+                        scrimColor: color.bgBase.withValues(alpha: _opacityDim),
+                        frameColor: frameColor,
+                        frameSide: side,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              PositionedDirectional(
+                end: (constraints.maxWidth - side) / 2 + AppSpace.space4,
+                bottom: (constraints.maxHeight - side) / 2 + AppSpace.space4,
+                child: Semantics(
+                  label: _zoom == 0 ? 'Zoom in' : 'Zoom out',
+                  child: ChromeTonalButton(
+                    onPressed: widget.zoomEnabled
+                        ? () => _setZoom(_zoom == 0 ? 0.5 : 0)
+                        : null,
+                    child: Text(_zoom == 0 ? '1x' : '2x'),
+                  ),
+                ),
               ),
             ],
           );
@@ -553,6 +613,7 @@ class _BottomBar extends StatelessWidget {
     required this.color,
     required this.hintText,
     required this.hintIsError,
+    required this.hintIsOk,
     required this.hasConnectedHost,
     required this.switchCaption,
     required this.offline,
@@ -567,6 +628,7 @@ class _BottomBar extends StatelessWidget {
   /// `null` draws no hint line: the preview area already carries the state's one line.
   final String? hintText;
   final bool hintIsError;
+  final bool hintIsOk;
   final bool hasConnectedHost;
   final String switchCaption;
   final bool offline;
@@ -604,6 +666,8 @@ class _BottomBar extends StatelessWidget {
               const SizedBox(height: AppSpace.space3),
               if (hintIsError)
                 Treatment.error(label: hintText!)
+              else if (hintIsOk)
+                Treatment.ok(label: hintText!)
               else
                 Text(
                   hintText!,
@@ -775,6 +839,8 @@ class QrScanScreen extends StatefulWidget {
     this.hasConnectedHost = false,
     this.onManualEntry,
     this.onPaired,
+    this.onCancelledSwitch,
+    this.onFailedSwitch,
   }) : _providedScanner = scanner,
        _providedConnection = connection,
        _providedGate = gate,
@@ -792,6 +858,8 @@ class QrScanScreen extends StatefulWidget {
   final bool hasConnectedHost;
   final VoidCallback? onManualEntry;
   final void Function(PairingOutcome outcome, PairingInput input)? onPaired;
+  final VoidCallback? onCancelledSwitch;
+  final void Function(String sentence)? onFailedSwitch;
 
   @override
   State<QrScanScreen> createState() => _QrScanScreenState();
@@ -827,6 +895,8 @@ class _QrScanScreenState extends State<QrScanScreen>
   StreamSubscription<String?>? _barcodeSub;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _busy = false;
+  PairingCancellation? _cancellation;
+  PairingInput? _input;
 
   @override
   void initState() {
@@ -860,6 +930,7 @@ class _QrScanScreenState extends State<QrScanScreen>
   }
 
   Future<void> _startCamera() async {
+    setState(() => _phase = QrScanPhase.cameraStarting);
     try {
       await _scanner.controller.start();
       // The plugin stores native start failures instead of throwing them.
@@ -895,6 +966,7 @@ class _QrScanScreenState extends State<QrScanScreen>
 
   @override
   void dispose() {
+    _cancellation?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_barcodeSub?.cancel());
     unawaited(_connectivitySub?.cancel());
@@ -938,7 +1010,7 @@ class _QrScanScreenState extends State<QrScanScreen>
   }
 
   void _onBarcode(String? raw) {
-    if (_busy || raw == null || _offline) {
+    if (_busy || _phase != QrScanPhase.ready || raw == null || _offline) {
       // R-30-947: offline, the scan is read but the app MUST NOT start the switch at all.
       return;
     }
@@ -993,14 +1065,31 @@ class _QrScanScreenState extends State<QrScanScreen>
     setState(() => _hint = QrHintIssue(text));
   }
 
+  void _cancelPairing() {
+    final cancellation = _cancellation;
+    if (!_busy || cancellation == null || cancellation.isCancelled) return;
+    cancellation.cancel();
+    unawaited(AppHaptic.select());
+    setState(() {
+      _busy = false;
+      _phase = QrScanPhase.ready;
+      _hint = const QrHintIssue('Pairing cancelled.', isError: false);
+    });
+    if (cancellation.disconnectedHost) widget.onCancelledSwitch?.call();
+  }
+
   Future<void> _handleParsed(PairingInput input) async {
+    final cancellation = PairingCancellation();
+    _cancellation = cancellation;
+    _input = input;
+
     setState(() {
       _busy = true;
       _hint = null;
       _phase = QrScanPhase.pairing;
     });
     final deviceInfoResult = await _buildDeviceInfo();
-    if (!mounted) {
+    if (!mounted || cancellation.isCancelled) {
       return;
     }
     if (deviceInfoResult is Err<messages.DeviceInfo>) {
@@ -1008,26 +1097,28 @@ class _QrScanScreenState extends State<QrScanScreen>
       return;
     }
     final unlockResult = await _gate.unlock();
-    if (!mounted) {
+    if (!mounted || cancellation.isCancelled) {
       return;
     }
     if (unlockResult is Err<void>) {
       _failPairing('Could not unlock this phone.');
       return;
     }
+
     final outcome = await attemptPairing(
+      cancellation: cancellation,
       connection: _connection,
       input: input,
       gate: _gate,
       deviceInfo: (deviceInfoResult as Ok<messages.DeviceInfo>).value,
       tracker: _tracker,
     );
-    if (!mounted) {
+    if (!mounted || cancellation.isCancelled) {
       return;
     }
     switch (outcome) {
       case Ok<PairingOutcome>(:final value):
-        await _finishPairing(input, value);
+        await _finishPairing(input, value, cancellation);
       case Err<PairingOutcome>(:final cause):
         _handleHandshakeFailure(cause);
     }
@@ -1036,6 +1127,7 @@ class _QrScanScreenState extends State<QrScanScreen>
   Future<void> _finishPairing(
     PairingInput input,
     PairingOutcome outcome,
+    PairingCancellation cancellation,
   ) async {
     await persistPairing(
       keystore: _keystore,
@@ -1043,12 +1135,11 @@ class _QrScanScreenState extends State<QrScanScreen>
       input: input,
       outcome: outcome,
     );
-    if (!mounted) {
+    if (!mounted || cancellation.isCancelled) {
       return;
     }
     unawaited(AppHaptic.commit());
     setState(() {
-      _busy = false;
       _fingerprintText = outcome.hostFingerprintText;
     });
     // R-31-02-04: leave this route inside `motion.duration.base`. R-32-606: under reduced
@@ -1057,9 +1148,10 @@ class _QrScanScreenState extends State<QrScanScreen>
     if (!reduceMotion) {
       await Future<void>.delayed(AppMotion.durationBase);
     }
-    if (!mounted) {
+    if (!mounted || cancellation.isCancelled) {
       return;
     }
+    cancellation.complete();
     widget.onPaired?.call(outcome, input);
   }
 
@@ -1069,6 +1161,20 @@ class _QrScanScreenState extends State<QrScanScreen>
       _phase = QrScanPhase.ready;
     });
     unawaited(AppHaptic.error());
+    if (_cancellation?.disconnectedHost ?? false) {
+      final input = _input!;
+      final sentence = switch (cause) {
+        PhraseException(:final code, :final message) =>
+          _pairingErrorText[code.wireValue] ?? message,
+        _ => pairingFailureSentence(
+          cause,
+          input.relayOrigin.webSocketUri('/').authority,
+          secrets: [input.handle, input.phrase],
+        ),
+      };
+      widget.onFailedSwitch?.call(sentence);
+      return;
+    }
     if (cause is PhraseException) {
       final text = _pairingErrorText[cause.code.wireValue] ?? cause.message;
       _showSheet(
@@ -1103,11 +1209,29 @@ class _QrScanScreenState extends State<QrScanScreen>
             ),
           );
         default:
-          setState(() => _hint = QrHintIssue(cause.message));
+          final input = _input!;
+          setState(
+            () => _hint = QrHintIssue(
+              pairingFailureSentence(
+                cause,
+                input.relayOrigin.webSocketUri('/').authority,
+                secrets: [input.handle, input.phrase],
+              ),
+            ),
+          );
       }
       return;
     }
-    _failPairing('Could not pair with that computer.');
+    final input = _input!;
+    setState(
+      () => _hint = QrHintIssue(
+        pairingFailureSentence(
+          cause,
+          input.relayOrigin.webSocketUri('/').authority,
+          secrets: [input.handle, input.phrase],
+        ),
+      ),
+    );
   }
 
   void _failPairing(String message) {
@@ -1196,6 +1320,8 @@ class _QrScanScreenState extends State<QrScanScreen>
     hint: _hint,
     offline: _offline,
     fingerprintText: _fingerprintText,
+    connectingHost: _input?.relayOrigin.webSocketUri('/').authority ?? '',
+    onCancel: _cancelPairing,
     onFlashToggle: () => unawaited(_toggleFlash()),
     onManualEntry: widget.onManualEntry,
     onHelp: _openHelp,

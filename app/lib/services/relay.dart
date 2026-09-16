@@ -43,7 +43,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show CompressionOptions, WebSocket;
+import 'dart:io' show CompressionOptions, HttpClient, WebSocket;
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -74,6 +74,45 @@ import 'reconnect_policy.dart';
 /// R-11-013, R-12-020: the one relay subprotocol.
 const String _subprotocol = 'herdr-relay.v1';
 
+/// Cancels one pairing attempt and its socket.
+final class PairingCancellation {
+  final Completer<void> _cancelled = Completer<void>();
+
+  bool _completed = false;
+
+  /// True after this attempt starts to disconnect the previous host.
+  bool disconnectedHost = false;
+
+  bool get isCancelled => _cancelled.isCompleted;
+
+  void cancel() {
+    if (!_completed && !isCancelled) _cancelled.complete();
+  }
+
+  /// Releases cancellation after the caller receives a successful outcome.
+  void complete() {
+    _completed = true;
+  }
+
+  void check() {
+    if (isCancelled) throw const PairingCancelledException();
+  }
+
+  Future<T> wait<T>(Future<T> operation) async {
+    final value = await Future.any<T>([
+      operation,
+      _cancelled.future.then<T>((_) => throw const PairingCancelledException()),
+    ]);
+    check();
+    return value;
+  }
+}
+
+/// The person cancelled the attempt. This is not a phrase failure.
+final class PairingCancelledException implements Exception {
+  const PairingCancelledException();
+}
+
 /// A factory for the one [WebSocketChannel] [RelayConnection] ever opens. The default value
 /// ([_defaultChannelFactory]) connects for real, with WebSocket-level compression always
 /// disabled (R-11-230, R-20-011); tests inject a fake to exercise [RelayConnection]'s own
@@ -92,18 +131,31 @@ typedef ChannelFactory = Future<WebSocketChannel> Function(
 /// at all).
 Future<WebSocketChannel> _defaultChannelFactory(
   Uri uri,
-  List<String> protocols,
-) async {
-  // The lint sees a local `Sink` (`WebSocket` implements `StreamSink`) with no `.close()`
-  // call in this function, but ownership transfers to the caller: `webSocket` is wrapped
-  // and returned as the `IOWebSocketChannel` `RelayConnection._closeCurrentSocket` closes.
-  // ignore: close_sinks
-  final webSocket = await WebSocket.connect(
-    uri.toString(),
-    protocols: protocols,
-    compression: CompressionOptions.compressionOff,
-  );
-  return IOWebSocketChannel(webSocket);
+  List<String> protocols, {
+  PairingCancellation? cancellation,
+}) async {
+  final client = cancellation == null ? null : HttpClient();
+  if (cancellation != null) {
+    unawaited(
+      cancellation._cancelled.future.then((_) {
+        client?.close(force: true);
+      }),
+    );
+  }
+  try {
+    cancellation?.check();
+    // The caller owns the returned socket.
+    // ignore: close_sinks
+    final webSocket = await WebSocket.connect(
+      uri.toString(),
+      protocols: protocols,
+      compression: CompressionOptions.compressionOff,
+      customClient: client,
+    );
+    return IOWebSocketChannel(webSocket);
+  } finally {
+    client?.close();
+  }
 }
 
 /// The scheme, host and port of [uri] — never its path, which carries the routing handle
@@ -266,11 +318,15 @@ enum RelayConnectFailure {
 }
 
 /// Set as an [Err.cause] for every [RelayConnection.connect] failure that is not one of the
-/// four [RelayRegistrationException] codes.
+/// four [RelayRegistrationException] codes. [inner] is the transport exception a
+/// [RelayConnectFailure.webSocketFailed] wraps, kept for `pairing_failure.dart` to classify
+/// (refused, timed out, no route) without its text ever reaching a screen or a log: dart:io's
+/// messages embed the connection URL, which carries the routing handle (R-13-066).
 final class RelayConnectException implements Exception {
-  const RelayConnectException(this.failure, this.message);
+  const RelayConnectException(this.failure, this.message, {this.inner});
   final RelayConnectFailure failure;
   final String message;
+  final Object? inner;
   @override
   String toString() => message;
 }
@@ -540,6 +596,7 @@ final class RelayConnection {
     required NoiseHandshakeMode mode,
     required BiometricGate gate,
     required DeviceInfo deviceInfo,
+    PairingCancellation? cancellation,
   }) async {
     // R-13-064: the real device key comes from the biometric-gated read the gate already
     // performed, never an independently generated or passed-in one. While App Lock is off
@@ -550,6 +607,7 @@ final class RelayConnection {
     if (gate.deviceStaticKey == null && !gate.isLocked) {
       await gate.unlock();
     }
+    cancellation?.check();
     final localStatic = gate.deviceStaticKey;
     if (localStatic == null) {
       return const Err(
@@ -561,8 +619,15 @@ final class RelayConnection {
       );
     }
 
-    await _closeCurrentSocket(deliberate: false);
+    if (cancellation != null) cancellation.disconnectedHost = isConnected;
     _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    if (mode is PairingMode) {
+      _lastParams = null;
+      _wasConnectedBeforeBackground = false;
+    }
+    await _closeCurrentSocket(deliberate: false);
+    cancellation?.check();
     if (mode is ReconnectMode) {
       // R-03-113 item 7, the cheap path: `origin`, `handle` and the pinned key all come from
       // the pairing record the caller read (`host_list.dart`) or from [_lastParams]. This
@@ -574,7 +639,11 @@ final class RelayConnection {
     final uri = origin.webSocketUri('/device/$handle');
     final WebSocketChannel channel;
     try {
-      channel = await _channelFactory(uri, const [_subprotocol]);
+      channel = await (_channelFactory == _defaultChannelFactory
+          ? _defaultChannelFactory(uri, const [
+              _subprotocol,
+            ], cancellation: cancellation)
+          : _channelFactory(uri, const [_subprotocol]));
     } on Exception catch (error) {
       // Never interpolate a caught exception's own message text here: dart:io's
       // WebSocket/HttpException/SocketException messages routinely embed the full
@@ -583,7 +652,9 @@ final class RelayConnection {
       final failure = RelayConnectException(
         RelayConnectFailure.webSocketFailed,
         'Could not open a connection to ${_originOnly(uri)}: ${error.runtimeType}',
+        inner: error,
       );
+      cancellation?.check();
       _stateController.add(
         RelayDisconnected(failedStage: stage, failure: failure.message),
       );
@@ -591,7 +662,26 @@ final class RelayConnection {
     }
     final iterator = StreamIterator<dynamic>(channel.stream);
 
+    if (cancellation != null) {
+      unawaited(
+        cancellation._cancelled.future.then((_) async {
+          final Future<dynamic> close;
+          if (identical(_channel, channel)) {
+            _lastParams = null;
+            _wasConnectedBeforeBackground = false;
+            _reconnectTimer?.cancel();
+            _reconnectTimer = null;
+            close = _closeCurrentSocket(deliberate: true);
+          } else {
+            close = channel.sink.close(ws_status.normalClosure);
+          }
+          await iterator.cancel();
+          await close;
+        }),
+      );
+    }
     try {
+      cancellation?.check();
       stage = _enterStage(ConnectionStage.registeringHandle);
       channel.sink.add(
         jsonEncode({
@@ -603,6 +693,7 @@ final class RelayConnection {
         iterator,
         'a registration response',
       );
+      cancellation?.check();
       final decoded = jsonDecode(registration) as Map<String, dynamic>;
       if (decoded['type'] == 'error') {
         final message = decoded['message'] as String;
@@ -632,6 +723,7 @@ final class RelayConnection {
         gate,
         localStatic,
       );
+      cancellation?.check();
       final reassembler = Reassembler();
 
       stage = _enterStage(ConnectionStage.hostInfo);
@@ -642,6 +734,7 @@ final class RelayConnection {
         reassembler,
         'host_info',
       );
+      cancellation?.check();
       if (firstFrame.type != 'host_info') {
         // R-11-132: the first frame after transport mode MUST be host_info.
         throw const RelayConnectException(
@@ -678,6 +771,7 @@ final class RelayConnection {
         );
       }
 
+      cancellation?.check();
       _channel = channel;
       _session = session;
       _outgoingSeq = 0;
@@ -700,6 +794,7 @@ final class RelayConnection {
       // R-11-131: device_info is the Device's own first frame, sent immediately.
       await _sendOn(channel, session, Message.deviceInfo(deviceInfo));
 
+      cancellation?.check();
       _reconnectPolicy.noteConnected();
       _stateController.add(const RelayConnected());
       _log.info(
@@ -714,9 +809,14 @@ final class RelayConnection {
       }
 
       return const Ok(null);
+    } on PairingCancelledException {
+      await iterator.cancel();
+      await channel.sink.close(ws_status.normalClosure);
+      rethrow;
     } on RelayRegistrationException catch (error) {
       await iterator.cancel();
       await channel.sink.close(ws_status.normalClosure);
+      cancellation?.check();
       _stateController.add(RelayRegistrationError(error.code, error.message));
       return Err('register on ${_originOnly(uri)}', cause: error);
     } on RelayConnectException catch (error) {
@@ -729,6 +829,7 @@ final class RelayConnection {
             ? 4003
             : ws_status.normalClosure,
       );
+      cancellation?.check();
       _stateController.add(
         RelayDisconnected(failedStage: stage, failure: error.message),
       );
@@ -736,6 +837,7 @@ final class RelayConnection {
     } on NoiseSessionLockedException catch (error) {
       await iterator.cancel();
       await channel.sink.close(ws_status.normalClosure);
+      cancellation?.check();
       _stateController.add(
         RelayDisconnected(failedStage: stage, failure: '$error'),
       );

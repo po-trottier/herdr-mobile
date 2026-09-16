@@ -34,7 +34,8 @@ import 'package:herdr_mobile/services/connectivity.dart'
     show ConnectivityWatcher;
 import 'package:herdr_mobile/services/keystore.dart'
     show HostSecrets, KeystoreService;
-import 'package:herdr_mobile/services/noise.dart' show NoiseSession;
+import 'package:herdr_mobile/services/noise.dart'
+    show NoiseSession, NoiseCipher;
 import 'package:herdr_mobile/services/origin.dart';
 import 'package:herdr_mobile/services/pairing.dart';
 import 'package:herdr_mobile/services/plain_store.dart';
@@ -43,7 +44,8 @@ import 'package:herdr_mobile/services/relay.dart'
         NoiseHandshakeMode,
         RelayConnectException,
         RelayConnectFailure,
-        RelayConnection;
+        RelayConnection,
+        RelayConnected;
 import 'package:local_auth/local_auth.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -163,6 +165,73 @@ Future<Object?> _failHandshakeOnce(
 
 void main() {
   final words = _loadRealWords();
+
+  test(
+    'cancelling during Noise closes the socket and rejects late completion',
+    () async {
+      final gate = await _unlockedGate();
+      final accepted = Completer<WebSocket>();
+      final entered = Completer<void>();
+      final release = Completer<NoiseSession>();
+      final server = await HttpServer.bind('127.0.0.1', 0);
+      server.listen((request) async {
+        accepted.complete(await WebSocketTransformer.upgrade(request));
+      });
+      final relay = RelayConnection(
+        connectivityWatcher: _noOpConnectivityWatcher(),
+        handshaker: (iterator, channel, mode, gate, localStatic) {
+          entered.complete();
+          return release.future;
+        },
+      );
+      final cancellation = PairingCancellation();
+      final states = <Object>[];
+      final subscription = relay.connectionState.listen(states.add);
+      final pending = attemptPairing(
+        connection: relay,
+        input: PairingInput(
+          relayOrigin: (parseRelayOrigin(
+            'http://127.0.0.1:${server.port}',
+          ) as Ok<RelayOrigin>).value,
+          handle: 'h1',
+          phrase: 'remedy-tapestry-hubcap-oversleep-jailbird-kinetic',
+        ),
+        gate: gate,
+        deviceInfo: _testDeviceInfo,
+        tracker: PairingAttemptTracker(),
+        cancellation: cancellation,
+      );
+      final socket = await accepted.future;
+      addTearDown(socket.close);
+      final closed = Completer<void>();
+      socket.listen((_) {
+        socket.add(jsonEncode({'type': 'session_joined', 'role': 'device'}));
+      }, onDone: closed.complete);
+      await entered.future;
+      cancellation.cancel();
+      cancellation.cancel();
+      final result = await pending.timeout(const Duration(seconds: 1));
+      expect(result, isA<Err<PairingOutcome>>());
+      expect(
+        (result as Err<PairingOutcome>).cause,
+        isA<PairingCancelledException>(),
+      );
+      await closed.future.timeout(const Duration(seconds: 1));
+      release.complete(
+        NoiseSession(
+          send: NoiseCipher.withKey(Uint8List(32)),
+          receive: NoiseCipher.withKey(Uint8List(32)),
+          remoteStaticPublicKey: Uint8List(32),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(relay.isConnected, isFalse);
+      expect(states.whereType<RelayConnected>(), isEmpty);
+      await subscription.cancel();
+      await relay.dispose();
+      await server.close(force: true);
+    },
+  );
 
   setUpAll(() {
     expect(
@@ -706,12 +775,14 @@ void main() {
         );
 
         final cause = (result as Err<PairingOutcome>).cause;
+        // The transport error travels inside the wrapper, never bare: its own text
+        // carries the connection URL and the handle (R-13-066).
         expect(cause, isA<RelayConnectException>());
         expect(
           (cause as RelayConnectException).failure,
           RelayConnectFailure.webSocketFailed,
-          reason: 'a link failure MUST NOT be reclassified as a phrase failure',
         );
+        expect(cause.inner, isA<SocketException>());
 
         // Had the link failure ticked the tracker, the SECOND handshake failure
         // below would already fire `phrase_attempts`. Both must pass through as

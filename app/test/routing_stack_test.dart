@@ -75,6 +75,7 @@ import 'package:herdr_mobile/screens/manual_pairing_screen.dart'
     show ManualPairingScreen;
 import 'package:herdr_mobile/screens/notifications_screen.dart'
     show NotificationsScreen;
+import 'package:herdr_mobile/screens/qr_scan_screen.dart' show QrScanScreen;
 import 'package:herdr_mobile/screens/terminal_screen.dart';
 import 'package:herdr_mobile/services/agent_status.dart'
     show AgentStatusService;
@@ -342,6 +343,58 @@ Future<RelayConnection> _connectedThenDroppedRelay({
 }
 
 void main() {
+  for (final failed in [false, true]) {
+    testWidgets(
+      'QR switch callback returns to computers; outcome: ${failed ? 'failure' : 'cancel'}',
+      (tester) async {
+        _fakePrefs();
+        final messenger = tester.binding.defaultBinaryMessenger;
+        for (final name in [
+          'dev.fluttercommunity.plus/connectivity',
+          'dev.fluttercommunity.plus/connectivity_status',
+          'dev.steenbakker.mobile_scanner/scanner/method',
+        ]) {
+          messenger.setMockMethodCallHandler(
+            MethodChannel(name),
+            (_) async => name.endsWith('/connectivity') ? ['wifi'] : null,
+          );
+          addTearDown(
+            () => messenger.setMockMethodCallHandler(MethodChannel(name), null),
+          );
+        }
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              keystoreServiceProvider.overrideWithValue(
+                KeystoreService(
+                  appLockEnabled: false,
+                  storage: _fakeDeviceKeyStorage(),
+                ),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: appRouter),
+          ),
+        );
+        appRouter.go('/hosts');
+        await tester.pumpAndSettle();
+        unawaited(appRouter.push<void>('/pair/scan'));
+        await tester.pumpAndSettle();
+        final screen = tester.widget<QrScanScreen>(find.byType(QrScanScreen));
+        const sentence = 'The host refused the connection.';
+        if (failed) {
+          screen.onFailedSwitch!(sentence);
+        } else {
+          screen.onCancelledSwitch!();
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(appRouter.state.uri.path, '/hosts');
+        expect(find.byType(HostListScreen), findsOneWidget);
+        expect(find.text(sentence), failed ? findsOneWidget : findsNothing);
+      },
+    );
+  }
+
   group(
     'the pairing toggle swaps /pair/scan and /pair/manual in place '
     '(the reported bug, docs/31-mockups/02-pair-scan.md and 03-pair-code.md)',

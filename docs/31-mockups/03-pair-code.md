@@ -105,6 +105,19 @@ blocks that change are drawn.
     (amended 2026-09-09 by the product owner, per `R-03-104`: until then `type.mono.button` with
     widget-applied upper case).
 
+## Wireframe, Connecting
+
+The bottom actions use the panel of `R-31-02-14`. The form stays visible but read only.
+
+```text
++--------------------------------------+
+| -- CONNECTING                        |
+| Connecting to 172.16.188.73:8080...    |
+| [ platform activity indicator ]      |
+|               Cancel                 |
++--------------------------------------+
+```
+
 ## States
 
 | State | Trigger | Screen shows |
@@ -113,7 +126,8 @@ blocks that change are drawn.
 | Default, a computer is saved | The route opens with at least one computer saved and none connected. | The address field is prefilled and read only, per `R-31-03-10`, with one caption under it: `Change the relay address in Settings.` The computer code field holds the focus instead. Still no switch caption. |
 | Default, a computer is connected | The route opens with one computer connected. | The second wireframe: the read-only address block, and the switch caption of `R-30-945` above `Pair`. |
 | Link | A valid pairing link opens the app, cold or warm. | The relay address, computer code and six words come from the link. Every field stays editable, per `R-31-03-14`. The switch caption appears only while a computer is connected. No pairing starts. |
-| Loading | `Pair` was pressed. | `Pair` shows the in-place spinner of `R-32-525` and drops its label. Every field turns read only. |
+| Loading | `Pair` was pressed. | The panel of `R-31-02-14` replaces the bottom actions. Every field is read only. Show the relay host, platform activity indicator, and enabled `Cancel`. |
+| Cancelled | The person pressed `Cancel`. | Close the attempt and use the outcome of `R-31-02-14`. Keep all entered fields when this screen remains open. |
 | Empty | Nothing is entered. | Each word field shows its number and a dash placeholder in `color.fg.disabled`. |
 | Error, one word | A word is not in the list. Code `phrase_word_unknown`. | That field takes `border.error`, per `R-32-504`. One line reads `Word 3 is not in the list. Check it against your computer.` The number is exact. The other five words stay. Haptic `haptic.error`. |
 | Error, word count | The pasted phrase split into a number other than six. Code `phrase_word_count`. | One line reads `A phrase holds six words. You entered four.` The count is exact. The fields fill as far as the paste reached. |
@@ -125,7 +139,7 @@ blocks that change are drawn.
 | Error, phrase used up | Three failed handshakes used that phrase. Code `phrase_attempts`. | One line reads `Three tries used. The computer made a new phrase. Read it again.` The six word fields clear. The address and the code stay, because both survive a new phrase. Each attempt runs after the disconnect, so `R-31-02-08` decides where the person lands. |
 | Error, expired | The handshake reported expiry after `Pair` was pressed. Code `phrase_expired`. | One line reads the `phrase_expired` sentence from the pairing error text table in `docs/30-ux-spec.md`. `R-31-02-08` decides where the person lands, because the disconnect has already run. |
 | Error, host in use | Another phone already holds that computer. Error `host_in_use`, close code `4006`. | `R-31-02-08` decides. When this screen keeps it, the name-free banner appears above the primary action and `Pair` becomes `Try again`. |
-| Error, link failed | `Pair` was pressed and no handshake settled: the relay was unreachable, the connection or a local step failed, or the phrase did not match and still has tries left. | `R-31-02-08` decides. When this screen keeps it, one line reads `Could not pair. Check the network and the six words, then try again.` with the raw cause under it in `type.mono.code`, per `R-30-803`. Every field keeps what the person typed, and `Pair` becomes the one `Try again` of `R-30-804` and stays enabled. A failure that never reached the computer costs none of the phrase's three tries. Decided 2026-09-03 by the product owner. |
+| Error, link failed | The relay connection or handshake failed after `Pair`. | `R-31-02-08` decides the destination. This screen uses `Could not reach <host>: <reason>.` for transport failures, per `R-31-02-15`. Protocol errors keep their existing sentences. Keep every field and enable `Try again`. |
 | Offline | No route to the relay. | `Pair` is disabled, so no switch starts and the connected computer stays connected, per `R-30-947`. A strip reads `No network. Pairing needs a connection, and a phrase lasts ten minutes.` with `treat.warning`. Every field the person may edit stays editable (amended 2026-09-08 by the product owner: the lifetime is the 600 seconds of `R-13-022`). |
 
 ## Navigation
@@ -201,14 +215,10 @@ blocks that change are drawn.
   matching the handle form of `R-11-112` fills the computer code alone. A clipboard value that
   matches none of the three shapes, or an empty clipboard, MUST leave every field unchanged: this
   screen MUST NOT invent an error for a clipboard the person did not mean for it.
-- **R-31-03-13** A failure the pairing error text table does not name MUST map to the
-  `Error, link failed` row of the states table: the relay unreachable, a connection or a local
-  step that failed, or a handshake that failed while the phrase still has tries left. Such a
-  failure MUST NOT be reported as `phrase_attempts`, and it MUST NOT clear the word fields or
-  disable `Pair`. A failure that never reached the computer costs none of the phrase's three
-  tries, so the `Three tries used.` sentence would be false there. Decided 2026-09-03 by the
-  product owner, after a live review found an unreachable relay reported as `Three tries used.
-  The computer made a new phrase. Read it again.`
+- **R-31-03-13** Failures outside the pairing error text table MUST use the shared sentence builder
+  of `R-31-02-15`.
+  The `Error, link failed` state MUST keep the fields and enable `Try again`.
+  A failure that never reached the computer MUST NOT report used phrase attempts.
 
 - **R-31-03-14** A pairing link MUST fill the relay address, computer code and all six words,
   per `R-03-073`. These fields MUST stay editable, including the relay address when a computer
@@ -258,6 +268,9 @@ This row retires one rule id. The id stays reserved, so an old citation still re
 None.
 
 ## Sources
+
+- `docs/31-mockups/02-pair-scan.md` — connecting panel and cancellation `R-31-02-14`; failure
+  sentences `R-31-02-15`.
 
 - `docs/32-design-language.md` - the app bar `R-32-510`, the text field `R-32-530`, the six word
   phrase field `R-32-531` and `R-32-532`, the interaction states `R-32-503` and `R-32-504`, the

@@ -958,6 +958,11 @@ final GoRouter appRouter = GoRouter(
       pageBuilder: (BuildContext context, GoRouterState state) {
         final container = ProviderScope.containerOf(context, listen: false);
         final RelayConnection conn = container.read(relayConnectionProvider);
+        void returnToHosts([String? failure]) {
+          if (failure != null) showChromeSnackbar(context, failure);
+          context.go('/hosts');
+        }
+
         final BiometricGate gate = container.read(biometricGateProvider);
         return _platformPage(
           key: state.pageKey,
@@ -968,6 +973,8 @@ final GoRouter appRouter = GoRouter(
             keystore: container.read(keystoreServiceProvider),
             plainStore: PlainStore(),
             hasConnectedHost: conn.isConnected,
+            onCancelledSwitch: returnToHosts,
+            onFailedSwitch: returnToHosts,
             // R-31-02: "Out, fallback: /pair/manual", "Out, back: the previous route" --
             // the two pairing screens swap in place, they never stack. `push` here (the
             // reported bug) let repeated toggling grow the stack without bound; back then
@@ -1296,6 +1303,7 @@ Future<ManualPairingResult> _attemptManualPairing({
   required BuildContext context,
   required PairingInput input,
   required PairingAttemptTracker tracker,
+  required PairingCancellation cancellation,
 }) async {
   final container = ProviderScope.containerOf(context, listen: false);
   final RelayConnection conn = container.read(relayConnectionProvider);
@@ -1313,6 +1321,7 @@ Future<ManualPairingResult> _attemptManualPairing({
   }
 
   final Result<PairingOutcome> result = await attemptPairing(
+    cancellation: cancellation,
     connection: conn,
     input: input,
     gate: gate,
@@ -1347,7 +1356,8 @@ Future<ManualPairingResult> _attemptManualPairing({
   // mismatch whose count has not reached three.
   return ManualPairingFailed(
     ManualPairingFailureCode.linkFailed,
-    detail: cause?.toString() ?? err.message,
+    detail: err.message,
+    cause: cause,
   );
 }
 
@@ -1449,11 +1459,14 @@ class _ManualPairingRouteState extends State<_ManualPairingRoute> {
         savedRelayOrigin: _savedOrigin,
         isConnected: conn.isConnected,
         initialInput: _deepLinkInput,
-        onPair: (PairingInput input) => _attemptManualPairing(
-          context: context,
-          input: input,
-          tracker: _tracker,
-        ),
+        onCancelled: () => context.go('/hosts'),
+        onPair: (PairingInput input, PairingCancellation cancellation) =>
+            _attemptManualPairing(
+              cancellation: cancellation,
+              context: context,
+              input: input,
+              tracker: _tracker,
+            ),
         onPaired: (PairingOutcome outcome) =>
             context.go('/hosts/${outcome.hostId}/agents'),
         // R-31-03-13/R-31-02: Replace the other pairing screen without an extra page.

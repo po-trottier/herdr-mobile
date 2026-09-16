@@ -22,7 +22,7 @@
 |                                      |
 |   |                            |     |
 |   +--+                      +--+     |
-|                                      |
+|                              [ 1x ]  |
 +--------------------------------------+
 | -- PAIRING                           |
 | Point the camera at the QR code in   |
@@ -41,6 +41,20 @@
 | Pairing disconnects the computer you |
 | are using now.                       |
 |              Type it in              |
++--------------------------------------+
+```
+
+## Wireframe, Connecting
+
+```text
++--------------------------------------+
+|        [ camera preview ]            |
+|                              [ 1x ]  |
++--------------------------------------+
+| -- CONNECTING                        |
+| Connecting to 172.16.188.73:8080...    |
+| [ platform activity indicator ]      |
+|               Cancel                 |
 +--------------------------------------+
 ```
 
@@ -123,7 +137,11 @@ The four values the app takes from it:
 | Default, first pairing | The camera permission is granted and no computer is connected. | The first wireframe. No switch caption, per `R-30-945`. |
 | Default, a computer is connected | The camera permission is granted and one computer is connected. | The second wireframe, with the switch caption of `R-30-945`. |
 | Loading, the camera is starting | The route opened with the permission granted and the preview has not yet delivered a frame. | The viewfinder frame is drawn with nothing behind it. The hint reads `Starting camera...`. The flash toggle is disabled, because there is no camera to light. `type it in` stays enabled, per `R-31-02-12`. |
-| Loading, pairing | A scanned URI is being used to disconnect the connected computer and then handshake on the new handle, in the order `R-31-02-10` fixes. | The frame corners fade between `color.accent.primary` and `color.fg.secondary` over `motion.duration.slow` on `motion.curve.move`, and repeat. Under reduced motion (`R-32-606`) the corners hold `color.fg.secondary`, the fade's far end. The hint reads `Connecting...`. Both actions are disabled, because the switch has already started (amended 2026-09-08 by the product owner: the fade was specified and not drawn; the curve and the reduced-motion hold were unstated). |
+| Loading, pairing | A scan was committed. | The connecting panel of `R-31-02-14` replaces the bottom bar immediately. It names the relay host, shows the platform activity indicator, and enables `Cancel`. `Type it in` stays disabled. |
+| Cancelled, no previous connection | The person pressed `Cancel` without a previous connection. | The scanner is ready. The hint reads `Pairing cancelled.` with `treat.ok`, per `R-31-02-14`. |
+| Cancelled switch | The scan disconnected a computer before the person pressed `Cancel`. | Route to `/hosts`, per `R-30-947`. |
+| Error, transport | The relay connection failed. | Show `Could not reach <host>: <reason>.`, per `R-31-02-15`. `R-31-02-08` decides where the person lands. |
+| Error, protocol | The relay or handshake reported a protocol failure. | Keep the existing protocol sentence, per `R-31-02-15`. `R-31-02-08` decides where the person lands. |
 | Error, the camera did not start | The platform reports no usable camera, so the preview cannot start. | The preview area gives way to one line, `The camera is not available. Type the phrase instead.`, with `treat.error`. `type it in` is the only enabled action. The screen MUST NOT wait on `Starting camera...` for a camera that will not arrive, per `R-31-02-12`. |
 | Empty | Not applicable. A camera view has no empty state. | - |
 | Permission denied | The user refused the camera. | The preview gives way to one line, `The app needs the camera to scan. Open Settings to allow it.`, plus one action `Open Settings` that calls the platform settings intent. The `type it in` action stays enabled. |
@@ -159,9 +177,8 @@ The four values the app takes from it:
   indicator never stays lit.
 - **R-31-02-04** A successful pair MUST fire `haptic.commit` and MUST leave this route inside
   `motion.duration.base`.
-- **R-31-02-05** This screen MUST NOT display the phrase, the handle, or any part of the scanned
-  URI. The person already has them on the computer, and a secret on a second screen is a second
-  place to lose it.
+- **R-31-02-05** This screen MUST NOT display or log the phrase, handle, or full scanned URI.
+  The connecting panel MAY display only the relay host and port, per `R-31-02-14`.
 - **R-31-02-06** The app MUST NOT queue a pairing for later. A phrase lives 600 seconds
   (`R-13-022`), so a queued pairing would still expire. The offline state says so instead.
 - **R-31-02-07** The app MUST store the relay origin from the QR only after the handshake succeeds.
@@ -197,13 +214,40 @@ The four values the app takes from it:
   `R-30-927` forbids the app changing the origin on its own, and `R-30-924` makes a change
   destructive and owned by `/settings`. A refused origin MUST NOT pair the computer, MUST NOT save
   it, and MUST NOT change the stored origin.
-- **R-31-02-12** The two waits on this screen MUST NOT share one state. A camera that is starting
-  has taken nothing from the person, so the hint MUST read `Starting camera...` and `type it in`
-  MUST stay enabled: the by-hand path needs no camera, and disabling it strands the person whose
-  camera is slowest to start. A pairing that is running has already disconnected the connected
-  computer, per `R-31-02-10`, so the hint MUST read `Connecting...` and both actions MUST be
-  disabled. This screen MUST NOT read `Connecting...` while nothing is connecting, and MUST NOT
-  hold the starting hint once the platform reports no usable camera.
+- **R-31-02-12** The two waits MUST remain distinct. While the camera starts, show
+  `Starting camera...` and keep `Type it in` enabled. Disable the flash and zoom controls.
+  During pairing, disable `Type it in` and keep `Cancel` enabled in the panel of `R-31-02-14`.
+  The screen MUST NOT show a connection state before pairing starts.
+  Replace the camera start hint when the platform reports no usable camera.
+- **R-31-02-13** The viewfinder MUST support a two-finger pinch from the current zoom scale.
+  `GestureDetector.onScaleUpdate` MUST call `MobileScannerController.setZoomScale` with a value
+  clamped to `0..1`.
+  One `ChromeTonalButton` MUST sit at the bottom-trailing corner of the viewfinder.
+  Its `1x` and `2x` labels MUST toggle between scale `0` and `0.5`.
+  Its semantics MUST be `Zoom in` and `Zoom out`, respectively.
+  Use `resetZoomScale()` to restore the initial camera zoom.
+  The button and pinch MUST stay disabled while the camera starts or is unavailable.
+  The button MUST use the platform control, per `R-03-059`, and the minimum target of `R-30-290`.
+- **R-31-02-14** A committed scan MUST immediately replace the bottom bar with a connecting panel.
+  Show the `CONNECTING` eyebrow, `Connecting to <host>...` in `type.body`, and a `ChromeActivityIndicator`.
+  `<host>` MUST contain only the relay host and optional port, such as `172.16.188.73:8080`.
+  The panel MUST have one enabled action: `Cancel`, an `AppTextButton` with the platform text-button
+  appearance.
+  Cancel MUST abort the handshake and close the relay connection that this screen opened.
+  Cancel MUST fire `haptic.select`. If no computer was disconnected, restore the scanner with
+  `Pairing cancelled.` in `treat.ok`.
+  Otherwise, call `onCancelledSwitch` and route to `/hosts`, per `R-30-947`.
+  A cancelled attempt MUST NOT later save a pairing or navigate to the computer.
+- **R-31-02-15** Transport failures MUST read `Could not reach <host>: <reason>.`
+  The shared sentence builder MUST serve QR and manual pairing.
+  Map `SocketException`, `WebSocketException`, `TimeoutException`, and `HandshakeException`,
+  including OS error codes, to these reasons:
+  `connection refused`, `timed out after <n> s`, `no route to the network`,
+  `the relay closed the connection`, or `TLS failed`.
+  Use the exception message when no reason matches. Remove secrets prohibited by `R-31-02-05` before
+  display.
+  Relay and protocol failures MUST keep their existing sentences from the pairing error text table
+  in `docs/30-ux-spec.md`.
 
 ## Accessibility
 
@@ -228,6 +272,10 @@ None.
 
 ## Sources
 
+- [Apple Support: Zoom in or out in Camera on iPhone][apple-camera] — camera pinch and zoom
+  controls.
+- [MobileScannerController.setZoomScale][scanner-zoom] — camera zoom API.
+
 - `docs/32-design-language.md` - the app bar `R-32-510`, the QR viewport `R-32-558` and `R-32-559`,
   the text action `R-32-526`, the opacity tokens `R-32-331`, and the contrast table `R-32-150`.
 - `docs/30-ux-spec.md` - the pairing error text table, `R-30-900`, `R-30-921`, `R-30-927`,
@@ -240,3 +288,6 @@ None.
 - `docs/03-product-decisions.md` - the saved-computer policy `R-03-043` and the switch rule
   `R-03-044`.
 - `docs/20-mobile-framework.md` - the one socket rule `R-20-009`.
+
+[apple-camera]: https://support.apple.com/guide/iphone/camera-basics-iph263472f78/ios
+[scanner-zoom]: https://pub.dev/documentation/mobile_scanner/7.4.0/mobile_scanner/MobileScannerController/setZoomScale.html

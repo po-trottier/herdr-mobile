@@ -34,6 +34,7 @@ class _Case {
     this.offline = false,
     this.fingerprintText,
     this.ios = false,
+    this.zoomed = false,
   });
   final String name;
   final QrScanPhase phase;
@@ -43,6 +44,7 @@ class _Case {
   final bool offline;
   final String? fingerprintText;
   final bool ios;
+  final bool zoomed;
 }
 
 const _cases = <_Case>[
@@ -52,6 +54,10 @@ const _cases = <_Case>[
   _Case('torch_on', QrScanPhase.ready, torchOn: true),
   _Case('camera_starting', QrScanPhase.cameraStarting),
   _Case('pairing', QrScanPhase.pairing),
+  _Case('connecting', QrScanPhase.pairing),
+  _Case('connecting_ios', QrScanPhase.pairing, ios: true),
+  _Case('zoomed', QrScanPhase.ready, zoomed: true),
+  _Case('zoomed_ios', QrScanPhase.ready, ios: true, zoomed: true),
   _Case('camera_unavailable', QrScanPhase.cameraUnavailable),
   _Case('permission_denied', QrScanPhase.permissionDenied),
   _Case(
@@ -95,6 +101,8 @@ void main() {
               brightness: brightness,
               child: QrScanScreenBody(
                 phase: testCase.phase,
+                connectingHost: '172.16.188.73:8080',
+                onCancel: () {},
                 hasConnectedHost: testCase.hasConnectedHost,
                 torchOn: testCase.torchOn,
                 hint: testCase.hint,
@@ -107,6 +115,10 @@ void main() {
               ),
             ),
           );
+          if (testCase.zoomed) {
+            await tester.tap(find.text('1x'));
+            await tester.pumpAndSettle();
+          }
           if (testCase.phase == QrScanPhase.pairing) {
             await tester.pump();
             await tester.pump(AppMotion.durationSlow);
@@ -115,7 +127,19 @@ void main() {
           }
 
           expect(find.text('Pair a computer'), findsOneWidget);
-          expect(find.text('Type it in'), findsOneWidget);
+          expect(
+            find.text('Type it in'),
+            testCase.phase == QrScanPhase.pairing
+                ? findsNothing
+                : findsOneWidget,
+          );
+          if (testCase.phase == QrScanPhase.pairing) {
+            expect(find.text('Cancel'), findsOneWidget);
+            expect(
+              find.text('Connecting to 172.16.188.73:8080...'),
+              findsOneWidget,
+            );
+          }
           expect(
             find.text('Pairing disconnects the computer you are using now.'),
             findsNWidgets(testCase.hasConnectedHost ? 1 : 0),

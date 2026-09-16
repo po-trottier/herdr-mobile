@@ -227,6 +227,74 @@ final class _FakeRelay {
 }
 
 void main() {
+  for (final completeHandshake in [false, true]) {
+    test(
+      'cancelled pairing switch cannot reconnect: handshake complete $completeHandshake',
+      () async {
+        final fake = await _FakeRelay.start();
+        final changes = StreamController<List<ConnectivityResult>>();
+        final connectivity = _MockConnectivity();
+        when(() => connectivity.onConnectivityChanged)
+            .thenAnswer((_) => changes.stream);
+        final watcher = ConnectivityWatcher(
+          connectivity: connectivity,
+          debounce: Duration.zero,
+        );
+        final relay = RelayConnection(
+          handshaker: _fakeHandshaker,
+          connectivityWatcher: watcher,
+        );
+        addTearDown(relay.dispose);
+        addTearDown(changes.close);
+        final gate = await _unlockedGate();
+        final first = relay.connect(
+          origin: fake.origin,
+          handle: 'first',
+          mode: PairingMode(psk: Uint8List(32)),
+          gate: gate,
+          deviceInfo: _testDeviceInfo,
+        );
+        final previousSocket = await fake.connection(0);
+        final previousFrames = StreamIterator<dynamic>(previousSocket);
+        await _FakeRelay.joinAndGreet(previousSocket, previousFrames);
+        expect(await first, isA<Ok<void>>());
+        final cancellation = PairingCancellation();
+        final second = relay.connect(
+          origin: fake.origin,
+          handle: 'second',
+          mode: PairingMode(psk: Uint8List(32)),
+          gate: gate,
+          deviceInfo: _testDeviceInfo,
+          cancellation: cancellation,
+        );
+        final cancelled = completeHandshake
+            ? null
+            : expectLater(second, throwsA(isA<PairingCancelledException>()));
+        final pendingSocket = await fake.connection(1);
+        final pendingFrames = StreamIterator<dynamic>(pendingSocket);
+        if (completeHandshake) {
+          await _FakeRelay.joinAndGreet(pendingSocket, pendingFrames);
+          expect(await second, isA<Ok<void>>());
+        } else {
+          await pendingFrames.moveNext();
+        }
+        expect(cancellation.disconnectedHost, isTrue);
+        cancellation.cancel();
+        if (cancelled != null) await cancelled;
+        final states = <RelayConnectionState>[];
+        final subscription = relay.connectionState.listen(states.add);
+        addTearDown(subscription.cancel);
+        final stable = watcher.onNetworkStable.first;
+        changes.add([ConnectivityResult.wifi]);
+        await stable;
+        await Future<void>.delayed(Duration.zero);
+        expect(states.whereType<RelayReconnecting>(), isEmpty);
+        expect(relay.isConnected, isFalse);
+        await previousFrames.cancel();
+        await pendingFrames.cancel();
+      },
+    );
+  }
   test('host_theme keeps the latest palette in lastHostInfo', () async {
     final fake = await _FakeRelay.start();
     final gate = await _unlockedGate();

@@ -610,6 +610,29 @@ and zoom, rename and copy stay out. `docs/31-mockups/10-pane-actions.md` owns th
 `docs/31-mockups/17-create.md` owns the menu, `docs/30-ux-spec.md` `R-30-511`'s route owns the
 navigation to the new pane.
 
+**R-03-135**: The QR scan and the pairing that follows it MUST behave as the platform's camera
+and the person's patience expect. Decided 2026-09-16 by the product owner after the first pairing
+attempt from a real iPhone: "Scanning the QR code should ideally support zooming in with the
+camera", "after a QR code is scanned, the state says connecting... and Type it in is disabled; we
+need a better connection screen with a clear way to cancel the connection", and the failure read
+only "Could not pair with that computer". Three rules follow. **Zoom.** The viewfinder MUST zoom
+the camera with a pinch, the gesture every phone camera app uses, and MUST offer one tap control
+that toggles between the widest zoom and a closer preset, the way the iOS Camera app offers `1x`
+and `2x`, for the person who holds the phone at arm's length from a monitor. **Connecting.** Once
+a scan is committed the bottom bar MUST become a connecting panel that names what is being
+dialled (the relay host, never the phrase or handle, per `R-31-02-05`), shows the platform's
+activity indicator, and carries one enabled action, `Cancel`. Cancel MUST close the socket and
+return the screen to its ready state; if the scan had disconnected a computer per `R-31-02-10`,
+cancel MUST land on `/hosts` as the failed switch of `R-30-947` does, because that connection is
+already gone. `Type it in` stays disabled while connecting, because the switch has started;
+`Cancel` is the way out, not a second pairing. **Cause.** A pairing failure MUST name its cause
+in the sentence a person reads, per `R-30-803`: the relay host it could not reach and the
+transport reason (`refused`, `timed out`, `no route`), or the relay's own error. "Could not pair
+with that computer" alone is retired. `docs/31-mockups/02-pair-scan.md` owns the viewfinder, the
+connecting panel and the failure sentences; `docs/31-mockups/03-pair-code.md` reuses the panel
+and the sentences for the by-hand path; `docs/30-ux-spec.md` `R-30-947` owns the landing after a
+cancelled switch.
+
 ## 8. Local notifications only
 
 **R-03-060**: The notification model MUST work as follows. Herdr emits `done` or `blocked`. The Host

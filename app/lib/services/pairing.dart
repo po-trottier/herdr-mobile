@@ -40,6 +40,8 @@ import 'origin.dart';
 import 'plain_store.dart' show PairedHostRecord, PlainStore;
 import 'relay.dart';
 
+export 'relay.dart' show PairingCancellation, PairingCancelledException;
+
 /// The pairing URI scheme (R-03-013).
 const String _pairingUriScheme = 'herdr-remote';
 
@@ -794,42 +796,54 @@ Future<Result<PairingOutcome>> attemptPairing({
   required BiometricGate gate,
   required DeviceInfo deviceInfo,
   required PairingAttemptTracker tracker,
+  PairingCancellation? cancellation,
 }) async {
-  final psk = await pskFromPhrase(input.phrase);
-  final result = await connection.connect(
-    origin: input.relayOrigin,
-    handle: input.handle,
-    mode: PairingMode(psk: psk),
-    gate: gate,
-    deviceInfo: deviceInfo,
-  );
-  if (result is Err<void>) {
-    return Err(
-      result.message,
-      cause: _classifyAttemptFailure(result.cause, input.phrase, tracker),
-    );
-  }
-  final DateTime connectedAt = DateTime.now();
-  tracker.reset();
-  final pinnedKey = connection.pinnedHostKey;
-  final info = connection.lastHostInfo;
-  if (pinnedKey == null || info == null) {
-    return Err(
-      'complete pairing',
-      cause: StateError(
-        'connect() returned Ok but captured no pinned host key or host_info',
+  final token = cancellation ?? PairingCancellation();
+  try {
+    token.check();
+    final psk = await token.wait(pskFromPhrase(input.phrase));
+    final result = await token.wait(
+      connection.connect(
+        origin: input.relayOrigin,
+        handle: input.handle,
+        mode: PairingMode(psk: psk),
+        gate: gate,
+        deviceInfo: deviceInfo,
+        cancellation: token,
       ),
     );
+    if (result is Err<void>) {
+      return Err(
+        result.message,
+        cause: _classifyAttemptFailure(result.cause, input.phrase, tracker),
+      );
+    }
+    final DateTime connectedAt = DateTime.now();
+    tracker.reset();
+    final pinnedKey = connection.pinnedHostKey;
+    final info = connection.lastHostInfo;
+    if (pinnedKey == null || info == null) {
+      return Err(
+        'complete pairing',
+        cause: StateError(
+          'connect() returned Ok but captured no pinned host key or host_info',
+        ),
+      );
+    }
+    final fingerprint = await token.wait(hostFingerprint(pinnedKey));
+
+    return Ok(
+      PairingOutcome(
+        hostId: info.hostId,
+        hostName: info.hostName,
+        hostStaticPublicKey: pinnedKey,
+        hostFingerprintText: fingerprint,
+        connectedAt: connectedAt,
+      ),
+    );
+  } on PairingCancelledException catch (error) {
+    return Err('Pairing cancelled', cause: error);
   }
-  return Ok(
-    PairingOutcome(
-      hostId: info.hostId,
-      hostName: info.hostName,
-      hostStaticPublicKey: pinnedKey,
-      hostFingerprintText: await hostFingerprint(pinnedKey),
-      connectedAt: connectedAt,
-    ),
-  );
 }
 
 Object? _classifyAttemptFailure(

@@ -354,11 +354,15 @@ fn event_during_read_waits_for_completion_then_reads_trailing() {
     let start = Instant::now();
     tx.send(Ok(pane_updated_line(1))).expect("first event");
     let reads = read_at.clone();
+    // The thread gets its own sender; `tx` stays alive here so the subscription
+    // is open until `run_until` reaches its deadline.
+    let thread_tx = tx.clone();
     let sender = std::thread::spawn(move || {
         started_rx
             .recv_timeout(Duration::from_secs(2))
             .expect("leading read starts");
-        tx.send(Ok(pane_updated_line(2)))
+        thread_tx
+            .send(Ok(pane_updated_line(2)))
             .expect("event during read");
         std::thread::sleep(Duration::from_millis(140));
         assert_eq!(
@@ -368,9 +372,6 @@ fn event_during_read_waits_for_completion_then_reads_trailing() {
         );
         let released_at = Instant::now();
         release_tx.send(()).expect("finish leading read");
-        // Keep the subscription open until the loop reaches its deadline. The margin
-        // absorbs a slow CI runner; one window still yields exactly one trailing read.
-        std::thread::sleep(Duration::from_millis(600));
         released_at
     });
     bridge
@@ -383,6 +384,7 @@ fn event_during_read_waits_for_completion_then_reads_trailing() {
         )
         .expect("read and trailing interval");
     let released_at = sender.join().expect("event sender");
+    drop(tx);
     let reads = read_at.lock().expect("read log");
     assert_eq!(reads.len(), 3, "initial, leading, and one trailing read");
     assert!(

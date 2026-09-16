@@ -136,6 +136,11 @@ impl<H: HerdrCalls> Bridge<H> {
         loop {
             let now = Instant::now();
             if now >= deadline {
+                // A late entry still serves a read that came due; otherwise the frame
+                // waits for the next tick (R-10-029).
+                if let Some(frame) = self.poll_scheduler(now) {
+                    frame_slot.put(frame);
+                }
                 return Ok(());
             }
             let wait = self

@@ -17,6 +17,7 @@
 //! rooting every path at the `config-dir` output instead of a hardcoded example.
 
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;

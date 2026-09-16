@@ -1321,6 +1321,8 @@ flutter doctor -v
 flutter devices
 cd app
 flutter pub get
+dart run tool/fetch_eff_wordlist.dart      # gitignored asset, R-13-025
+dart run build_runner build --delete-conflicting-outputs
 flutter run -d <device-id>
 ```
 

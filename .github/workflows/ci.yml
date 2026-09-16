@@ -125,6 +125,9 @@ jobs:
       # Settings/About work package's R-31-19-14 group and R-23-060 gate runs before any
       # build, debug or release.
       - run: dart run tool/check_notices.dart
+      # The EFF word list is gitignored and fetched at build time (R-13-025); the asset
+      # bundle fails without it.
+      - run: dart run tool/fetch_eff_wordlist.dart
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter build apk --debug
 
@@ -143,5 +146,6 @@ jobs:
         with:
           flutter-version: "3.47.0"
       - run: flutter pub get
+      - run: dart run tool/fetch_eff_wordlist.dart
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter build ios --debug --no-codesign

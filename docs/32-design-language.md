@@ -910,8 +910,12 @@ from them and MUST NOT be hand-edited.
   `python assets/icon/generate.py` from the repository root after any source change. It needs only
   Pillow.
 - **R-32-411** The launcher background is `#17171a`, the Ink theme's `color.bg.base`, carrying the
-  ground grid of `R-32-332` as 1 px lines in `#202024`, the Ink theme's `color.bg.grid`, at 8 cells
-  per side; the mark is `#cba6f7`, the Ink theme's `color.accent.primary`. The icon is the welcome
+  ground grid of `R-32-332` as 1 dp lines in `#35353d`, the Ink theme's `color.border.subtle`, at 8
+  cells per side (amended 2026-09-16 by the product owner: the first export used 1 px lines in
+  `color.bg.grid`, `#202024`, which measure 1.05:1 and vanished at launcher size, so the tile read
+  as plain; the icon takes the next Ink line token and a device-independent width so the grid is
+  visible behind the mark on both platforms); the mark is `#cba6f7`, the Ink theme's
+  `color.accent.primary`. The icon is the welcome
   hero in miniature, the mark on the gridded ground, so the tile on the launcher and the first
   screen the person opens read as one surface. The eye of the mark is a cutout, so the ground shows
   through it and the `>_` reads as a prompt on a dark terminal. Neither value follows the theme.
@@ -952,7 +956,7 @@ from them and MUST NOT be hand-edited.
 
 - **R-32-423** The mark measures `8.81:1` against the background (`#cba6f7` on `#17171a`, WCAG
   relative-luminance formula), clearing the 4.5 text floor and the 7.0 enhanced floor alike; the
-  grid line measures `1.1:1` against the ground and is decorative, so it carries no floor, per
+  grid line measures `1.47:1` against the ground and is decorative, so it carries no floor, per
   `R-32-114`. A future art change MUST re-measure this ratio, because it is a property of the
   specific mark and background pair, not a standing guarantee.
 

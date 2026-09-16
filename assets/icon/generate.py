@@ -41,7 +41,9 @@ SRC = ROOT / "src"
 EXPORT = ROOT / "export"
 
 BG_HEX = "#17171a"  # R-32-411: the Ink ground, `color.bg.base`.
-GRID_HEX = "#202024"  # R-32-411: the Ink theme's `color.bg.grid`, painted as 1 px lines.
+# R-32-411: the icon grid ink is `color.border.subtle`, not the in-app `color.bg.grid` (#202024,
+# 1.05:1), which vanished at launcher size and read as a plain tile.
+GRID_HEX = "#35353d"
 MARK_HEX = "#cba6f7"  # R-32-411: the Ink theme's spot colour; 8.8:1 against BG_HEX.
 BG_RGB = tuple(int(BG_HEX[i : i + 2], 16) for i in (1, 3, 5))
 GRID_RGB = tuple(int(GRID_HEX[i : i + 2], 16) for i in (1, 3, 5))
@@ -160,12 +162,12 @@ GRID_CELLS = 8
 
 
 def _ground(canvas_px: int, alpha: bool) -> Image.Image:
-    """The Ink ground with `color.bg.grid` lines at GRID_CELLS per side, one device pixel wide at
-    every density (R-32-411). Lines sit on cell boundaries, never on the canvas edge."""
+    """The Ink ground with GRID_HEX lines at GRID_CELLS per side, one dp wide at every density
+    (R-32-411). Lines sit on cell boundaries, never on the canvas edge."""
     img = _flat_fill(canvas_px, BG_RGB, alpha)
     px = img.load()
     line = GRID_RGB + (255,) if alpha else GRID_RGB
-    width = max(1, round(canvas_px / 432))  # 1 px at mdpi, up to 3 px on the 1024 export.
+    width = max(1, round(canvas_px / ADAPTIVE_CANVAS_DP))  # 1 dp: 1 px at mdpi, 4 px at xxxhdpi.
     for cell in range(1, GRID_CELLS):
         pos = round(canvas_px * cell / GRID_CELLS)
         for offset in range(width):

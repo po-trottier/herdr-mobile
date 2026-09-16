@@ -246,6 +246,7 @@ fn send_input_arms_reads_that_carry_the_echo_of_a_keystroke() {
         .expect("watch_pane succeeds against the stub");
     read_at.lock().expect("read log").clear(); // count only the input-triggered reads
 
+    let written_at = Instant::now();
     bridge
         .send_input(SendInput {
             pane_id: "w1:p1".to_string(),
@@ -266,11 +267,20 @@ fn send_input_arms_reads_that_carry_the_echo_of_a_keystroke() {
         .expect("the run loop completes at the deadline with no error");
     drop(tx);
 
-    let reads = read_at.lock().expect("read log").len();
-    assert_eq!(
-        reads, 3,
-        "one write arms exactly the three R-10-071 reads, got {reads}"
+    let reads = read_at.lock().expect("read log");
+    // One read serves every deadline that is due when it fires, so a slow read
+    // can merge the 60 ms and 130 ms offsets: two or three reads, never more, and
+    // the last one lands at or after the 250 ms offset.
+    assert!(
+        (2..=3).contains(&reads.len()),
+        "one write arms the three R-10-071 reads, merged at most once, got {}",
+        reads.len()
     );
+    assert!(
+        *reads.last().expect("a read") >= written_at + Duration::from_millis(250),
+        "the last input read serves the 250 ms offset"
+    );
+    drop(reads);
     let frame = frame_slot
         .try_take()
         .expect("the echoed character reaches the Device (R-10-071)");
@@ -314,7 +324,11 @@ fn input_with_unchanged_text_reads_but_sends_no_frame() {
         .expect("the run loop completes at the deadline with no error");
     drop(tx);
 
-    assert_eq!(read_at.lock().expect("read log").len(), 3);
+    let reads = read_at.lock().expect("read log").len();
+    assert!(
+        (2..=3).contains(&reads),
+        "input arms reads, merged at most once on a slow read, got {reads}"
+    );
     assert!(
         frame_slot.try_take().is_none(),
         "an unchanged pane sends no frame after input either (R-10-070 hash compare)"

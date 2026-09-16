@@ -1,0 +1,46 @@
+# The supported public relay profile, docs/14-relay-deployment.md R-14-010. Deploy this
+# directory as one Compose project (`docker compose up -d`, or an Arcane Git-synced project,
+# R-14-024). Set RELAY_HOSTNAME in a `.env` file beside this file.
+services:
+  relay:
+    image: ghcr.io/po-trottier/herdr-relay-hub:latest
+    container_name: herdr-relay-hub
+    restart: unless-stopped
+    environment:
+      HERDR_RELAY_LISTEN: "0.0.0.0:8080"
+      HERDR_RELAY_METRICS_LISTEN: "0.0.0.0:9090"
+      HERDR_RELAY_MAX_HANDLES: "4096"
+      HERDR_RELAY_CONNECTION_RATE: "10"
+      HERDR_RELAY_FRAME_RATE: "100"
+      HERDR_RELAY_HANDLE_RATE: "5"
+      HERDR_RELAY_LOG_JSON: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - relay
+
+  caddy:
+    image: caddy:2.11.4
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RELAY_HOSTNAME: ${RELAY_HOSTNAME:?set RELAY_HOSTNAME in .env}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - relay
+
+networks:
+  relay:
+    name: herdr-relay-network
+
+volumes:
+  caddy_data:
+  caddy_config:

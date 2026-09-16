@@ -758,6 +758,18 @@ implementation reads it and never regenerates it, so no work package owns a path
 dependency-update configuration of `R-40-055`, which is native platform behaviour and needs no
 workflow of its own.
 
+#### 3.2.4a Relay deployment profile (`deploy/relay/`)
+
+```text
+deploy/
+└── relay/
+    ├── compose.yaml            # Owner: docs/14 (R-14-024, R-90-018); the R-14-010 profile
+    └── Caddyfile               # Owner: docs/14 (R-14-021, R-14-024)
+```
+
+The directory a GitOps tool syncs to deploy the relay, per `R-14-024`. It carries no hostname,
+key or secret; `RELAY_HOSTNAME` comes from an uncommitted `.env` beside the Compose file.
+
 #### 3.2.5 Cross-component end-to-end test (`tests/e2e/`)
 
 ```text

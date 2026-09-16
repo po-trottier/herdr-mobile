@@ -140,26 +140,13 @@ The relay service MUST publish no host port.
 
 Port 80 is published for certificate issuance and renewal.
 
-**R-14-024** An operator whose Compose tool manages only `compose.yaml` and `.env` (Arcane and
-similar UIs) MAY replace the `./Caddyfile` bind mount of R-14-010 with a Compose inline config.
-The Caddyfile text MUST stay the R-14-021 text; only its delivery changes:
-
-```yaml
-  caddy:
-    configs:
-      - source: caddyfile
-        target: /etc/caddy/Caddyfile
-
-configs:
-  caddyfile:
-    content: |
-      ${RELAY_HOSTNAME} {
-          reverse_proxy relay:8080
-      }
-```
-
-`RELAY_HOSTNAME` is set in the project's `.env` file. Every other line of R-14-010 stays as
-written. Inline `configs.content` needs Compose 2.23.1 or later.
+**R-14-024** The repository ships the R-14-010 profile as a deployable directory,
+`deploy/relay/`: `compose.yaml` and `Caddyfile`. The Caddyfile reads the hostname from the
+`RELAY_HOSTNAME` environment variable (`{$RELAY_HOSTNAME}`), which the Compose file passes to the
+`caddy` service from a `.env` file beside it; nothing else differs from R-14-010 and R-14-021. A
+GitOps tool that syncs a Compose directory from Git (Arcane "Sync from Git", Pull direction)
+MUST point at `deploy/relay/compose.yaml` on `main` and set `RELAY_HOSTNAME` in the project's
+`.env`. Committed files in `deploy/relay/` MUST contain no hostname, key or secret.
 
 **R-14-023** Caddy handles the WebSocket upgrade automatically. The `reverse_proxy` directive
 forwards the `Connection: Upgrade` and `Upgrade: websocket` headers without extra configuration.
@@ -282,6 +269,9 @@ This profile is a **single instance** behind one reverse proxy on one VM. It doe
   metric names, alert conditions
 
 - Docker Compose file reference — `https://docs.docker.com/reference/compose-file/`.
-- Docker Compose `configs` top-level element — `https://docs.docker.com/reference/compose-file/configs/`.
-  Confirms inline `content` for a config, available since Compose 2.23.1.
+- Caddyfile environment placeholders — `https://caddyserver.com/docs/caddyfile/concepts#environment-variables`.
+  Confirms `{$RELAY_HOSTNAME}` is replaced at Caddyfile parse time from the process environment.
+- Arcane Projects, "Sync from Git" — `https://getarcane.app/docs/features/projects#sync-from-git`.
+  Confirms a Pull sync clones the Compose file's directory, including relative files, and keeps
+  the project's local `.env`.
 - Caddy 2.11.4 release — `https://github.com/caddyserver/caddy/releases/tag/v2.11.4`.

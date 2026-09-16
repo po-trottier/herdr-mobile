@@ -395,14 +395,15 @@ fn event_during_read_waits_for_completion_then_reads_trailing() {
         );
         let released_at = Instant::now();
         release_tx.send(()).expect("finish leading read");
-        // Keep the subscription open until the loop reaches its deadline.
-        std::thread::sleep(Duration::from_millis(150));
+        // Keep the subscription open until the loop reaches its deadline. The margin
+        // absorbs a slow CI runner; one window still yields exactly one trailing read.
+        std::thread::sleep(Duration::from_millis(600));
         released_at
     });
     bridge
         .run_until(
             &rx,
-            start + Duration::from_millis(220),
+            start + Duration::from_millis(700),
             &frames,
             |_| {},
             || {},

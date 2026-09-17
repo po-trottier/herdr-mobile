@@ -127,6 +127,7 @@ import '../services/relay.dart'
         RelayRevoked;
 import '../services/terminal.dart'
     show
+        TerminalAttachException,
         TerminalFrameState,
         TerminalMessageSender,
         TerminalPaneStatus,
@@ -387,7 +388,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
     if (!mounted) return;
     setState(() {
       _attaching = false;
-      _attachError = result is Err<void> ? result.message : null;
+      // R-30-803: the raw reason, so a timeout and a Host refusal read differently.
+      _attachError = switch (result) {
+        Err(:final message, cause: final TerminalAttachException cause) =>
+          '$message: ${cause.message}',
+        Err(:final message) => message,
+        Ok() => null,
+      };
     });
   }
 

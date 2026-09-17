@@ -541,8 +541,15 @@ class AgentStatusService {
       _log[key] = NotificationItem(item: entry.item, seen: true);
       _emit();
     }
-    // R-11-240: send once, regardless of the pane's current status.
-    send?.call(Message.markSeen(MarkSeen(paneId: paneId)));
+    // R-11-240: send once, regardless of the pane's current status, for an agent pane. A
+    // shell pane has no agent for Herdr to mark, and the Host answers `pane_not_found`; the
+    // terminal screen read that stray error as its own attach failure (2026-09-16, a fresh
+    // pairing opening a shell pane: "Could not read this pane" while the watch_ack followed).
+    // A pane the tree has not named yet is sent: the Host decides, per the same rule.
+    final pane = _panesByHost[_currentHostId() ?? '']?[paneId];
+    if (pane == null || pane.agent != null) {
+      send?.call(Message.markSeen(MarkSeen(paneId: paneId)));
+    }
     return entry == null || entry.seen
         ? Future.value(const Ok(null))
         : _acknowledge(entry, removed: false);

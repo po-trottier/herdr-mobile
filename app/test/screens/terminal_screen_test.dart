@@ -1550,7 +1550,9 @@ void main() {
 
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(find.text('Could not read this pane.'), findsOneWidget);
-    final Text raw = tester.widget(find.text('attach to pane $_paneId'));
+    final Text raw = tester.widget(
+      find.text('attach to pane $_paneId: no such pane'),
+    );
     expect(raw.style!.fontFamily, AppType.monoCode.fontFamily);
     expect(_alertActionLabels(tester), <String>['Back', 'Try again']);
 

@@ -16,16 +16,92 @@ library;
 import 'dart:convert' show base64Encode;
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart';
+import 'package:herdr_mobile/services/biometric_gate.dart';
 import 'package:herdr_mobile/services/keystore.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockFlutterSecureStorage extends Mock implements FlutterSecureStorage {}
 
 void main() {
+  group('iOS session keychain reads', () {
+    const channel = MethodChannel('dev.herdr.herdr_mobile/keychain_session');
+    const storageChannel = MethodChannel(
+      'plugins.it_nomads.com/flutter_secure_storage',
+    );
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    late List<MethodCall> calls;
+    final seed = [0, ...List<int>.filled(30, 7), 71];
+    final hostKey = List<int>.filled(32, 9);
+    setUp(() {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      calls = [];
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call);
+        if (call.method == 'invalidate') return null;
+        return switch ((call.arguments as Map)['key']) {
+          'device_x25519_private_key' => base64Encode(seed),
+          'host_static_public_key_host-1' => base64Encode(hostKey),
+          'host_routing_handle_host-1' => 'test-handle',
+          'host_relay_origin_host-1' => 'wss://relay.example',
+          _ => null,
+        };
+      });
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(storageChannel, (
+        call,
+      ) async {
+        throw PlatformException(code: 'unexpected_independent_keychain_read');
+      });
+    });
+    tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        storageChannel,
+        null,
+      );
+    });
+    test(
+      'unlock and legacy host records use the shared native context',
+      () async {
+        final service = KeystoreService(appLockEnabled: true);
+        final gate = BiometricGate(appLockEnabled: true, keystore: service);
+        expect(await gate.unlock(), isA<Ok<void>>());
+        expect(await gate.deviceStaticKey!.extractPrivateKeyBytes(), seed);
+        final result = await service.hostSecrets('host-1');
+        final secrets = (result as Ok<HostSecrets?>).value!;
+        expect(secrets.hostStaticPublicKey, hostKey);
+        expect(secrets.routingHandle, 'test-handle');
+        expect(secrets.relayOrigin, Uri.parse('wss://relay.example'));
+        expect(
+          (await service.hostRelayOrigin('host-1') as Ok<Uri?>).value,
+          Uri.parse('wss://relay.example'),
+        );
+        await gate.unlock();
+        expect(
+          calls.where(
+            (c) =>
+                c.method == 'read' &&
+                (c.arguments as Map)['key'] == 'device_x25519_private_key',
+          ),
+          hasLength(1),
+        );
+        gate.noteLifecycleChange(AppLifecycleState.detached);
+        await Future<void>.delayed(Duration.zero);
+        expect(calls.last.method, 'invalidate');
+        expect(gate.deviceStaticKey, isNull);
+      },
+    );
+  });
+
   const options = KeystoreService.iosOptionsAppLockOnForTesting;
   const offOptions = KeystoreService.iosOptionsAppLockOffForTesting;
 

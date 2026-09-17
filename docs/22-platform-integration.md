@@ -122,8 +122,14 @@ alone would deny the Keychain read to a passcode-only device even after R-22-014
 fallback succeeds at the app level, so both routes must succeed at the Keychain layer too. When
 the app needs the key, it asks the Keystore or Keychain to read the data. The OS presents the
 biometric prompt and, on success, allows the read. The app never sees a "yes/no" boolean it can
-bypass. When App Lock is disabled, the app reads the same Keystore or Keychain data with no
-authentication challenge at all, per R-22-082; the trade-off that mode accepts is recorded in
+bypass. On iOS, the Device MUST reuse the device-key read's `LAContext` for later Host-record
+reads in that unlocked session, including records protected by older builds. Those reads MUST
+set `interactionNotAllowed` so they cannot open additional authentication sheets. Locking MUST
+invalidate the context; a new unlock or destructive-action authentication uses a fresh one.
+Concurrent unlock requests MUST share the same pending device-key read. A result received after
+locking MUST NOT unlock the app. When App Lock is disabled, the app reads the same Keystore or
+Keychain data with no authentication challenge at all, per R-22-082; the trade-off that mode accepts
+is recorded in
 `docs/decisions/ADR-009-optional-app-lock.md`.
 
 **Reason this rule holds while App Lock is on:** An app-level boolean (`if
@@ -1133,6 +1139,16 @@ is revived.)*
 ---
 
 ## Sources
+
+- Apple `kSecUseAuthenticationContext` —
+  <https://developer.apple.com/documentation/security/ksecuseauthenticationcontext> —
+  an authenticated context can serve subsequent Keychain operations without another prompt.
+- Apple `LAContext.invalidate()` —
+  <https://developer.apple.com/documentation/localauthentication/lacontext/invalidate()> —
+  invalidation cancels pending authentication and prevents context reuse.
+- Apple `LAContext.interactionNotAllowed` —
+  <https://developer.apple.com/documentation/localauthentication/lacontext/interactionnotallowed> —
+  subsequent reads can prohibit authentication UI.
 
 - Apple Developer — `CFBundleURLTypes`: https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes
 - Apple Developer — `CFBundleURLSchemes`: https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes/cfbundleurlschemes

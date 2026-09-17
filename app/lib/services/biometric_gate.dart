@@ -212,7 +212,15 @@ class BiometricGate {
   /// R-13-064). A no-op, with no platform prompt, when the app is already unlocked. On
   /// success, marks the app unlocked and clears `MainActivity.kt`'s `FLAG_SECURE`
   /// (R-31-04-02).
-  Future<Result<void>> unlock() => _authenticate(force: false);
+  Future<Result<void>>? _pendingUnlock;
+  int _authenticationGeneration = 0;
+
+  Future<Result<void>> unlock() {
+    if (!_locked) return Future.value(const Ok(null));
+    return _pendingUnlock ??= _authenticate(force: false).whenComplete(() {
+      _pendingUnlock = null;
+    });
+  }
 
   /// Re-authenticates unconditionally, for the third R-22-017 trigger: before a destructive
   /// action (revoke pairing, clear terminal history), regardless of the current lock state or
@@ -263,7 +271,11 @@ class BiometricGate {
     // top doc comment. `keystore.dart` classifies a failure as `KeyInvalidatedException` or
     // `BiometricAuthenticationException`; both pass through unchanged for
     // `lock_screen.dart` to pattern-match on.
+    final generation = _authenticationGeneration;
     final keyResult = await _keystore.deviceKeyPair();
+    if (generation != _authenticationGeneration) {
+      return const Err('authentication ended because the app locked');
+    }
     return switch (keyResult) {
       Ok(:final value) => _markUnlocked(value),
       Err(:final message, :final cause) => Err(
@@ -284,6 +296,8 @@ class BiometricGate {
   }
 
   void _lock() {
+    _authenticationGeneration++;
+    _keystore.endAuthenticationSession();
     _deviceStaticKey = null;
     if (!_locked) {
       _locked = true;

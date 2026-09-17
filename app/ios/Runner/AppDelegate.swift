@@ -1,4 +1,5 @@
 import Flutter
+import Security
 import UIKit
 import UserNotifications
 
@@ -7,6 +8,9 @@ import UserNotifications
   /// Retained for the app's lifetime: it owns the `NotificationCenter`
   /// observer behind Reduce Transparency change notifications (R-33-051).
   private var chromeReduceTransparencyChannel: ChromeReduceTransparencyChannel?
+
+  private let keychainSession = KeychainSession()
+  private let keychainQueue = DispatchQueue(label: "dev.herdr.keychain-session")
 
   override func application(
     _ application: UIApplication,
@@ -22,6 +26,36 @@ import UserNotifications
   /// `dev.herdr.herdr_mobile/app_settings` channel, "open" method.
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "KeychainSession") {
+      let channel = FlutterMethodChannel(
+        name: "dev.herdr.herdr_mobile/keychain_session", binaryMessenger: registrar.messenger()
+      )
+      channel.setMethodCallHandler { [self] call, result in
+        if call.method == "invalidate" {
+          keychainSession.invalidate()
+          result(nil)
+          return
+        }
+        guard call.method == "read", let args = call.arguments as? [String: Any],
+              let key = args["key"] as? String else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        let generation = keychainSession.generation
+        keychainQueue.async { [self] in
+          let (status, value) = keychainSession.read(key: key, generation: generation)
+          DispatchQueue.main.async { [self] in
+            let status = generation == keychainSession.generation ? status : errSecUserCanceled
+            if status == errSecSuccess {
+              result(value)
+            } else {
+              // Preserve KeystoreService's OSStatus classification without logging secrets.
+              result(FlutterError(code: "keychain_read", message: "Code: \(status)", details: status))
+            }
+          }
+        }
+      }
+    }
     if let cameraZoomRegistrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "CameraZoomChannel"
     ) {

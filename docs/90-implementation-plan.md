@@ -488,7 +488,8 @@ producer has finished (R-90-020). A package that publishes nothing says so.
 - **WP-13-a** — wave 2. The key store. 12 checkboxes.
   - **Paths.** `app/lib/core/result/result.dart`, `app/lib/services/keystore.dart`,
     `app/lib/services/plain_store.dart`, `app/integration_test/keystore_survival_test.dart`,
-    `app/test/services/keystore_test.dart`.
+    `app/test/services/keystore_test.dart`, `app/ios/Runner/KeychainSession.swift`,
+    `app/ios/RunnerTests/KeychainSessionTests.swift`.
     `result.dart` is the shared `Result<T>`/`Ok`/`Err` type R-41-103 requires;
     `docs/20-mobile-framework.md` §7.2 names its directory but no package owned the file, so this
     is the earliest phase that actually needs it (R-90-018) — `WP-0-b` covers only manifests and
@@ -522,6 +523,10 @@ producer has finished (R-90-020). A package that publishes nothing says so.
     tokens and it keeps a target route across the unlock.
   - **Publishes.** The 120-second background lock and the three re-authentication points, which
     Phase 14 and Phase 19 both call.
+  - **Maintenance, 2026-09-16.** `WP-13-a` adds the iOS session Keychain reader and its native
+    tests. `WP-13-b` coalesces pending unlocks and invalidates that context on lock. `WP-0-b`
+    owns the channel registration and source membership in `AppDelegate.swift` and the Xcode
+    project. These packages have closed; this repair follows their standing path ownership.
 
 **Phase 14** — 34 checkboxes, 18 owned paths, 2 packages.
 
@@ -3827,7 +3832,8 @@ biometric check.
 `app/test/screens/lock_screen_golden_test.dart`, `app/test/screens/lock_screen_test.dart`,
 `app/test/screens/golden_support.dart` (self-declared, `WP-13-b`, R-90-018),
 `app/test/services/biometric_gate_test.dart`,
-`app/test/services/keystore_test.dart`.
+`app/test/services/keystore_test.dart`, `app/ios/Runner/KeychainSession.swift`,
+`app/ios/RunnerTests/KeychainSessionTests.swift`.
 
 - [x] Move the `Result<T>`/`Ok`/`Err` definitions (R-41-103) from their self-hosted location in
       `app/lib/services/keystore.dart` to the canonical `app/lib/core/result/result.dart`

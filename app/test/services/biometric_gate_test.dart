@@ -8,6 +8,8 @@
 /// unchanged for `lock_screen.dart` to classify.
 library;
 
+import 'dart:async';
+
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
@@ -66,6 +68,32 @@ void main() {
       ),
     );
   }
+
+  test('concurrent unlocks share one pending keychain challenge', () async {
+    final pending = Completer<Result<SimpleKeyPair>>();
+    when(() => keystore.deviceKeyPair()).thenAnswer((_) => pending.future);
+    final first = gate.unlock();
+    final second = gate.unlock();
+    pending.complete(Ok(keyPair));
+    expect(await first, isA<Ok<void>>());
+    expect(await second, isA<Ok<void>>());
+    expect(gate.deviceStaticKey, same(keyPair));
+    verify(() => keystore.deviceKeyPair()).called(1);
+  });
+
+  test(
+    'locking during authentication rejects the late keychain result',
+    () async {
+      final pending = Completer<Result<SimpleKeyPair>>();
+      when(() => keystore.deviceKeyPair()).thenAnswer((_) => pending.future);
+      final unlocking = gate.unlock();
+      gate.noteLifecycleChange(AppLifecycleState.detached);
+      pending.complete(Ok(keyPair));
+      expect(await unlocking, isA<Err<void>>());
+      expect(gate.isLocked, isTrue);
+      expect(gate.deviceStaticKey, isNull);
+    },
+  );
 
   group('_defaultSetNativeLocked platform gate (R-31-04-02)', () {
     // These tests build a `BiometricGate` with no `setNativeLocked` override, so the real

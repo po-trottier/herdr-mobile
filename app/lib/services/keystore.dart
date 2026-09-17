@@ -26,11 +26,13 @@
 // the private key, derived session key material, the pairing phrase, or a routing handle
 // (R-13-066).
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:flutter/services.dart' show PlatformException;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/result/result.dart';
@@ -62,11 +64,12 @@ final class KeyInvalidatedException implements Exception {
 /// always shows its own separate, `CryptoObject`-bound `BiometricPrompt` regardless
 /// (`FlutterSecureStorage.java` `authenticateUser`). On iOS, `local_auth_darwin` evaluates a
 /// private `LAContext` it never exposes (`LocalAuthPlugin.swift`), and `flutter_secure_storage`
-/// only reuses a caller-supplied `LAContext` when `useSecureEnclave: true`
+/// only attaches an `LAContext` when `useSecureEnclave: true`
 /// (`FlutterSecureStorageDarwinPlugin.swift` `parseCall`) -- unusable here, since R-13-044
 /// forbids storing this Curve25519 key as a Secure Enclave key at all. So today, calling
 /// `local_auth.authenticate()` before a keystore read produces two independent OS prompts on
-/// both platforms, and the `local_auth` one is pure UI theatre on Android.
+/// both platforms. The iOS session channel now reuses the context from the gated Keychain
+/// read instead of adding a separate `local_auth` challenge.
 enum BiometricFailureReason {
   /// The user dismissed the prompt or tapped cancel. Android
   /// `BiometricPrompt.ERROR_USER_CANCELED` = 10; iOS `errSecUserCanceled` = -128.
@@ -129,12 +132,10 @@ final class HostSecrets {
 /// platform). Two `FlutterSecureStorage` instances, configured once in the constructor:
 /// [_gated] holds the one item R-22-013 gates, the Device private key, under the App Lock
 /// access control; [_plain] holds every Host record (pinned key, routing handle, relay
-/// origin, R-13-063) in the same keychain class with no authentication challenge. The OS
-/// challenge is per item read, and iOS gives the plugin no way to reuse one `LAContext`
-/// across reads, so gating every item raised one Face ID sheet per item: six on a cold
-/// start that read the key and one Host's three records (2026-09-16, the product owner).
-/// Without the private key the Host records open nothing, so the key alone is the gate,
-/// and a session sees exactly one prompt (R-13-064).
+/// origin, R-13-063) in the same keychain class with no new authentication requirement.
+/// iOS reads use `KeychainSession.swift`: one LAContext authenticates the device-key read
+/// and is reused without UI for legacy Host records that still carry biometric controls.
+/// The gate invalidates that context when the app locks (R-13-064).
 class KeystoreService {
   /// [appLockEnabled] is required, with no default, so every call site states the current
   /// App Lock setting (`docs/03-product-decisions.md` R-03-090) explicitly — a silent
@@ -146,6 +147,11 @@ class KeystoreService {
     @visibleForTesting FlutterSecureStorage? plainStorage,
   }) : _appLockEnabled = appLockEnabled,
        _storageOverride = storage,
+       _usesIosSession =
+           storage == null &&
+           plainStorage == null &&
+           !kIsWeb &&
+           defaultTargetPlatform == TargetPlatform.iOS,
        _gated = storage ?? _storageFor(appLockEnabled: appLockEnabled),
        _plain = plainStorage ?? storage ?? _storageFor(appLockEnabled: false);
 
@@ -156,6 +162,23 @@ class KeystoreService {
             ? _androidOptionsAppLockOn
             : _androidOptionsAppLockOff,
       );
+
+  static const _sessionChannel = MethodChannel(
+    'dev.herdr.herdr_mobile/keychain_session',
+  );
+  final bool _usesIosSession;
+
+  Future<String?> _read(FlutterSecureStorage storage, String key) =>
+      _usesIosSession
+      ? _sessionChannel.invokeMethod<String>('read', {'key': key})
+      : storage.read(key: key);
+
+  /// Discards the native authentication credential whenever the app locks.
+  void endAuthenticationSession() {
+    if (_usesIosSession) {
+      unawaited(_sessionChannel.invokeMethod<void>('invalidate'));
+    }
+  }
 
   bool _appLockEnabled;
 
@@ -288,7 +311,7 @@ class KeystoreService {
   /// keypair; this method never rotates an existing key (R-13-046).
   Future<Result<SimpleKeyPair>> deviceKeyPair() async {
     try {
-      final storedSeed = await _gated.read(key: _privateKeyStorageKey);
+      final storedSeed = await _read(_gated, _privateKeyStorageKey);
       if (storedSeed != null) {
         return Ok(await X25519().newKeyPairFromSeed(base64Decode(storedSeed)));
       }
@@ -334,16 +357,18 @@ class KeystoreService {
   /// Reads the secrets stored for [hostId], or `Ok(null)` when none are stored.
   Future<Result<HostSecrets?>> hostSecrets(String hostId) async {
     try {
-      final publicKeyBase64 = await _plain.read(
-        key: _hostPublicKeyStorageKey(hostId),
+      final publicKeyBase64 = await _read(
+        _plain,
+        _hostPublicKeyStorageKey(hostId),
       );
-      final routingHandle = await _plain.read(
-        key: _hostRoutingHandleStorageKey(hostId),
+      final routingHandle = await _read(
+        _plain,
+        _hostRoutingHandleStorageKey(hostId),
       );
       if (publicKeyBase64 == null || routingHandle == null) {
         return const Ok(null);
       }
-      final origin = await _plain.read(key: _hostRelayOriginStorageKey(hostId));
+      final origin = await _read(_plain, _hostRelayOriginStorageKey(hostId));
       return Ok(
         HostSecrets(
           hostStaticPublicKey: base64Decode(publicKeyBase64),
@@ -393,7 +418,7 @@ class KeystoreService {
   /// text field is a use of key material that no rule asks for.
   Future<Result<Uri?>> hostRelayOrigin(String hostId) async {
     try {
-      final stored = await _plain.read(key: _hostRelayOriginStorageKey(hostId));
+      final stored = await _read(_plain, _hostRelayOriginStorageKey(hostId));
       if (stored == null) return const Ok(null);
       final parsed = Uri.tryParse(stored);
       return Ok(parsed);
@@ -407,6 +432,7 @@ class KeystoreService {
   /// part of the account-reset flow; a relay-origin change (R-03-032) should instead call
   /// `deleteHostSecrets` per affected computer and leave the Device keypair untouched.
   Future<Result<void>> clearAll() async {
+    endAuthenticationSession();
     try {
       // One keychain service and one preferences file back both instances, so this clears
       // the gated key too, with no authentication challenge (a delete never prompts).
@@ -476,6 +502,7 @@ class KeystoreService {
       }
       _gated = newGated;
       _appLockEnabled = appLockEnabled;
+      endAuthenticationSession();
       return const Ok(null);
     } on PlatformException catch (e) {
       return Err('retoggle App Lock protection', cause: _classify(e));
@@ -491,7 +518,7 @@ class KeystoreService {
     required FlutterSecureStorage from,
     required FlutterSecureStorage to,
   }) async {
-    final value = await from.read(key: key);
+    final value = await _read(from, key);
     if (value == null) {
       return; // Nothing stored under this key yet; nothing to migrate.
     }

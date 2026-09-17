@@ -518,6 +518,14 @@ class NotificationsService {
   /// settings gate and the quiet-hours hold, because it is a debugging tool a person reaches for
   /// specifically when they suspect those are silently eating alerts.
   Future<Result<NotificationDeliveryState>> sendTestNotification() async {
+    // A person taps this to find out why alerts are silent. The most common reason is a
+    // permission the OS was never asked for (an install that predates the R-30-509 request,
+    // 2026-09-16): iOS drops an unauthorised `show()` with no error, so the tap did nothing.
+    // The OS shows its dialog only while the answer is undetermined; a settled refusal returns
+    // at once and the outcome row then points at the system settings (R-22-073).
+    if (await effectiveDeliveryState() == NotificationDeliveryState.denied) {
+      await requestPermission();
+    }
     final result = await _showNow(
       AgentStatus(
         hostId: '',

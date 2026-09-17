@@ -227,6 +227,55 @@ final class _FakeRelay {
 }
 
 void main() {
+  for (final token in <String?>[null, 'initial']) {
+    test('push registration follows session_joined: token $token', () async {
+      final fake = await _FakeRelay.start();
+      final gate = await _unlockedGate();
+      final relay = RelayConnection(
+        handshaker: _fakeHandshaker,
+        connectivityWatcher: _noOpConnectivityWatcher(),
+      );
+      addTearDown(relay.dispose);
+      relay.setPushToken(token, platform: 'android');
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final connected = relay.connect(
+          origin: fake.origin,
+          handle: 'h1',
+          mode: PairingMode(psk: Uint8List(32)),
+          gate: gate,
+          deviceInfo: _testDeviceInfo,
+        );
+        final ws = await fake.connection(attempt);
+        final iterator = StreamIterator<dynamic>(ws);
+        final registration = await _FakeRelay.joinAndGreet(ws, iterator);
+        expect(registration['type'], 'device_register');
+        expect(await connected, isA<Ok<void>>());
+        if (token != null) {
+          await iterator.moveNext();
+          expect(jsonDecode(iterator.current as String), {
+            'type': 'push_register',
+            'platform': 'android',
+            'token': attempt == 0 ? token : 'rotated',
+          });
+        }
+        final deviceInfo = await _readDeviceFrame(
+          iterator,
+          NoiseCipher.withKey(_deviceSendKey),
+          Reassembler(),
+        );
+        expect(deviceInfo.type, 'device_info');
+        if (token != null && attempt == 0) {
+          relay.setPushToken('rotated', platform: 'android');
+          await iterator.moveNext();
+          expect(jsonDecode(iterator.current as String), {
+            'type': 'push_register',
+            'platform': 'android',
+            'token': 'rotated',
+          });
+        }
+      }
+    });
+  }
   for (final completeHandshake in [false, true]) {
     test(
       'cancelled pairing switch cannot reconnect: handshake complete $completeHandshake',

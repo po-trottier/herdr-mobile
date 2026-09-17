@@ -47,6 +47,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::{FutureExt, SinkExt, StreamExt};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -1654,4 +1655,208 @@ async fn stop_before_device_info_releases_the_host() {
     );
     host.shutdown().await;
     std::fs::remove_dir_all(paths.dir()).ok();
+}
+struct PushIpc {
+    path: PathBuf,
+    subscriptions: tokio::sync::mpsc::UnboundedReceiver<tokio::sync::mpsc::UnboundedSender<String>>,
+    _shutdown: tokio::sync::oneshot::Sender<()>,
+}
+
+impl PushIpc {
+    async fn start() -> Self {
+        let name = format!("push-test-{}", uuid::Uuid::new_v4());
+        #[cfg(windows)]
+        let path = PathBuf::from(name);
+        #[cfg(unix)]
+        let path = std::env::temp_dir().join(name);
+        let (ready, subscriptions) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel, mut cancelled) = tokio::sync::oneshot::channel();
+        #[cfg(windows)]
+        let pipe_name = format!(r"\\.\pipe\{}", path.display());
+        #[cfg(windows)]
+        let mut listener = tokio::net::windows::named_pipe::ServerOptions::new()
+            .create(&pipe_name)
+            .expect("create IPC pipe");
+        #[cfg(unix)]
+        let listener = tokio::net::UnixListener::bind(&path).expect("bind IPC socket");
+        tokio::spawn(async move {
+            let mut clients = tokio::task::JoinSet::new();
+            let serve = async {
+                loop {
+                    #[cfg(windows)]
+                    let stream = {
+                        listener.connect().await.expect("accept IPC pipe");
+                        let next = tokio::net::windows::named_pipe::ServerOptions::new()
+                            .create(&pipe_name)
+                            .expect("create next IPC pipe");
+                        std::mem::replace(&mut listener, next)
+                    };
+                    #[cfg(unix)]
+                    let (stream, _) = listener.accept().await.expect("accept IPC socket");
+                    clients.spawn(serve_push_ipc(stream, ready.clone()));
+                }
+            };
+            tokio::select! { _ = serve => {}, _ = &mut cancelled => {} }
+        });
+        Self {
+            path,
+            subscriptions,
+            _shutdown: cancel,
+        }
+    }
+
+    async fn subscription(&mut self) -> tokio::sync::mpsc::UnboundedSender<String> {
+        tokio::time::timeout(Duration::from_secs(5), self.subscriptions.recv())
+            .await
+            .expect("Host subscribes")
+            .expect("IPC server lives")
+    }
+}
+async fn serve_push_ipc<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
+    ready: tokio::sync::mpsc::UnboundedSender<tokio::sync::mpsc::UnboundedSender<String>>,
+) {
+    let mut stream = BufReader::new(stream);
+    let mut line = String::new();
+    stream.read_line(&mut line).await.expect("read IPC request");
+    let request: serde_json::Value = serde_json::from_str(&line).expect("IPC request JSON");
+    let subscribed = request["method"] == "events.subscribe";
+    let panes: Vec<_> = (1..=5).map(|id| serde_json::json!({
+        "pane_id": format!("w1:p{id}"), "workspace_id": "w1", "tab_id": "t1",
+        "terminal_id": "term-1", "label": "", "cwd": "/", "focused": true,
+        "agent": "claude", "agent_status": "working", "revision": 1,
+        "scroll": {"offset_from_bottom": 0, "max_offset_from_bottom": 0, "viewport_rows": 50}
+    })).collect();
+    let result = match request["method"].as_str().expect("IPC method") {
+        "events.subscribe" => serde_json::json!({"type": "subscription_started"}),
+        "session.snapshot" => serde_json::json!({"snapshot": {
+            "workspaces": [{"workspace_id": "w1", "label": "Workspace", "focused": true}],
+            "tabs": [{"tab_id": "t1", "workspace_id": "w1", "label": "Tab", "focused": true}],
+            "panes": panes, "agents": []
+        }}),
+        method => panic!("unexpected IPC method: {method}"),
+    };
+    let response = serde_json::json!({"id": request["id"], "result": result});
+    stream
+        .get_mut()
+        .write_all(format!("{response}\n").as_bytes())
+        .await
+        .expect("write IPC response");
+    if subscribed {
+        let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
+        ready.send(events).expect("test awaits subscription");
+        while let Some(event) = receiver.recv().await {
+            if stream
+                .get_mut()
+                .write_all(format!("{event}\n").as_bytes())
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+}
+
+fn push_agent_event(pane_id: &str, status: &str) -> String {
+    serde_json::json!({"event": "pane_agent_status_changed", "data": {
+        "type": "pane_agent_status_changed", "pane_id": pane_id, "workspace_id": "w1",
+        "agent_status": status, "agent": "claude", "display_agent": "Claude",
+        "title": null, "state_labels": {}
+    }})
+    .to_string()
+}
+
+async fn expect_push_wake(socket: &mut WebSocketStream<TcpStream>) {
+    let message = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .expect("push wake arrives")
+        .expect("Host stays connected")
+        .expect("valid WebSocket frame");
+    let WsMessage::Text(text) = message else {
+        panic!("expected plaintext push wake, got {message:?}")
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&text).unwrap(),
+        serde_json::json!({"type": "push_wake"})
+    );
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn push_wake_follows_connected_status_and_reaches_idle_registration() {
+    let mut ipc = PushIpc::start().await;
+    let mut relay = FakeRelay::start().await;
+    let paths = temp_paths("push-wake");
+    let mut config = test_config(paths.clone(), relay.origin.clone(), Arc::new(|_| {}));
+    config.client = HerdrClient::with_path(ipc.path.clone(), &config.relay_config);
+    let host = bridge::start(config).await.expect("Host starts");
+    let (handle, _, _, mut socket, mut transport) =
+        pair_a_device(&mut relay, &host, "push-device", "Phone").await;
+    let events = ipc.subscription().await;
+    let mut reassembler = Reassembler::new();
+    for (pane, name, expected) in [
+        (
+            "w1:p1",
+            "blocked",
+            herdr_relay_proto::messages::AgentStatusKind::Blocked,
+        ),
+        (
+            "w1:p2",
+            "done",
+            herdr_relay_proto::messages::AgentStatusKind::Done,
+        ),
+    ] {
+        events.send(push_agent_event(pane, name)).unwrap();
+        let status = loop {
+            match read_app_frame(&mut socket, &mut transport, &mut reassembler).await {
+                Message::AgentStatus(status) => break status,
+                Message::TreeUpdate(_) | Message::TreeSnapshot(_) => {}
+                other => panic!("unexpected message: {other:?}"),
+            }
+        };
+        assert_eq!(status.status, expected);
+        expect_push_wake(&mut socket).await;
+    }
+    events.send(push_agent_event("w1:p3", "working")).unwrap();
+    while let Ok(message) = tokio::time::timeout(
+        Duration::from_millis(150),
+        read_app_frame(&mut socket, &mut transport, &mut reassembler),
+    )
+    .await
+    {
+        assert!(
+            matches!(message, Message::TreeUpdate(_) | Message::TreeSnapshot(_)),
+            "working must not emit an agent status or a push wake"
+        );
+    }
+    send_app_frame(
+        &mut socket,
+        &mut transport,
+        &mut SequenceCounter::new(),
+        &Message::Disconnect(Disconnect {}),
+        None,
+    )
+    .await;
+    drop(events);
+    let incoming = relay.accept_host().await;
+    assert_eq!(incoming.handle, handle);
+    let mut idle_socket = incoming.socket;
+    let idle_events = ipc.subscription().await;
+    idle_events
+        .send(push_agent_event("w1:p3", "blocked"))
+        .unwrap();
+    expect_push_wake(&mut idle_socket).await;
+    idle_events.send(push_agent_event("w1:p4", "done")).unwrap();
+    expect_push_wake(&mut idle_socket).await;
+    idle_events
+        .send(push_agent_event("w1:p5", "working"))
+        .unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), idle_socket.next())
+            .await
+            .is_err(),
+        "idle working must not emit a push wake"
+    );
+    drop(idle_events);
+    // The test runtime closes Host tasks when this test returns.
+    drop(host);
 }

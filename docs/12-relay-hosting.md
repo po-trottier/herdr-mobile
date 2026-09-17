@@ -73,9 +73,9 @@ stay under 20 MiB compressed. A developer workstation MUST need only a Docker cl
 Engine for relay work. It MUST NOT need a Linux distribution package, a host musl target or a host
 Rust toolchain for the relay.
 
-**R-12-013** The relay MUST hold zero persistent state. The in-memory handle map is the only routing
-data. Nothing is written to disk. Nothing survives a restart. Backups are not needed because there
-is nothing to back up.
+**R-12-013** The relay MUST hold zero persistent state. Routing handles and push registrations
+live only in memory. The relay writes no runtime state to disk. Nothing survives a restart.
+Backups are not needed because there is no runtime state to back up.
 
 **R-12-014** The relay MUST emit structured JSON logs to stdout. Log fields are limited to the
 explicit allow list in the Logging section. Payload content MUST NOT appear in any log field.
@@ -294,6 +294,39 @@ operator's TLS ingress (`docs/14-relay-deployment.md` R-14-013, R-14-025), so th
 the ingress's own, and a client cannot inject them. The relay MUST NOT log the header value or
 the IP address (R-12-042).
 
+## Content-free push wake
+
+**R-12-072** The relay MUST keep at most 4096 push registrations in a separate in-memory map.
+Each handle maps to one platform and token. Registration replaces the previous value.
+The map MUST survive room removal and peer disconnection, but MUST NOT survive a relay restart.
+The relay MUST remove a registration on unregister, capacity eviction, or a permanent token error.
+R-11-244 through R-11-247 own the control frames, token limits, and error responses.
+
+**R-12-073** The relay MUST send a wake only when the handle has a token and no Device is joined.
+It MUST permit at most one push per handle per 30 seconds. Other wakes in that interval collapse.
+It MUST NOT queue a wake for later delivery or forward push control frames to the peer.
+
+**R-12-074** Every push MUST use title `Herdr Remote` and body `An agent needs you.`.
+It MUST NOT contain agent, pane, tab, workspace, terminal, or user content.
+APNs MUST put the title and body in `aps.alert`.
+APNs MUST use `aps.sound="default"`, `aps.thread-id="herdr-agent"`, and these headers:
+`apns-collapse-id: herdr-agent`, `apns-push-type: alert`, and `apns-priority: 10`.
+The APNs topic MUST be the configured bundle ID. FCM HTTP v1 MUST use
+`message.notification.{title,body}`, `message.token`,
+`message.android.notification.channel_id="herdr_agent_status"`, and
+`message.android.notification.tag="herdr-agent"`. Neither provider receives custom content.
+The relay MUST NOT log device tokens, credentials, provider response bodies, or push payloads.
+
+**R-12-075** Push configuration MUST be optional. R-14-016 lists the environment variables.
+Without provider credentials, the relay MUST accept valid push frames and ignore them.
+When push is disabled, it MUST emit one startup log line with message `push: disabled`.
+APNs MUST use ES256 token authentication from the configured .p8 key, cached at most 50 minutes.
+FCM MUST use an RS256 service-account assertion for OAuth2 and cache the access token until expiry.
+The relay MUST remove the token after APNs `410` or `BadDeviceToken`, or FCM `UNREGISTERED`.
+
+**R-12-076** Push metrics MUST contain only the counters in R-12-050 with a `platform` label.
+The label values MUST be `ios` or `android`. No handle, token, or content may become a label.
+
 ## Logging
 
 **R-12-040** The relay MUST emit one JSON object per log event to stdout. The container runtime
@@ -304,15 +337,15 @@ captures stdout.
 | Field | Type | When | Description |
 |---|---|---|---|
 | `ts` | string | always | ISO 8601 timestamp with milliseconds, UTC |
-| `event` | string | always | One of: `host_connected`, `host_disconnected`, `device_connected`, `device_disconnected`, `relay_started`, `handle_expired`, `error` |
+| `event` | string | always | One of: `host_connected`, `host_disconnected`, `device_connected`, `device_disconnected`, `relay_started`, `push_disabled`, `handle_expired`, `error` |
 | `handle_first_6` | string | connection events | First 6 characters of the 22-character handle, for correlation only. The full handle is never logged. |
 | `peer` | string | connection events | `host` or `device` |
 | `active_handles` | integer | after the event | Current count of registered handles |
 | `frames_forwarded` | integer | at disconnect | Total frames forwarded during the session |
 | `bytes_forwarded` | integer | at disconnect | Total bytes forwarded during the session |
 | `duration_ms` | integer | at disconnect | Session duration in milliseconds |
-| `error_code` | string | error events | One of the close-code names from `docs/11-relay-protocol.md` |
-| `error_message` | string | error events | Human-readable message, at most 256 characters |
+| `error_code` | string | error events | `push_config` or one of the close-code names from `docs/11-relay-protocol.md` |
+| `error_message` | string | error or push-disabled events | Human-readable message, at most 256 characters |
 
 **R-12-042** The relay MUST NOT log any of these:
 
@@ -345,6 +378,8 @@ See `docs/14-relay-deployment.md` R-14-014 for `HERDR_RELAY_METRICS_LISTEN`.
 | `herdr_relay_bytes_forwarded_total` | Counter | `direction` | Total bytes relayed |
 | `herdr_relay_session_duration_seconds` | Histogram | — | Session lifetime, buckets: 1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600 |
 | `herdr_relay_errors_total` | Counter | `code` (close-code name) | Error count by type |
+| `herdr_relay_push_sent_total` | Counter | `platform` | Push sends accepted by the provider |
+| `herdr_relay_push_failed_total` | Counter | `platform` | Failed push sends |
 | `herdr_relay_connections_rejected_total` | Counter | `reason` (`rate_limited`, `handle_malformed`, `handle_taken`, `host_in_use`) | Rejected connection count |
 
 **R-12-051** An operator SHOULD alert on:

@@ -637,26 +637,28 @@ connecting panel and the failure sentences; `docs/31-mockups/03-pair-code.md` re
 and the sentences for the by-hand path; `docs/30-ux-spec.md` `R-30-947` owns the landing after a
 cancelled switch.
 
-## 8. Local notifications only
+## 8. Local notifications and content-free push wake
 
-**R-03-060**: The notification model MUST work as follows. Herdr emits `done` or `blocked`. The Host
-plugin sends an encrypted `agent_status` protocol event through the relay. If the app process is
-alive, the app creates a native local notification and a tap routes to the matching Host and pane. The
-`agent_status` payload and the tap route are owned by `docs/11-relay-protocol.md` and
-`docs/30-ux-spec.md`.
+**R-03-060**: The app MUST create detailed local notifications from encrypted `agent_status`
+events while connected. Their content and tap routes remain under `docs/11-relay-protocol.md`
+and `docs/30-ux-spec.md`.
 
-**R-03-061**: Version 1 MUST NOT depend on any platform push notification service, any wake mechanism
-external to the app process, or any background-delivery guarantee. The decision is recorded in
-`docs/decisions/ADR-005-local-notifications-only.md`.
+**R-03-061**: The app MUST NOT depend on guaranteed background delivery. R-03-136 replaces
+only the push prohibition recorded in `docs/decisions/ADR-005-local-notifications-only.md`.
 
-**R-03-062**: If the operating system suspended or terminated the app, no notification is promised.
-On
-the next launch or reconnect, the app MUST show unseen attention state in-app. The app MUST NOT
-synthesise a stale system notification for an event that happened while it was suspended.
+**R-03-062**: If the operating system suspends or terminates the app, no notification is promised.
+On the next launch or reconnect, the app MUST show unseen attention state in-app. It MUST NOT
+create stale local notifications for events that occurred while suspended.
 
-**R-03-063**: No public text, store description, settings label, onboarding screen or privacy statement
-MAY call this push notification support. The public wording MUST be "local notifications while the
-app is running".
+**R-03-063**: Public text MAY describe content-free push alerts. It MUST distinguish them from
+detailed local notifications while connected, and MUST NOT promise background delivery.
+
+**R-03-136**: The app MUST support content-free push wake through APNs on iOS and FCM on Android.
+The product owner approved this exception to local-only notifications on 2026-09-16.
+The push MUST use the fixed title `Herdr Remote` and body `An agent needs you.`.
+Agent, pane, tab, workspace, and terminal content MUST remain inside the Noise session.
+`docs/11-relay-protocol.md` owns the control frames. `docs/12-relay-hosting.md` owns relay
+routing and delivery. `docs/22-platform-integration.md` owns platform registration and setup.
 
 ## 9. QR-first pairing with six words
 

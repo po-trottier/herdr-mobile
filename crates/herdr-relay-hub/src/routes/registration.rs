@@ -72,7 +72,7 @@ pub(super) fn session_joined_frame(role: Role) -> String {
 }
 
 /// `{"type":"error","code":"...","message":"..."}` (R-11-116).
-pub(super) fn error_frame(code: &str, message: &str) -> String {
+pub(crate) fn error_frame(code: &str, message: &str) -> String {
     #[derive(Serialize)]
     struct ErrorFrame<'a> {
         #[serde(rename = "type")]

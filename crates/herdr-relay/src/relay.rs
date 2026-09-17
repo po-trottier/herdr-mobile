@@ -20,6 +20,7 @@
 
 mod backoff;
 mod connection;
+pub(crate) use connection::handshake_after_first;
 mod registry;
 mod session;
 mod stale;

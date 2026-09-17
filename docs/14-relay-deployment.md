@@ -102,6 +102,39 @@ configure. R-12-042 owns log restrictions.
 **R-14-015** The relay MUST use the `json-file` log driver.
 Set `max-size=10m` and `max-file=3` to bound disk use.
 
+## Optional push providers
+
+**R-14-016** The operator MAY enable either provider with these environment variables.
+Unset credentials disable that provider. R-12-075 owns the disabled startup message.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HERDR_RELAY_APNS_KEY_FILE` | Unset | Container path to the APNs .p8 key |
+| `HERDR_RELAY_APNS_KEY_ID` | Unset | Apple key ID |
+| `HERDR_RELAY_APNS_TEAM_ID` | Unset | Apple Developer team ID |
+| `HERDR_RELAY_APNS_BUNDLE_ID` | Unset | App bundle ID and APNs topic |
+| `HERDR_RELAY_APNS_SANDBOX` | `false` | `true` selects `api.sandbox.push.apple.com` |
+| `HERDR_RELAY_FCM_SERVICE_ACCOUNT_FILE` | Unset | Container path to Firebase service-account JSON |
+
+**R-14-017** The operator MUST keep provider credentials outside the repository and container image.
+Use the optional comments in `deploy/relay/compose.yaml` for environment values and read-only mounts.
+Enable only the variables and mount for each configured provider.
+Set each file source to an existing credential file that the container user can read.
+A Compose `.env` value reaches the relay only when `relay.environment` references it.
+
+**R-14-018** The operator MUST obtain provider credentials from the provider account that owns the app.
+For APNs, open Apple Developer Certificates, Identifiers & Profiles, then Keys.
+Create a key with APNs enabled, record its key ID, and download the .p8 file.
+Store it securely. Apple permits only one download.
+Set the team ID and bundle ID for the app, and use the sandbox only for development device tokens.
+See the Apple key creation and download sources below.
+
+For FCM, open Firebase Project settings, then Service accounts.
+Select Generate New Private Key, then Generate Key, and store the JSON file securely.
+Use the Firebase project configured in the Android app.
+The relay uses this server credential, not the Android `google-services.json` file.
+See the Firebase HTTP v1 source below.
+
 ## Ingress requirements
 
 **R-14-025** The operator's TLS ingress MUST terminate TLS and pass WebSocket upgrades.
@@ -224,6 +257,16 @@ The owner moved every ingress out of the repository on 2026-09-16.
 | `R-14-023` | Retired 2026-09-16: Caddy WebSocket ingress moved outside the repository. |
 
 ## Sources
+
+- Apple: create a private key —
+  <https://developer.apple.com/help/account/keys/create-a-private-key/>.
+  Describes the APNs key creation procedure in R-14-018.
+- Apple: revoke, edit, and download keys —
+  <https://developer.apple.com/help/account/keys/revoke-edit-and-download-keys/>.
+  Documents the .p8 download and the single-download restriction in R-14-018.
+- Firebase: send a message using FCM HTTP v1 —
+  <https://firebase.google.com/docs/cloud-messaging/send/v1-api>.
+  Documents service-account JSON generation and OAuth2 authentication in R-14-018.
 
 - Docker Compose reference — <https://docs.docker.com/reference/compose-file/>.
 

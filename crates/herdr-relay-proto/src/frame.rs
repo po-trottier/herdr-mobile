@@ -9,7 +9,68 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::messages::Message;
+use crate::messages::{Message, Platform};
+
+/// Push control messages sent directly to the relay, outside the Noise session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RelayMessage {
+    /// Register the device token for the current routing handle.
+    PushRegister { platform: Platform, token: String },
+    /// Remove the device token for the current routing handle.
+    PushUnregister,
+    /// Request a content-free notification when the device is absent.
+    PushWake,
+}
+
+#[cfg(test)]
+mod relay_message_tests {
+    use super::RelayMessage;
+    use crate::messages::Platform;
+
+    #[test]
+    fn push_messages_round_trip() {
+        for (message, json) in [
+            (
+                RelayMessage::PushRegister {
+                    platform: Platform::Ios,
+                    token: "apns-token".to_owned(),
+                },
+                r#"{"type":"push_register","platform":"ios","token":"apns-token"}"#,
+            ),
+            (
+                RelayMessage::PushRegister {
+                    platform: Platform::Android,
+                    token: "fcm-token".to_owned(),
+                },
+                r#"{"type":"push_register","platform":"android","token":"fcm-token"}"#,
+            ),
+            (
+                RelayMessage::PushUnregister,
+                r#"{"type":"push_unregister"}"#,
+            ),
+            (RelayMessage::PushWake, r#"{"type":"push_wake"}"#),
+        ] {
+            let expected: serde_json::Value = serde_json::from_str(json).expect("valid JSON");
+            assert_eq!(serde_json::to_value(&message).expect("serialize"), expected);
+            assert_eq!(
+                serde_json::from_str::<RelayMessage>(json).expect("parse"),
+                message
+            );
+        }
+    }
+
+    #[test]
+    fn registration_requires_supported_platform_and_token() {
+        for json in [
+            r#"{"type":"push_register","platform":"desktop","token":"token"}"#,
+            r#"{"type":"push_register","platform":"ios"}"#,
+            r#"{"type":"push_register","token":"token"}"#,
+        ] {
+            assert!(serde_json::from_str::<RelayMessage>(json).is_err());
+        }
+    }
+}
 
 /// The current relay protocol version (R-11-032).
 pub const PROTOCOL_VERSION: u32 = 1;

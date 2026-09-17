@@ -32,22 +32,22 @@ that says who can read it.
 
 | Layer | Technology | Version | Relay can read | Relay cannot read |
 |-------|-----------|---------|---------------|-----------------|
-| 6. Physical WebSocket | `tokio-tungstenite` (Host), `axum` (relay), `web_socket_channel` (Device) | 0.30.0 / 0.8.9 / 3.0.3 | Frame boundaries, binary or text opcode | Frame content inside Noise |
+| 6. Physical WebSocket | `tokio-tungstenite` (Host), `axum` (relay), `web_socket_channel` (Device) | 0.30.0 / 0.8.9 / 3.0.3 | Frame boundaries, binary or text opcode, outer text controls | Frame content inside Noise |
 | 5. TLS | TLS 1.3 terminated by the reverse proxy | — | Nothing (reverse proxy terminates) | Nothing |
 | 4. Noise session | `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2s` (pair), `Noise_KK_25519_ChaChaPoly_BLAKE2s` (reconnect) | snow 0.10.0 / cryptography 2.9.0 + cryptography_flutter 2.3.4 | Nothing | Everything inside Noise |
 | 3. Compression and fragmentation | zlib (RFC 1950) record and fragment headers, §3.4-§3.5 | `flate2` 1.1.9 (Host) / `dart:io` `ZLibCodec` (Device) | Nothing (inside Noise) | — |
 | 2. Frame envelope | JSON, protocol version 1 | — | Nothing (inside Noise) | — |
 | 1. Application messages | JSON discriminated by `type` | — | Nothing (inside Noise) | — |
 
-**R-11-001**: The relay MUST see only the outer WebSocket frame (binary opcode, length) and the
-routing handle in the URL path. The relay MUST NOT see any frame content inside the Noise session.
-Rationale: the relay is untrusted infrastructure (R-13-002).
+**R-11-001**: The relay MAY read outer text controls, WebSocket metadata, and the routing handle.
+The relay MUST NOT see any frame content inside the Noise session. Push controls contain no
+agent, pane, tab, or workspace data. Rationale: the relay is untrusted infrastructure (R-13-002).
 
 **R-11-002**: RETIRED. Deployment-specific language. See R-11-122 for the corrected TLS claim.
 
 **R-11-003**: The Host and Device MUST establish a Noise session inside the WebSocket. The relay
-forwards opaque binary frames and performs no application-layer cryptographic operation (R-13-012).
-Rationale: end-to-end encryption between Host and Device, with the relay as a wire only.
+forwards opaque binary frames and performs no Noise cryptographic operation (R-13-012).
+Outer push controls are separate from the encrypted application messages.
 
 ```mermaid
 graph TD
@@ -61,7 +61,7 @@ graph TD
 
     subgraph "Relay (Rust service)"
         WSH["WebSocket<br/>axum 0.8.9"]
-        RELAY["Frame relay<br/>opaque binary, no app crypto"]
+        RELAY["Frame relay<br/>opaque binary, no Noise keys"]
     end
 
     subgraph "Device (Flutter app)"
@@ -82,12 +82,13 @@ graph TD
     style RELAY fill:#f9f,stroke:#333
 ```
 
-The relay (magenta) sees only the WebSocket layer. Everything above it is Noise ciphertext.
+The WebSocket relay (magenta) reads outer text controls. It cannot read the Noise ciphertext.
 
 ## 2. Relay-facing protocol
 
-The relay-facing protocol is the outer WebSocket layer. It carries registration frames (plaintext
-JSON) before the Noise tunnel starts, then opaque binary frames (Noise ciphertext) after.
+The relay-facing protocol uses the outer WebSocket layer. Text JSON carries registration and
+push controls. Binary frames carry opaque Noise messages. Push controls remain outside Noise
+after registration and the relay never forwards them to the peer.
 
 ### 2.1 WebSocket URL shape
 
@@ -125,7 +126,8 @@ both peers (R-13-014, R-13-015), so knowing a handle lets an attacker reach the 
 table and
 nothing else.
 
-The relay MAY read the handle only to route streams. It MUST NOT interpret the handle content.
+The relay MAY use the handle to route streams and associate push registrations.
+It MUST NOT interpret the handle content.
 
 ### 2.2 Subprotocol
 
@@ -178,14 +180,14 @@ or
 {"type":"session_joined","role":"device"}
 ```
 
-After both sides are joined, the relay starts forwarding opaque binary frames bidirectionally. The
-relay sends no further text messages.
+After both sides have joined, the relay starts forwarding opaque binary frames bidirectionally.
+It also accepts outer push controls under R-11-244 through R-11-247.
 
 ### 2.4 Relay error responses
 
-The relay sends error frames in plaintext JSON before the Noise tunnel starts. Each error is an
-unrecoverable registration failure. The relay MUST close the WebSocket immediately after the error
-frame.
+The relay sends error frames as outer text JSON. A registration error is unrecoverable, so the
+relay MUST close the WebSocket immediately after that error frame. A malformed push control
+is the exception: R-11-247 requires an error without closure.
 
 **R-11-116**: Every relay error MUST use this exact shape:
 
@@ -274,9 +276,9 @@ Device. The `device_already_joined` error is retired; that case is `4006` `host_
 forward every binary WebSocket frame from one side to the other, verbatim. Rationale: the relay is a
 wire, not a warehouse (R-12-003).
 
-**R-11-027**: The relay MUST NOT inspect, decrypt, modify, log, or persist any frame payload
-(R-12-003). The relay logs connection metadata only: timestamp, handle, connection event, frame
-count, frame byte total (R-12-014).
+**R-11-027**: The relay MUST NOT inspect, decrypt, modify, log, or persist any opaque binary
+frame payload (R-12-003). The relay MAY parse outer push controls and store push tokens in
+memory. It MUST NOT log push tokens. Connection metadata logs follow R-12-014.
 
 ### 2.8 TLS wording
 
@@ -316,6 +318,46 @@ peer process, so no relay-side grace window can resume a session across a peer r
 30-second hold-open this rule replaces could not do that either: after a Host restart it let a new
 Host registration inherit a Device that held a dead Noise session and never sent its `Noise_KK`
 first message, and the reconnect deadlocked.
+
+### 2.11 Push controls
+
+**R-11-244**: The Device MUST send `push_register` as a text JSON frame after `session_joined`
+when it knows a token. It MUST send it again when the token changes during the connection.
+The `platform` MUST be `ios` or `android`. The token MUST contain at most 4096 bytes.
+
+```json
+{"type":"push_register","platform":"ios","token":"<opaque OS token>"}
+```
+
+The relay stores one platform and token per handle in memory. A new registration replaces the
+previous value. The map contains at most 4096 entries. The relay MUST NOT log the token.
+
+**R-11-245**: The Device MAY send this text JSON frame when the person disables alerts:
+
+```json
+{"type":"push_unregister"}
+```
+
+The relay MUST remove the push registration for that handle. The relay MUST tolerate a Device
+that never sends this frame. Eviction also removes the stored registration.
+
+**R-11-246**: The Host MUST send this text JSON frame for an `agent_status` with status `blocked`
+or `done`, as specified by R-10-074:
+
+```json
+{"type":"push_wake"}
+```
+
+The relay MUST send a push only if the handle has a token and no Device is currently joined.
+Otherwise, it MUST do nothing. The push title MUST be `Herdr Remote`. Its body MUST be
+`An agent needs you.` No agent, pane, tab, or workspace data may enter the push.
+The relay MUST send at most one push per handle per 30 seconds. Provider delivery follows
+`docs/12-relay-hosting.md`.
+
+**R-11-247**: Push controls MUST follow `session_joined` and MUST remain outside Noise.
+The relay MUST consume them without forwarding them to the peer. Successful controls are
+fire-and-forget: the relay MUST NOT acknowledge them. For a malformed push control, the relay
+MUST send an R-11-116 error with code `invalid_frame` and MUST NOT close the connection.
 
 ## 3. Frame envelope
 

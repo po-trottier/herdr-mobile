@@ -309,6 +309,8 @@ default, then the SDK, then an existing dependency, and only then a new package.
 | Secure storage | `flutter_secure_storage` | 10.3.1 | BSD-3-Clause | https://pub.dev/packages/flutter_secure_storage |
 | Biometric unlock | `local_auth` | 3.0.2 | BSD-3-Clause | https://pub.dev/packages/local_auth |
 | Local notifications | `flutter_local_notifications` | 22.3.0 | BSD-3-Clause | https://pub.dev/packages/flutter_local_notifications |
+| Android push tokens | `firebase_messaging` | 16.7.0 | BSD-3-Clause | https://pub.dev/packages/firebase_messaging |
+| Android Firebase initialization | `firebase_core` | 4.15.0 | BSD-3-Clause | https://pub.dev/packages/firebase_core |
 | Connectivity changes | `connectivity_plus` | 7.3.1 | BSD-3-Clause | https://pub.dev/packages/connectivity_plus |
 | Device information | `device_info_plus` | 13.2.0 | BSD-3-Clause | https://pub.dev/packages/device_info_plus |
 | App package information | `package_info_plus` | 10.2.1 | BSD-3-Clause | https://pub.dev/packages/package_info_plus |
@@ -439,7 +441,7 @@ dependency maps to a capability the product requires.**
 | `xterm` (the original) | Marked unmaintained upstream. `xterm2` is the maintained fork. |
 | `archive` | R-20-011 requires zlib compression of the frame envelope's plaintext bytes before Noise encryption. `dart:io` `ZLibCodec` already provides RFC 1950 zlib, so no package is needed. |
 | `noise_protocol_framework` | Does not provide `Noise_XXpsk0` or `Noise_KK`. It only provides `KNPSK0` and `NKPSK0`. It uses the `elliptic` package for traditional EC curves, not Curve25519. It uses the `crypto` package for SHA-256, not BLAKE2s. See R-20-032. |
-| `firebase_messaging` | Version 1 has no push infrastructure. Local notifications only, per `docs/22` R-22-019. |
+| Silent push and background execution packages | R-03-136 permits only a fixed-text alert. The app does not process push payloads. |
 | `flutter_swipe_action_cell` | Requires a `SwipeActionNavigatorObserver` in `MaterialApp.navigatorObservers`, which makes a list-row widget reach into the app navigation setup. `flutter_slidable` needs no observer. `https://pub.dev/packages/flutter_swipe_action_cell` |
 | Astryx | See R-20-004. |
 
@@ -498,15 +500,15 @@ traditional EC curves, not Curve25519. It uses the `crypto` package for SHA-256,
 `docs/13-security-pairing.md` specifies. The app MUST implement the Noise state machine itself using
 these primitives. The Dart SDK provides none of these primitives, so a new package is required.
 
-**R-20-033**: The app MUST use `flutter_local_notifications` 22.3.0 to post native local
-notifications on Android and iOS. The Flutter SDK does not expose local notification APIs through
-platform channels. A platform-channel implementation would require writing native code for both
-platforms. The maintained wrapper is required. The app MUST NOT use `firebase_messaging` or any
-push infrastructure. Background delivery is unsupported. See `docs/22` R-22-019.
+**R-20-033**: The app MUST use `flutter_local_notifications` 22.3.0 for local notifications
+on Android and iOS. The Flutter SDK does not expose these APIs. Agent details stay in
+local notifications. R-03-136 permits a separate content-free push alert.
 
-**R-20-034**: The app MUST NOT include any push, Firebase, APNs, FCM, push-token, silent-push,
-contentless-push, background-wake, or push-gateway dependency. Version 1 uses local notifications
-only, while the app process is alive. See `docs/22-platform-integration.md` R-22-019.
+**R-20-034**: The app MUST use `firebase_messaging` 16.7.0 and `firebase_core` 4.15.0
+only for Android push token acquisition. Both pins were verified against pub.dev on
+2026-09-16. iOS MUST use the native APNs channel. The app MUST NOT add an HTTP push
+client or process push payloads. See `docs/22-platform-integration.md` R-22-089 through
+R-22-093.
 
 **R-20-035**: The app MUST generate a Curve25519 static keypair on first launch using `X25519()` from
 the `cryptography` package. The private key MUST be stored as keychain or keystore data under

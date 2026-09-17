@@ -256,26 +256,15 @@ error state of `docs/31-mockups/15-appearance.md`.
 
 ---
 
-## 3. Local Notifications
+## 3. Local Notifications and Push Wake
 
-### 3.1 Model: Local Only, App Alive Only
+### 3.1 Model: Local Detail and Content-Free Push
 
-**R-22-019** Version 1 uses native local notifications only, while the app process is alive. No push
-infrastructure of any kind exists in version 1. The app MUST NOT use APNs, FCM, Firebase,
-`firebase_messaging`, push tokens, silent push, contentless push, background wake, or a push gateway.
-
-The notification flow:
-
-1. Herdr emits `pane.agent_status_changed` with `agent_status` of `done` or `blocked`.
-2. The Host plugin sends an encrypted `agent_status` application message through the relay.
-3. If the app process is alive, the app creates a native local notification and a tap routes to the
-   matching Host and pane.
-4. If the operating system suspended or terminated the app, no notification is promised. On the next
-   launch or reconnect, the app shows unseen attention state in-app. The app MUST NOT synthesise a
-   system notification for a stale event.
-
-The public wording is: **local notifications while the app is running**. It is never called push
-notification support.
+**R-22-019** Detailed notifications MUST remain local and use encrypted `agent_status` events.
+The app MUST support the content-free push exception in `docs/03-product-decisions.md` R-03-136.
+Push delivery does not guarantee that the app runs in the background. On launch or reconnect,
+the app MUST show unseen attention state without stale local notifications (R-22-024).
+Public wording MUST follow R-03-063.
 
 ### 3.2 Notification Channel and Category Configuration
 
@@ -309,8 +298,8 @@ and `https://developer.apple.com/documentation/usernotifications/asking-permissi
 
 ### 3.4 Notification Content from `agent_status`
 
-**R-22-022** The notification content MUST be taken from the `agent_status` payload fields, owned by
-`docs/11-relay-protocol.md`:
+**R-22-022** The local notification content MUST use the `agent_status` payload fields.
+`docs/11-relay-protocol.md` owns these fields:
 
 | Notification field | Payload field | Example |
 |---|---|---|
@@ -325,9 +314,9 @@ The notification MUST NOT carry pane text, terminal content, or any data beyond 
 
 ### 3.5 Notification Tap Route
 
-**R-22-023** A notification tap MUST route to `/hosts/:hostId/panes/:paneId`, where `hostId` is the
-`host_id` and `paneId` is the `pane_id` from the `agent_status` payload. `go_router` resolves this
-route to the terminal view. The degenerate cases are owned by `docs/30-ux-spec.md`:
+**R-22-023** A local notification tap MUST route to `/hosts/:hostId/panes/:paneId`, where `hostId`
+is the `host_id` and `paneId` is the `pane_id` from the `agent_status` payload. `go_router`
+resolves this route to the terminal view. The degenerate cases are owned by `docs/30-ux-spec.md`:
 
 - Host disconnected: route to the Host screen, show the disconnected state, offer reconnect.
 - Pane closed: route to the Host tree, show `That pane has closed`.
@@ -386,6 +375,38 @@ and `https://developer.apple.com/documentation/usernotifications/asking-permissi
 | Framework | Package | Version | Licence | Source |
 |-----------|---------|---------|---------|--------|
 | Flutter | `flutter_local_notifications` | 22.3.0 | BSD-3-Clause | https://pub.dev/packages/flutter_local_notifications |
+
+### 3.9 Content-Free Push Setup
+
+**R-22-089** iOS MUST use native APNs registration, not Firebase.
+`app/ios/Runner/Runner.entitlements` MUST declare `aps-environment`.
+The Xcode project MUST reference this file through `CODE_SIGN_ENTITLEMENTS`.
+The signed entitlement and provisioning profile MUST match the APNs environment.
+The operator MUST enable Push Notifications for the app identifier.
+After notification permission is granted under R-22-021, the app MUST call
+`UIApplication.registerForRemoteNotifications()`.
+Source: <https://developer.apple.com/documentation/bundleresources/entitlements/aps-environment>.
+
+**R-22-090** The iOS bridge MUST use the channel `dev.herdr.herdr_mobile/push`.
+It MUST deliver the APNs device token as a hexadecimal string through `token`.
+It MUST report registration failure through `failed`, without token data.
+
+**R-22-091** Android MUST use `firebase_messaging` for the FCM token.
+`docs/20-mobile-framework.md` section 6 owns the dependency pins.
+The operator MUST supply `app/android/app/google-services.json` for the app's Android identifier.
+This file MUST remain gitignored. Gradle MUST apply `com.google.gms.google-services` only when
+this file exists. A clone without this file MUST build and silently skip FCM registration.
+FCM token registration MUST NOT cause another notification permission request.
+Source: <https://firebase.google.com/docs/cloud-messaging/flutter/get-started>.
+
+**R-22-092** The app MUST register a known push token after `session_joined` on each connection.
+It MUST register replacement tokens while connected. The relay frames are owned by
+`docs/11-relay-protocol.md`. The app and relay MUST NOT log push tokens or token-bearing frames.
+Registration errors MUST NOT prevent normal relay connections or local notifications.
+
+**R-22-093** A content-free push tap MUST open the app through its normal launch or resume flow.
+The app MUST reconnect and show the real notification log. It MUST NOT derive a Host or pane
+route from the push, or interpret the fixed text as an `agent_status` event.
 
 ---
 
@@ -855,15 +876,15 @@ persistent insecure-development warning if the origin is on the local-developmen
 
 ### 8.2 Android Data Safety Form
 
-**R-22-044** The Google Play Data Safety form MUST declare:
+**R-22-044** The Google Play Data Safety form MUST disclose the push-token use.
+Amended 2026-09-16 under R-03-136: the app shares its push token with the relay operator and
+Apple or Google for fixed-text wake alerts, without agent or terminal content.
 
-- **Data collected:** None. The app does not collect, store, or transmit personal data off the device.
-  The pairing key stays in the Keystore. The relay origin is user-provided. Terminal content transits
-  the relay but is not stored or read by the relay.
-- **Data shared:** None.
-- **Encryption in transit:** Yes (the WebSocket to the relay uses TLS 1.3; the pairing handshake uses
-  end-to-end encryption).
-- **Data deletion:** Not applicable (no user data collected).
+- **Data collected and shared:** The push token for wake delivery. The pairing key stays in
+  Keystore. The relay cannot read terminal content.
+- **Encryption in transit:** Yes. The relay connection uses TLS, and Noise encrypts terminal
+  content end to end.
+- **Data retention:** The relay holds the token in memory until unregister, eviction, or restart.
 
 ### 8.3 Encryption Export Compliance
 

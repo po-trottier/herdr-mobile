@@ -1,8 +1,9 @@
 /// The Device's local-notification platform wrapper (Phase 19, `WP-19-a`), per
 /// `docs/22-platform-integration.md` §3 and `docs/30-ux-spec.md` R-30-500 to R-30-517: version 1
-/// posts a native local notification only while the app process is alive (R-22-019). No push
-/// infrastructure exists anywhere in this file or this product — no APNs, no FCM, no
-/// `firebase_messaging`, no push token, no background wake.
+/// posts a native local notification only while the app process is alive (R-22-019). The one
+/// push element in this product is the content-free wake of R-03-136 (`push_token.dart`, the
+/// relay's `push_wake`): a fixed-text push that carries no agent, pane, tab or workspace. This
+/// file handles no push payload; the OS shows the wake on its own.
 ///
 /// This file owns every platform call `flutter_local_notifications` 22.3.0 wraps: creating the
 /// Android channel `herdr_agent_status` (R-22-020), reading the current authorisation /

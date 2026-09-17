@@ -48,3 +48,6 @@ desktop.ini
 
 # flutter_test golden diff artifacts (matchesGoldenFile writes them beside the test)
 app/test/**/failures/
+
+# Operator-supplied Firebase configuration.
+/app/android/app/google-services.json

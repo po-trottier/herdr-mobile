@@ -120,6 +120,7 @@ import 'services/origin.dart' show RelayOrigin;
 import 'services/pairing.dart';
 import 'services/pane_actions.dart' show notConnectedMessage, reconcileTree;
 import 'services/plain_store.dart' show PairedHostRecord, PlainStore;
+import 'services/push_token.dart' show PushTokenService;
 import 'services/relay.dart';
 import 'services/terminal.dart' show TerminalFrameState;
 import 'services/tree.dart' show fetchTreeSnapshot, paneDisplayName;
@@ -309,7 +310,22 @@ final Provider<BiometricGate> biometricGateProvider = Provider<BiometricGate>(
 /// `send` for its own `/hosts/:hostId/devices` route; this file reads it the
 /// same way for every route below.
 final Provider<RelayConnection> relayConnectionProvider =
-    Provider<RelayConnection>((Ref ref) => RelayConnection());
+    Provider<RelayConnection>((Ref ref) {
+      final connection = RelayConnection();
+      final subscription = ref
+          .watch(pushTokenServiceProvider)
+          .token
+          .listen(
+            (token) => connection.setPushToken(
+              token,
+              platform: defaultTargetPlatform == TargetPlatform.iOS
+                  ? 'ios'
+                  : 'android',
+            ),
+          );
+      ref.onDispose(() => unawaited(subscription.cancel()));
+      return connection;
+    });
 
 /// One `NotificationsService` for whole session. `app.dart`'s `_AppRootState`
 /// reads this same instance to wire `onNotificationTapped` and call
@@ -317,6 +333,13 @@ final Provider<RelayConnection> relayConnectionProvider =
 /// channel, one real init call, no split state.
 final Provider<NotificationsService> notificationsServiceProvider =
     Provider<NotificationsService>((Ref ref) => NotificationsService());
+
+final Provider<PushTokenService> pushTokenServiceProvider =
+    Provider<PushTokenService>((Ref ref) {
+      final service = PushTokenService();
+      ref.onDispose(() => unawaited(service.dispose()));
+      return service;
+    });
 
 /// One `AgentStatusService` for whole session, mirrors [relayConnectionProvider]'s pattern.
 /// `agent_list_screen.dart` (`WP-18-b`) reads this for its `NEEDS YOU` section (R-30-501),
@@ -1906,7 +1929,10 @@ Future<void> _maybeOfferAppLock(BuildContext context) async {
   final container = ProviderScope.containerOf(context, listen: false);
   if (!_notificationPermissionRequested) {
     _notificationPermissionRequested = true;
-    await container.read(notificationsServiceProvider).requestPermission();
+    final granted = await container
+        .read(notificationsServiceProvider)
+        .requestPermission();
+    if (granted) await container.read(pushTokenServiceProvider).register();
     if (!context.mounted) {
       return;
     }

@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted.
+Amended 2026-09-16 by the product owner.
+
+`docs/03-product-decisions.md` R-03-136 permits fixed-text APNs and FCM wake alerts.
+This amendment replaces the push prohibition below. Detailed agent notifications remain local
+and use encrypted `agent_status` events. Push carries no agent, pane, tab, workspace, or terminal
+content. Background delivery remains best effort. The app shows current attention state after
+normal launch or resume. The original decision and its reasons remain below as historical context.
 
 ## Date
 

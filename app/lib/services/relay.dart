@@ -496,6 +496,29 @@ final class RelayConnection {
   Timer? _reconnectTimer;
 
   WebSocketChannel? _channel;
+  String? _pushToken;
+  String? _pushPlatform;
+
+  /// Keeps the token for reconnects and updates the current relay registration.
+  void setPushToken(String? token, {required String platform}) {
+    _pushToken = token;
+    _pushPlatform = platform;
+    final channel = _channel;
+    if (channel != null) _registerPush(channel);
+  }
+
+  void _registerPush(WebSocketChannel channel) {
+    final token = _pushToken;
+    if (token == null) return;
+    channel.sink.add(
+      jsonEncode({
+        'type': 'push_register',
+        'platform': _pushPlatform,
+        'token': token,
+      }),
+    );
+  }
+
   NoiseSession? _session;
   // Every call to send() chains onto this future rather than firing `_sendOn`
   // independently. `NoiseCipher.encrypt` is not reentrant-safe: two concurrent calls can
@@ -715,6 +738,8 @@ final class RelayConnection {
         );
       }
 
+      final registeredPushToken = _pushToken;
+      _registerPush(channel);
       stage = _enterStage(ConnectionStage.handshake);
       final session = await _handshaker(
         iterator,
@@ -773,6 +798,7 @@ final class RelayConnection {
 
       cancellation?.check();
       _channel = channel;
+      if (_pushToken != registeredPushToken) _registerPush(channel);
       _session = session;
       _outgoingSeq = 0;
       _framesIn = 0;

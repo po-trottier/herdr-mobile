@@ -17,6 +17,7 @@ mod connection;
 pub(crate) mod limits;
 pub(crate) mod logging;
 pub(crate) mod metrics;
+pub(crate) mod push;
 mod registration;
 
 use std::net::{IpAddr, SocketAddr};
@@ -35,7 +36,7 @@ use self::limits::IpRateLimiter;
 use self::metrics::Metrics;
 use crate::session::{Role, SessionMap};
 
-pub(crate) use registration::handle_first_6;
+pub(crate) use registration::{error_frame, handle_first_6};
 
 /// The one relay wire subprotocol every connection MUST request (R-12-020, R-11-013).
 const SUBPROTOCOL: &str = "herdr-relay.v1";
@@ -55,6 +56,7 @@ const REGISTER_TIMEOUT: Duration = Duration::from_secs(10);
 /// environment configuration (R-14-014).
 #[derive(Clone)]
 pub(crate) struct AppState {
+    pub(crate) push: Arc<push::Push>,
     pub(crate) sessions: SessionMap,
     pub(crate) metrics: Arc<Metrics>,
     pub(crate) limits: Arc<Limits>,
@@ -80,6 +82,7 @@ pub fn build() -> (Router, Router) {
     logging::init(config.log_json);
     logging::relay_started();
     let state = AppState {
+        push: Arc::new(push::Push::from_env()),
         sessions: SessionMap::new(),
         metrics: Arc::new(Metrics::new()),
         limits: Arc::new(Limits {
@@ -152,7 +155,8 @@ async fn healthz() -> &'static str {
 /// only from the router [`build`] binds to `HERDR_RELAY_METRICS_LISTEN`, never
 /// alongside the public rendezvous routes (R-12-024).
 async fn metrics_endpoint(State(state): State<AppState>) -> impl IntoResponse {
-    let body = state.metrics.render(state.sessions.active_handles());
+    let mut body = state.metrics.render(state.sessions.active_handles());
+    state.push.render_metrics(&mut body);
     ([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body)
 }
 

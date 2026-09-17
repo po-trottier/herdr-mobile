@@ -445,13 +445,19 @@ must not exceed 300000.
 - `sound`: `none` | `done` | `request`.
 - `position`: `top-left` | `top-right` | `bottom-left` | `bottom-right`.
 
-This raises a toast on the **Host**. The Device notification model is local-only
-while the app process is alive: the bridge sends an encrypted `agent_status`
-application message through the relay whenever Herdr reports
-`pane.agent_status_changed` with a status of `done` or `blocked`. The app
-creates a native local notification on receipt. See
-`docs/11-relay-protocol.md` for the `agent_status` message fields and
-`docs/30-ux-spec.md` for notification tap routing.
+This raises a toast on the **Host**. The bridge sends encrypted `agent_status` messages to the
+Device. The app creates a native local notification on receipt. A separate content-free push
+can alert the person when no Device is joined. See `docs/11-relay-protocol.md` for message
+fields and `docs/30-ux-spec.md` for notification tap routing.
+
+**R-10-074**: The Host MUST send the outer `push_wake` control (R-11-246) alongside each
+`agent_status` whose status is `blocked` or `done`. It MUST keep all status details inside Noise.
+While no Device is present, the Host MUST observe these statuses through an idle Herdr
+subscription for each relay registration. It MUST stop that subscription when the Device session
+starts and restart it after the session ends. Both subscriptions MUST share
+`agent_status_observed` stamps to prevent duplicate notifications when observation changes
+between them. The Host MUST send `push_wake` for each new `blocked` or `done` status during
+idle observation, even though no Device can receive the encrypted message.
 
 ### 3.7 The remaining methods
 

@@ -80,7 +80,25 @@ pub async fn run_peer(
                     forward(&state, handle, role, bytes).await;
                 }
                 Some(Ok(Message::Pong(_))) => heartbeat.note_pong(),
-                Some(Ok(Message::Text(_) | Message::Ping(_))) => {}
+                Some(Ok(Message::Text(text))) => {
+                    if text.len() > MAX_FRAME_BYTES {
+                        send_close(&mut sink, CloseCode::FrameTooLarge, "frame exceeds 1 MiB limit").await;
+                        state.metrics.record_error(CloseCode::FrameTooLarge);
+                        break;
+                    }
+                    if !frame_limiter.allow() {
+                        send_close(&mut sink, CloseCode::RateLimited, "frame rate limit exceeded").await;
+                        state.metrics.record_error(CloseCode::RateLimited);
+                        break;
+                    }
+                    if state.push.receive(&text, handle, role, &state.sessions).is_err() {
+                        let error = Message::Text(crate::routes::error_frame(
+                            "invalid_frame", "invalid push frame",
+                        ).into());
+                        if send(&mut sink, error).await.is_err() { break; }
+                    }
+                }
+                Some(Ok(Message::Ping(_))) => {}
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
             },
             // Cancel-safe: tokio::sync::mpsc::Receiver::recv() drops cleanly.

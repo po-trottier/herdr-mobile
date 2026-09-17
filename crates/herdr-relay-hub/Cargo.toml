@@ -20,11 +20,14 @@ futures-util = "=0.3.34"
 # chacha20/getrandom transitive deps) never enter this crate's build graph
 # (R-41-133, R-12-060). The relay only decodes and validates handles.
 herdr-relay-proto = { path = "../herdr-relay-proto", default-features = false }
-# The registration-frame handshake (R-11-113/114/115) and the R-12-041 JSON log
-# line are the only two JSON payloads this crate ever builds; both already-pinned
-# workspace dependencies, no new dependency choice made here.
+# Registration frames, structured logs, and content-free push payloads use the
+# existing workspace JSON dependencies.
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Native push APIs need HTTPS/HTTP2 and signed provider credentials.
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "http2", "json", "form"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+jsonwebtoken = { version = "=11.0.0", features = ["rust_crypto"] }
 # Structured logging call sites (R-41-030 to R-41-035); paired with a hand-rolled
 # `Subscriber` in routes/logging.rs rather than the `tracing-subscriber` crate,
 # which is not a workspace pin and whose default JSON formatter would print

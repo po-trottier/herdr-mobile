@@ -35,7 +35,7 @@ use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use futures_util::SinkExt as _;
+use futures_util::{SinkExt as _, StreamExt as _};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode as WsCloseCode;
@@ -855,6 +855,102 @@ fn spawn_registration(shared: &Arc<Mutex<HostState>>, device_id: &str) -> bool {
     true
 }
 
+/// Observes agent status while a registered socket waits for a Device.
+async fn idle_handshake(
+    mut socket: WsStream,
+    state: &Arc<Mutex<HostState>>,
+    host_id: &str,
+    setup: HandshakeSetup,
+) -> Result<(WsStream, Transport, [u8; 32]), ConnectError> {
+    let (wake_tx, mut wake_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (client, config, identity, observed, log) = {
+        let host = lock(state);
+        (
+            host.client.clone(),
+            host.relay_config.clone(),
+            HostIdentity {
+                host_id: host_id.to_owned(),
+                host_name: host.host_name.clone(),
+            },
+            host.agent_status_observed.clone(),
+            host.log.clone(),
+        )
+    };
+    let observer = tokio::task::spawn_blocking(move || {
+        let mut bridge = Bridge::new(client.clone(), identity, config);
+        bridge.agent_status_observed = observed;
+        let mut subscription = open_subscription(&client, &bridge);
+        while !wake_tx.is_closed() {
+            let mut resubscribe = false;
+            if let Some((rx, slot)) = &subscription {
+                let result = bridge.run_until(
+                    rx,
+                    Instant::now() + Duration::from_millis(50),
+                    slot,
+                    |message| {
+                        if needs_push_wake(&message) {
+                            let _ = wake_tx.send(());
+                        }
+                    },
+                    || resubscribe = true,
+                );
+                if result.is_err() || resubscribe {
+                    subscription = None;
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(200));
+                if !wake_tx.is_closed() {
+                    subscription = open_subscription(&client, &bridge);
+                }
+            }
+        }
+        // ponytail: the old IPC reader exits on its next event. Hand over the
+        // subscription if idle/session transitions leave too many idle readers.
+    });
+    let first = loop {
+        tokio::select! {
+            frame = socket.next() => {
+                match frame {
+                    Some(Ok(WsMessage::Binary(bytes))) => break Ok(bytes),
+                    Some(Ok(WsMessage::Ping(_))) => {
+                        if let Err(error) = socket.flush().await {
+                            break Err(ConnectError::Io(error));
+                        }
+                    }
+                    Some(Ok(WsMessage::Close(_))) | None => break Err(ConnectError::Io(
+                        tokio_tungstenite::tungstenite::Error::ConnectionClosed,
+                    )),
+                    Some(Err(error)) => break Err(ConnectError::Io(error)),
+                    // Push errors are fire-and-forget. No text enters Noise.
+                    Some(Ok(_)) => {}
+                }
+            }
+            Some(()) = wake_rx.recv() => send_push_wake(&mut socket, &log).await,
+        }
+    };
+    drop(wake_rx);
+    let _ = observer.await;
+    relay::handshake_after_first(socket, setup, &first?).await
+}
+
+fn needs_push_wake(message: &Message) -> bool {
+    matches!(message, Message::AgentStatus(status) if matches!(
+        status.status,
+        herdr_relay_proto::messages::AgentStatusKind::Blocked
+            | herdr_relay_proto::messages::AgentStatusKind::Done
+    ))
+}
+
+async fn send_push_wake(socket: &mut WsStream, log: &Log) {
+    if socket
+        .send(WsMessage::Text(r#"{"type":"push_wake"}"#.into()))
+        .await
+        .is_err()
+    {
+        log("herdr-relay: push wake send failed");
+    }
+}
+
 /// One entry's `Noise_KK` registration loop (R-10-068): register on
 /// `/host/<handle>` with the entry's pinned key (R-13-037), serve the session
 /// when a Device completes the handshake, and reconnect on the R-10-014
@@ -916,8 +1012,10 @@ async fn registration_loop(state: Arc<Mutex<HostState>>, device_id: String) {
         };
         let connected = tokio::select! {
             _ = stop_rx.changed() => continue,
-            result = relay::handshake_on(
+            result = idle_handshake(
                 socket,
+                &state,
+                &host_id,
                 HandshakeSetup::Reconnect {
                     local_private_key: private_key,
                     remote_static_public_key: remote_key,
@@ -1487,6 +1585,10 @@ async fn serve_session(
                         {
                             break;
                         }
+                        if needs_push_wake(&message) {
+                            let log = lock(state).log.clone();
+                            send_push_wake(&mut socket, &log).await;
+                        }
                         // R-13-049: successful outbound traffic updates last_seen too.
                         let mut host = lock(state);
                         if host.store.touch_last_seen(&device_id).is_err() {
@@ -1509,6 +1611,10 @@ async fn serve_session(
                         .is_err()
                     {
                         break;
+                    }
+                    if needs_push_wake(&message) {
+                        let log = lock(state).log.clone();
+                        send_push_wake(&mut socket, &log).await;
                     }
                 }
                 if matches!(reason, Ok(CloseReason::Revoked)) {

@@ -11,6 +11,23 @@ import UserNotifications
 
   private let keychainSession = KeychainSession()
   private let keychainQueue = DispatchQueue(label: "dev.herdr.keychain-session")
+  private var pushChannel: FlutterMethodChannel?
+
+  override func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+    pushChannel?.invokeMethod("token", arguments: deviceToken.map { String(format: "%02x", $0) }.joined())
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+    pushChannel?.invokeMethod("failed", arguments: error.localizedDescription)
+  }
 
   override func application(
     _ application: UIApplication,
@@ -26,6 +43,21 @@ import UserNotifications
   /// `dev.herdr.herdr_mobile/app_settings` channel, "open" method.
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PushChannel") {
+      let channel = FlutterMethodChannel(
+        name: "dev.herdr.herdr_mobile/push",
+        binaryMessenger: registrar.messenger()
+      )
+      pushChannel = channel
+      channel.setMethodCallHandler { call, result in
+        guard call.method == "register" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        UIApplication.shared.registerForRemoteNotifications()
+        result(nil)
+      }
+    }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "KeychainSession") {
       let channel = FlutterMethodChannel(
         name: "dev.herdr.herdr_mobile/keychain_session", binaryMessenger: registrar.messenger()

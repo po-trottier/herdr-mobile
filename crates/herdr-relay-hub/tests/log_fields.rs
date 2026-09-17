@@ -47,6 +47,7 @@ const ALLOWED_EVENTS: &[&str] = &[
     "device_connected",
     "device_disconnected",
     "relay_started",
+    "push_disabled",
     "handle_expired",
     "error",
 ];

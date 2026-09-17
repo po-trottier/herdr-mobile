@@ -376,6 +376,10 @@ crates/
     │   ├── lib.rs
     │   ├── relay.rs
     │   ├── routes.rs
+    │   ├── routes/
+    │   │   ├── push.rs
+    │   │   └── push/
+    │   │       └── providers.rs
     │   └── session.rs
     └── tests/
         ├── ciphertext_only.rs
@@ -511,6 +515,7 @@ app/
 │   │   ├── pane_actions.dart
 │   │   ├── plain_store.dart
 │   │   ├── prediction_engine.dart  # WP-16-a, R-21-043's engine (R-90-018)
+│   │   ├── push_token.dart  # WP-19-a (R-90-018)
 │   │   ├── reconnect_policy.dart
 │   │   ├── relay.dart
 │   │   ├── terminal.dart
@@ -640,6 +645,7 @@ app/
 │   │   ├── pairing_test.dart
 │   │   ├── pane_actions_test.dart
 │   │   ├── prediction_engine_test.dart
+│   │   ├── push_token_test.dart  # WP-19-a (R-90-018)
 │   │   ├── reconnect_policy_test.dart
 │   │   ├── relay_stats_test.dart
 │   │   ├── relay_test.dart
@@ -719,6 +725,7 @@ app/
         ├── CameraZoomChannel.swift # Owner: CameraZoom (R-90-018)
         ├── ChromeReduceTransparencyChannel.swift
         ├── Info.plist
+        ├── Runner.entitlements  # WP-19-a (R-90-018)
         ├── Assets.xcassets/
         │   └── LaunchGrid.imageset/
         │       ├── Contents.json

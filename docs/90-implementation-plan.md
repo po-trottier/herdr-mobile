@@ -64,10 +64,12 @@ Rules here are numbered `R-90-xxx`. This document owns no other prefix.
   anywhere in the implementation. **Rationale:** `R-03-001` and `R-03-003`. The product is vendor
   neutral, and `docs/15-nvidia-brev-relay-experiment.md` is an experiment, never a dependency
   (`R-03-002`).
-- **R-90-014** You MUST NOT add a push notification service, a background wake mechanism or a
-  background-delivery promise. **Rationale:** `R-03-061` and
-  `docs/decisions/ADR-005-local-notifications-only.md`. Version 1 has native local notifications
-  only, while the app process is alive.
+- **R-90-014** You MUST NOT add a background wake mechanism or a background-delivery promise
+  beyond the one content-free push wake of `R-03-136` (amended 2026-09-16 by the product owner:
+  the phone is suspended within seconds of leaving the app, so a local alert never fires for a
+  blocked or done agent). The wake carries fixed text and no content; the real alert log stays
+  local, per `R-03-061` and `docs/decisions/ADR-005-local-notifications-only.md`, which the
+  App slice's amendment note updates.
 - **R-90-015** You MUST NOT start any task in Phase 0 or later until every box in
   `### Documentation readiness` is ticked. Until then this repository holds no code.
   **Rationale:** every phase below cites a rule. A phase that starts against a contradictory
@@ -745,6 +747,8 @@ writes the tests for its own screens, and the box is ticked when all seven have 
 - **WP-19-a** — wave 8. The local notification path. 16 checkboxes.
   - **Paths.** `app/lib/services/notifications.dart`, `app/lib/services/agent_status.dart`,
     `app/test/services/agent_status_test.dart` (self-declared, R-90-018, 2026-09-08),
+    `app/lib/services/push_token.dart`, `app/test/services/push_token_test.dart`,
+    `app/ios/Runner/Runner.entitlements` (self-declared, R-90-018, 2026-09-16),
     `app/test/services/no_pane_text_test.dart`,
     `app/test/services/no_stale_notification_test.dart`.
   - **Needs.** `WP-15-a`, `WP-12-b`, `WP-6`. Two of its checkboxes add the `agent_status` emitter
@@ -2734,7 +2738,8 @@ returns to its prompt.
 
 **Owns.** `crates/herdr-relay-hub/tests/latency.rs`,
 `crates/herdr-relay-hub/tests/limits.rs`, `crates/herdr-relay-hub/tests/load.rs`,
-`crates/herdr-relay-hub/tests/log_fields.rs`.
+`crates/herdr-relay-hub/tests/log_fields.rs`, `crates/herdr-relay-hub/src/routes/push.rs`,
+`crates/herdr-relay-hub/src/routes/push/providers.rs` (self-declared, R-90-018, 2026-09-16).
 
 - [x] Parse the registration frames `host_register` and `device_register` in
       `crates/herdr-relay-hub/src/routes.rs` (R-11-113, R-11-114). Verified:

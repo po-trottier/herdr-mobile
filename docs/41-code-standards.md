@@ -716,10 +716,13 @@ The capability already exists on the Host side, so the app needs only a decoder,
 
 ### 4.8 Notifications
 
-**R-41-109** The app MUST create local native notifications only while its process is alive. It MUST
-NOT register with APNs, FCM, or any push service. **Rationale:**
-`docs/03-product-decisions.md` R-03-060 limits version 1 to local notifications. The app has no
-background-delivery guarantee.
+**R-41-109** The app MUST create local native notifications only while its process is alive. The
+one push registration it MAY perform is the content-free wake of `docs/03-product-decisions.md`
+R-03-136 (amended 2026-09-16): an APNs or FCM token sent to the relay, and a fixed-text push that
+carries no agent, pane, tab or workspace. No other push service, and no payload handling in the
+app. **Rationale:** R-03-060 limits the alert content to local notifications. The wake exists
+because the phone is suspended within seconds of leaving the app; it promises nothing about
+delivery.
 
 **R-41-110** A notification tap MUST route to `/hosts/:hostId/panes/:paneId` using `go_router`. The
 degenerate cases are owned by `docs/30-ux-spec.md` R-30-511. **Rationale:** the

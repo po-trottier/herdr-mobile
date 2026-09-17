@@ -210,6 +210,16 @@ pub async fn handshake_on(
     mut socket: WsStream,
     setup: HandshakeSetup,
 ) -> Result<(WsStream, Transport, [u8; 32]), ConnectError> {
+    let msg1 = next_binary(&mut socket).await?;
+    handshake_after_first(socket, setup, &msg1).await
+}
+
+/// Completes a handshake after the idle observer receives its first message.
+pub(crate) async fn handshake_after_first(
+    mut socket: WsStream,
+    setup: HandshakeSetup,
+    msg1: &[u8],
+) -> Result<(WsStream, Transport, [u8; 32]), ConnectError> {
     let mut handshake = match setup {
         HandshakeSetup::Pairing {
             local_private_key,
@@ -226,8 +236,7 @@ pub async fn handshake_on(
     };
 
     // R-13-071: the Device (initiator) sends the first handshake message.
-    let msg1 = next_binary(&mut socket).await?;
-    noise::read_handshake_message(&mut handshake, &msg1)?;
+    noise::read_handshake_message(&mut handshake, msg1)?;
 
     let msg2 = noise::write_handshake_message(&mut handshake, &[])?;
     socket

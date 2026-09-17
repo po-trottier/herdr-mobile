@@ -5,14 +5,16 @@ rules. Implementers follow them in order.
 
 ## Threat model
 
-R-13-002: The relay is untrusted infrastructure. It forwards opaque ciphertext. It MUST learn
-nothing about terminal content, keystrokes or the pairing phrase. The channel between Host and
-Device is end-to-end encrypted and authenticated. The relay sees only connection metadata: IP
-addresses, connection timing and ciphertext sizes.
+R-13-002: The relay is untrusted infrastructure. It MUST NOT learn terminal content, keystrokes,
+or the pairing phrase. Noise encrypts and authenticates the Host–Device channel. The relay sees
+connection metadata: IP addresses, connection timing, and ciphertext sizes.
+Amended 2026-09-16 under R-03-136: the relay also holds an opaque push token per handle in memory
+and sends fixed-text wake alerts through Apple or Google. It reads no agent or terminal content.
 
 | Threat | Mitigation | Rule |
 |---|---|---|
 | Hostile relay operator reads terminal content | Noise end-to-end encryption. The relay sees only ciphertext. | R-13-012 |
+| Relay, Apple, or Google observes push metadata | Push exposes its token and wake timing, but only fixed text. Agent, pane, tab, workspace, and terminal content stays inside Noise. Tokens MUST NOT enter logs. | R-03-136, R-22-092 |
 | Hostile relay operator impersonates Host or Device | Noise mutual authentication with pinned static keys. The relay cannot produce a valid handshake without the private keys. | R-13-014, R-13-015 |
 | Network attacker between Host and relay, or relay and Device | Noise encrypts every frame. TLS on the WebSocket hop adds a second layer. | R-13-012 |
 | Lost or stolen phone | With App Lock on, biometric-gated keystore storage (R-22-013, R-22-007) blocks a reader with no biometric or passcode match. With App Lock off, the key sits in the keystore or keychain with no operating-system authentication challenge (R-22-082), and the phone's own lock screen, if any, is the only gate before the app opens. Revoke the Device from the Host either way. See `docs/decisions/ADR-009-optional-app-lock.md`. | R-13-053, R-13-054, R-13-073 |

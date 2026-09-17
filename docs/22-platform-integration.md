@@ -389,9 +389,14 @@ and `https://developer.apple.com/documentation/usernotifications/asking-permissi
 ### 3.9 Content-Free Push Setup
 
 **R-22-089** iOS MUST use native APNs registration, not Firebase.
-`app/ios/Runner/Runner.entitlements` MUST declare `aps-environment`.
-The Xcode project MUST reference this file through `CODE_SIGN_ENTITLEMENTS`.
-The signed entitlement and provisioning profile MUST match the APNs environment.
+`app/ios/Runner/Runner.entitlements` declares `aps-environment`. The Xcode project references it
+through `CODE_SIGN_ENTITLEMENTS = $(HERDR_ENTITLEMENTS)`, a build setting that is empty unless the
+gitignored `app/ios/Flutter/Push.xcconfig` sets it to `Runner/Runner.entitlements`. Apple grants the
+Push Notifications capability to the paid Developer Program only; a free Personal Team cannot sign
+that entitlement, so a sideloaded build MUST build with it absent, and the app treats APNs
+registration failure as "no token" with one fixed log line (amended 2026-09-16 by the product owner,
+who sideloads with a free team). A paid team creates `Push.xcconfig`, enables Push Notifications on
+the app identifier, and matches the signed entitlement to the APNs environment.
 The operator MUST enable Push Notifications for the app identifier.
 Local installs signed by Xcode's free Personal Team MAY set
 `CODE_SIGN_ENTITLEMENTS=Runner/Personal.entitlements` to select the empty entitlement file.

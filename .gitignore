@@ -55,3 +55,6 @@ app/test/**/failures/
 # Relay push credentials (R-14-017). The README stays.
 /deploy/relay/secrets/*
 !/deploy/relay/secrets/README.md
+
+# Opt-in iOS push entitlement for a paid Apple team (R-22-089).
+/app/ios/Flutter/Push.xcconfig

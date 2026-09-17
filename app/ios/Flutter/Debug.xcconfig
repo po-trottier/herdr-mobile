@@ -1,1 +1,5 @@
 #include "Generated.xcconfig"
+// Push wake (R-22-089): a paid Apple Developer team creates ios/Flutter/Push.xcconfig with
+// `HERDR_ENTITLEMENTS = Runner/Runner.entitlements`. A free Personal Team leaves it absent, so
+// the target signs with no entitlements and aps-environment never blocks a sideload.
+#include? "Push.xcconfig"

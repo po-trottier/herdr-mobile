@@ -327,7 +327,7 @@ check fails. These are the risk spikes that `docs/90-implementation-plan.md` fro
 | The bridge can hold a subscription and read panes on all three platforms | Run the bridge on Windows, Linux and macOS; print a pane snapshot | The named pipe or `AF_UNIX` path handling is wrong. Re-read `ipc.rs`. |
 | `pane.read` output stays SGR-only | Count unrecognised SGR codes; expect zero (`R-01-008`) | The Device needs a real VT emulator after all. `xterm2` already provides one, so the widget stands and only the reset strategy changes. |
 | Noise completes through a real relay | Handshake between the bridge and a test client through the deployed relay | The relay is altering frames. It MUST be a pure byte forwarder. |
-| A phone on cellular data completes a raw WSS upgrade through the deployed relay, with no browser authentication, no portal interception and no certificate error | Run the gate in `docs/15-nvidia-brev-relay-experiment.md` or the WSS verification in `docs/14-relay-deployment.md` R-14-040 | The relay deployment is unreachable from a mobile network. The operator must check DNS, the tunnel status and the dashboard route to the relay (`R-14-031`), and the relay container health. |
+| A phone on cellular data completes a raw WSS upgrade through the deployed relay, with no browser authentication, no portal interception and no certificate error | Run the gate in `docs/15-nvidia-brev-relay-experiment.md` or the WSS verification in `docs/14-relay-deployment.md` R-14-040 | The relay deployment is unreachable from a mobile network. The operator must check DNS, the TLS ingress and its route to the relay (`R-14-031`), and the relay container health. |
 
 ## 8. Rule index
 

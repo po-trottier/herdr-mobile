@@ -28,8 +28,8 @@ Result, production (non-dev) dependency tree:
   own use" (forbidden) — this is the former, exercised only for the standard WebSocket protocol
   machinery, not Noise/PSK/session cryptography.
 - No TLS crate (`rustls`, `native-tls`, `openssl`) appears in the production tree at all. TLS
-  termination is delegated entirely to the Caddy reverse proxy in front of the relay
-  (`docs/14-relay-deployment.md`, `crates/herdr-relay-hub/Caddyfile`), not linked into the relay
+  termination is delegated entirely to the operator's TLS ingress in front of the relay
+  (`docs/14-relay-deployment.md` R-14-025), not linked into the relay
   binary itself. Full tree captured for the record: `crates/herdr-relay-hub` production tree, root
   crate plus `axum`, `herdr-relay-proto`, `serde`, `serde_json`, `tokio`, `tracing`, and their
   transitive dependencies (`sha1` for the WS handshake key per RFC 6455, `matchit`, `tower`,

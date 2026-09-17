@@ -43,8 +43,7 @@ that says who can read it.
 routing handle in the URL path. The relay MUST NOT see any frame content inside the Noise session.
 Rationale: the relay is untrusted infrastructure (R-13-002).
 
-**R-11-002**: RETIRED. Cloudflare-specific deployment language. See R-11-122 for the corrected TLS
-claim.
+**R-11-002**: RETIRED. Deployment-specific language. See R-11-122 for the corrected TLS claim.
 
 **R-11-003**: The Host and Device MUST establish a Noise session inside the WebSocket. The relay
 forwards opaque binary frames and performs no application-layer cryptographic operation (R-13-012).
@@ -281,15 +280,12 @@ count, frame byte total (R-12-014).
 
 ### 2.8 TLS wording
 
-**R-11-122**: The ingress in front of the relay terminates the public TLS hop; in the supported
-profile that is Cloudflare's edge, reached through a tunnel (`docs/14-relay-deployment.md` §
-"Cloudflare Tunnel", R-14-013). The relay binary still links the platform TLS stack through its
-HTTP and WebSocket
-library dependencies. The relay performs **no application-layer payload decryption and holds no
-Noise keys.** The statement "the Hub binary has zero crypto dependencies" is retired. Rationale: the
-relay's `axum` and `tokio-tungstenite` dependencies link `rustls` or the platform native TLS stack,
-and the relay's test harness may connect outward over TLS. The relay is not crypto-free; it is
-payload-decryption-free.
+**R-11-122**: The operator MUST supply TLS ingress outside the relay-only Compose stack.
+See `docs/14-relay-deployment.md` R-14-013. The ingress terminates the public TLS connection.
+The relay binary still links a TLS stack through its HTTP and WebSocket library dependencies.
+The relay performs **no application-layer payload decryption and holds no Noise keys.**
+The statement "the Hub binary has zero crypto dependencies" is retired.
+The relay test harness may connect outward over TLS.
 
 ### 2.9 One active Device per Host
 
@@ -2118,7 +2114,7 @@ specify the real compression and fragmentation design (R-11-229 to R-11-239).
 - `docs/13-security-pairing.md` — rules R-13-001 to R-13-066 (cryptography, pairing, identity,
   revocation, phrase semantics).
 - `docs/14-relay-deployment.md` — rules R-14-001 to R-14-071 (the supported public deployment
-  profile, Cloudflare Tunnel).
+  profile with external operator TLS ingress).
 - `docs/20-mobile-framework.md` — rules R-20-001 to R-20-040 (app stack, compression, dependency
   versions, the swipe-action package).
 - `docs/21-terminal-rendering.md` — rules R-21-001 to R-21-020 (terminal rendering).

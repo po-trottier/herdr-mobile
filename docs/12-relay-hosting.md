@@ -99,7 +99,7 @@ The relay is a purpose-built WebSocket server. The Host connects to
 `wss://<relay>/device/<handle>`. The relay pairs the two sockets by handle and copies frames
 bidirectionally. Frames are Noise ciphertext. No plaintext exists on the relay.
 
-Cloudflare Tunnel provides public TLS for the supported deployment. See
+The operator supplies public TLS ingress outside the relay-only Compose stack. See
 `docs/14-relay-deployment.md` R-14-021 and R-14-022 for the deployment profile.
 
 ### Option B — SSH Reverse Tunnel to a Bastion
@@ -114,13 +114,11 @@ Every node joins a WireGuard mesh. The Host and Device get mesh IPs and communic
 "Hub" is the coordination server. Requires a Tailscale client on the phone — violates R-12-001.
 The mesh model also gives every Device lateral movement risk on the tailnet.
 
-### Option D — Cloudflare Tunnel as the Relay
+### Option D — A Managed Tunnel as the Relay
 
-The Host runs `cloudflared`. Cloudflare gives a public URL. The Device connects to that URL.
-Cloudflare forwards bytes. No custom relay code, but Cloudflare terminates TLS and sees the outer
-WebSocket bytes. The free tier is 50 users. Cloudflare Teams pricing for 500 seats is approximately
-USD 3500 per month. Also, Cloudflare Tunnel ownership means no control over session pairing logic
-and peer-loss policy.
+The Host runs a tunnel connector. A managed service supplies a public URL and terminates TLS.
+The Device connects to that URL. A tunnel alone does not supply the custom pairing logic,
+handle routing or peer-loss policy that this product requires.
 
 ### Option E — WebRTC / QUIC Peer-to-Peer with Signalling Server
 
@@ -153,7 +151,7 @@ vectors. It is shared by the Host plugin (`herdr-relay`) and the relay (`herdr-r
 compilation, not by prose. Two languages (Rust and Dart) beat three. See
 `docs/decisions/ADR-003-rust-host-and-relay.md` for the full rationale.
 
-Option D (Cloudflare Tunnel as the relay) is rejected because it removes control over pairing
+Option D (a managed tunnel as the relay) is rejected because it removes control over pairing
 logic, peer-loss policy and handle routing. Option C (Tailscale) is only for private testing on a
 shared corporate network, not for public mobile use.
 
@@ -233,12 +231,10 @@ own pings.
 require authentication. It MUST NOT expose a handle, a session identifier, an IP address, a peer
 count or any payload content in the response.
 
-**R-12-024** Outside the Compose deployment, the relay MUST bind `/metrics` to the loopback
-interface by default. It MAY protect the endpoint behind the reverse proxy. The relay MAY bind
-`/metrics` to `0.0.0.0:9090` only when no host-published metrics port exists and the relay is
-attached to the private `herdr-relay-network` Compose network named in
-`docs/14-relay-deployment.md`. It MUST NOT expose a handle, a session identifier, an IP address or
-any payload content in the metric labels or values.
+**R-12-024** Outside the Compose deployment, the relay MUST bind `/metrics` to loopback by
+default. It MAY protect the endpoint behind a reverse proxy. In Compose, the relay MAY bind
+`/metrics` to `0.0.0.0:9090`, but the metrics port MUST remain unpublished in the supplied profile.
+Metric labels and values MUST NOT expose a handle, session identifier, IP address or payload content.
 
 ## Size Limits and Rate Limits
 
@@ -340,7 +336,10 @@ at `trace` or `debug` level. The `tracing` subscriber MUST filter frame bodies b
 
 ## Observability
 
-**R-12-050** The relay MUST expose these Prometheus metrics on `/metrics`:
+**R-12-050** The relay MUST expose the Prometheus metrics below on `/metrics`.
+The supplied Compose profile MUST leave the metrics port unpublished.
+An operator MAY add a port mapping or network entry in a separate override for Prometheus access.
+See `docs/14-relay-deployment.md` R-14-014 for `HERDR_RELAY_METRICS_LISTEN`.
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
@@ -361,11 +360,9 @@ at `trace` or `debug` level. The `tracing` subscriber MUST filter frame bodies b
 
 ## TLS and Cryptography
 
-The ingress in front of the relay terminates the public TLS hop; in the supported profile that is
-Cloudflare's edge, reached through a `cloudflared` tunnel (`docs/14-relay-deployment.md`). The relay
-binary still links the platform TLS stack through its HTTP and WebSocket libraries, because it may
-serve TLS directly in a single-host deployment and because its client-side test harness connects
-outward.
+The operator supplies TLS ingress outside the relay-only Compose stack. That ingress terminates
+the public TLS connection (`docs/14-relay-deployment.md`). The relay binary still links a TLS stack
+through its HTTP and WebSocket libraries. Its test harness may connect outward over TLS.
 
 **R-12-060** The relay performs no application-layer payload decryption and holds no Noise keys.
 This is the correct claim. The statement "the relay binary has zero crypto dependencies" is false.
@@ -373,9 +370,8 @@ The relay links the platform TLS stack.
 
 ## Deployment Paths
 
-The relay has one supported deployment profile: a Docker host running the relay container beside a
-`cloudflared` tunnel connector, with no public IP and no inbound port. See
-`docs/14-relay-deployment.md`.
+The supported deployment profile contains only the relay service. The operator supplies TLS
+ingress outside the Compose stack. See `docs/14-relay-deployment.md`.
 
 An internal NVIDIA experiment using Brev direct instances is documented separately. It is not a
 product dependency. See `docs/15-nvidia-brev-relay-experiment.md`.

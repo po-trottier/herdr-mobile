@@ -913,8 +913,9 @@ The five integration steps:
   Phase 19 start after `WP-6` closes, so their additions to `watch/requests.rs`,
   `watch/incoming.rs` and `watch/bridge.rs` are ordinary requests, routed by the specific rows in
   §5.3's registry, not by this step.
-- **`INT-9-runbook`** — `WP-9` writes `crates/herdr-relay-hub/docs/runbook.md` once. Phase 4
-  records its deployment output in its pull request, and Phase 9 copies it in.
+- **`INT-9-runbook`** — retired 2026-09-16: `crates/herdr-relay-hub/docs/runbook.md` is deleted
+  with the Caddy profile (Phase 9 `Owns.` note). Phase 4 keeps its deployment output in its pull
+  request.
 - **`INT-10-host`** — `WP-10-b` writes `crates/herdr-relay/src/pairing.rs` once. The Phase 4 spike
   runs against its published phrase declaration and keeps no copy of the file.
 - **`INT-16-terminal`** — `WP-16-a` writes `app/lib/services/terminal.dart` and `WP-16-b` writes
@@ -986,7 +987,7 @@ wave 3. The mechanism holds either way, because the owner precedes both.
 | `app/lib/services/keystore.dart` | `WP-13-a` | on request |
 | `app/lib/services/notifications.dart` | `WP-19-a` | on request |
 | `crates/Cargo.toml` | `WP-0-a` | on request |
-| `crates/herdr-relay-hub/docs/runbook.md` | `WP-9` | `INT-9-runbook` |
+| `deploy/relay/compose.yaml` | `WP-9` | on request (replaces the retired runbook row, 2026-09-16) |
 | `crates/herdr-relay/Cargo.toml` | `WP-0-a` | on request |
 | `app/android/app/build.gradle.kts` | `WP-0-b` | on request |
 | `app/integration_test/pairing_flow_test.dart` | `WP-15-a` | on request |
@@ -2903,18 +2904,17 @@ returns to its prompt.
 
 **Parallel-safe with.** Phase 10, Phase 12.
 
-**Owns.** `crates/herdr-relay-hub/Caddyfile`, `crates/herdr-relay-hub/compose.yaml`,
-`crates/herdr-relay-hub/docs/runbook.md`.
+**Owns.** `deploy/relay/compose.yaml` (since 2026-09-16). **Retired 2026-09-16 by the product
+owner:** `crates/herdr-relay-hub/Caddyfile`, `crates/herdr-relay-hub/compose.yaml` and
+`crates/herdr-relay-hub/docs/runbook.md` are deleted. The repository ships the relay container
+alone; every ingress (reverse proxy, tunnel) runs on the operator's host outside this repository
+(`docs/14-relay-deployment.md` R-14-024, R-14-025). The image is published by CI (R-40-058), so
+the first box below is done. The ticked boxes below are the historical record of the Caddy
+profile and describe files that no longer exist.
 
-- [ ] Publish the relay image and replace the placeholder tag in
-      `crates/herdr-relay-hub/docs/runbook.md` with the real published tag (R-14-011). **Blocked —
-      no existing `## 8. Blocked work` item covers this; proposed as a new item for the
-      orchestrating session to add.** Requires a real container image registry (for example a
-      `ghcr.io/herdr` org) with push credentials, which this project has not provisioned.
-      `crates/herdr-relay-hub/docs/runbook.md`'s 'Blocked items' table documents this exact gap ('No
-      image registry credentials or target exist for this project'). This is a distinct external
-      resource from B1's public-VM blocker (registry provisioning vs. VM/DNS provisioning), and no
-      existing B1-B24 row names an image registry decision, so no existing id fits.
+- [x] Publish the relay image (R-14-011). Done 2026-09-16: `.github/workflows/ci.yml` publishes
+      `ghcr.io/po-trottier/herdr-relay-hub` (`latest`, `sha-<short>`, `<version>` on `v*` tags)
+      per R-40-058; the package is public and `deploy/relay/compose.yaml` names the `latest` tag.
 - [x] Create `crates/herdr-relay-hub/compose.yaml` from R-14-010, and record the Compose
       deployment in `crates/herdr-relay-hub/docs/runbook.md`. Confirm that only Caddy publishes
       ports 80 and 443, while the relay has no host port (R-14-010, R-14-013, R-14-022).

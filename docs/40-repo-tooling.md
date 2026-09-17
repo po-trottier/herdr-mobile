@@ -369,10 +369,7 @@ crates/
 │           └── test-plugin-root.ps1
 └── herdr-relay-hub/
     ├── Cargo.toml
-    ├── compose.yaml
     ├── Dockerfile
-    ├── docs/
-    │   └── runbook.md
     ├── src/
     │   ├── main.rs
     │   ├── heartbeat.rs
@@ -762,11 +759,14 @@ workflow of its own.
 ```text
 deploy/
 └── relay/
-    └── compose.yaml            # Owner: docs/14 (R-14-024, R-90-018); the R-14-010 profile
+    └── compose.yaml            # Relay only; docs/14 (R-14-010, R-14-024), R-90-018
 ```
 
 The directory is the GitOps deployment source, per `R-14-024`. It contains no secret.
-The tunnel token comes from an uncommitted `.env` beside the Compose file.
+An optional, uncommitted `.env` beside the Compose file sets `RELAY_BIND` and
+`RELAY_CLIENT_IP_HEADER`; `docs/14-relay-deployment.md` R-14-024 owns these settings.
+The operator manages all ingress outside this repository, with TLS and WebSocket support,
+per R-14-001 and R-14-010.
 
 #### 3.2.5 Cross-component end-to-end test (`tests/e2e/`)
 
@@ -1207,7 +1207,6 @@ platform limit written in two places drifts. One owner prevents it.
 | Android SDK | Platform 36, build-tools 36.0.0, platform-tools | Yes | Yes | Yes | Android build (`docs/20-mobile-framework.md` §7). |
 | Android Studio | Optional IDE | Optional | Optional | Optional | SDK Manager and Android IDE. Command-line SDK tools are sufficient for builds. |
 | Docker client and engine | Engine 24+ | Docker Engine in WSL 2 | Docker Engine | Docker Engine through Colima | The only relay build, test and deployment prerequisite (`docs/12-relay-hosting.md` R-12-012). |
-| cloudflared container image | 2026.9.0 | No | No | No | Deployment-only tunnel connector. Deploy `cloudflare/cloudflared:2026.9.0` per R-14-010. It is not a local build prerequisite. |
 | Xcode + iOS SDK + CocoaPods | Xcode 27, iOS 26 SDK | No | No | Yes | iOS build and signing only (`docs/23-public-release.md` R-23-057). |
 
 Each listed version is an exact pin. Update a pin only through a deliberate compatibility change.
@@ -1347,8 +1346,8 @@ Three limits are fixed. An iOS build needs macOS with Xcode 27 and the iOS 26 SD
 can build or sign iOS (`docs/23-public-release.md` R-23-057). The relay binary is Linux-only musl,
 but every relay build, test and run command uses Docker on every developer platform. Windows may
 host Docker Engine inside WSL 2, but the WSL distribution needs no project package other than
-Docker. The tunnel connector runs only in the `cloudflare/cloudflared:2026.9.0` container.
-`docs/14-relay-deployment.md` R-14-010 owns the deployment profile.
+Docker. `docs/14-relay-deployment.md` R-14-010 owns the relay-only deployment profile.
+R-14-001 owns the requirements for external ingress, including TLS and WebSocket support.
 
 ## 8. Validate the Documentation
 
@@ -2153,8 +2152,6 @@ of Phase 0.
 - `docs/10-herdr-integration.md` — Herdr 0.8.2, protocol 21, plugin manifest and packaging.
 - Rust 1.98.0 stable release — `https://blog.rust-lang.org/2026/08/20/Rust-1.98.0/` — latest stable
   Rust release on the update date; edition 2024.
-- Cloudflare cloudflared image — <https://hub.docker.com/r/cloudflare/cloudflared> — deployment
-  container image; R-14-010 owns the verified tag.
 - Flutter releases — `https://docs.flutter.dev/release/archive` — Flutter 3.47.0 stable.
 - Dart SDK — `https://dart.dev/get-dart` — Dart 3.13.0, bundled with Flutter.
 - Android Studio — `https://developer.android.com/studio` — SDK platform 36, build-tools 36,

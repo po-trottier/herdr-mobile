@@ -154,7 +154,7 @@ once and the compiler enforces agreement between the two sides.
 There is **no built-in relay**. You run your own, or you use one a person you trust runs. The pairing
 link carries its address, so the app ships with no default server and phones home to nobody.
 [`docs/14-relay-deployment.md`](docs/14-relay-deployment.md) is a copy-ready profile: one Docker host,
-the relay container and a Cloudflare Tunnel. No public IP and no inbound port.
+the relay container. The operator supplies TLS ingress outside the Compose stack.
 
 Pairing uses a QR code on the workstation. The fallback is six words you can read out loud. One phone
 connects to a Host at a time, and a paired phone has full control of the terminal.
@@ -178,7 +178,7 @@ Read in order. Numeric prefixes order the files.
 | [`11-relay-protocol.md`](docs/11-relay-protocol.md) | The exact wire protocol between Host, Hub and Device. |
 | [`12-relay-hosting.md`](docs/12-relay-hosting.md) | Relay architecture and hosting requirements. |
 | [`13-security-pairing.md`](docs/13-security-pairing.md) | Cryptography, pairing, device identity, revocation. |
-| [`14-relay-deployment.md`](docs/14-relay-deployment.md) | The supported public deployment profile. |
+| [`14-relay-deployment.md`](docs/14-relay-deployment.md) | The relay-only Docker Compose profile with external operator TLS ingress. |
 | [`15-nvidia-brev-relay-experiment.md`](docs/15-nvidia-brev-relay-experiment.md) | An internal deployment experiment. Not a product dependency. |
 | [`20-mobile-framework.md`](docs/20-mobile-framework.md) | The framework decision, the app stack, the pinned versions. |
 | [`21-terminal-rendering.md`](docs/21-terminal-rendering.md) | Terminal emulator, render strategy, font, input. |

@@ -25,6 +25,7 @@ import 'package:connectivity_plus/connectivity_plus.dart'
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter/widgets.dart'
     show
         BuildContext,
@@ -47,7 +48,8 @@ import 'package:flutter/widgets.dart'
         Text,
         TextAlign,
         VoidCallback,
-        Widget;
+        Widget,
+        WidgetsBinding;
 import 'package:local_auth/local_auth.dart' show BiometricType;
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:material_ui/material_ui.dart' show Scaffold;
@@ -339,13 +341,28 @@ class _LockScreenState extends State<LockScreen> {
     label: 'Unlock with biometrics',
   );
   bool _offline = false;
+  bool _unlockAttempted = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadBiometricPresentation());
+    unawaited(_startUnlockAfterFrame());
     unawaited(_checkOffline());
-    unawaited(_attemptUnlock());
+  }
+
+  Future<void> _startUnlockAfterFrame() async {
+    try {
+      await _loadBiometricPresentation();
+    } on PlatformException {
+      // Capability detection only chooses the glyph. The Keychain remains the real gate.
+    }
+    if (!mounted) return;
+    // Submit the branded page and its biometric glyph before the native sheet can make
+    // Flutter inactive. Starting in initState can leave the launch grid behind Face ID.
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted && !_unlockAttempted) {
+      await _attemptUnlock();
+    }
   }
 
   Future<void> _loadBiometricPresentation() async {
@@ -377,6 +394,7 @@ class _LockScreenState extends State<LockScreen> {
   }
 
   Future<void> _attemptUnlock() async {
+    _unlockAttempted = true;
     setState(() => _phase = LockScreenPhase.checking);
     final result = await _gate.unlock();
     if (!mounted) {

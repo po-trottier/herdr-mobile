@@ -8,17 +8,107 @@
 /// type-and-platform branching, which is this file's job.
 library;
 
-import 'package:flutter/widgets.dart' show Text;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show TargetPlatform;
+import 'package:flutter/scheduler.dart' show SchedulerPhase;
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
+import 'package:flutter/widgets.dart' show SizedBox, Text;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/screens/lock_screen.dart';
+import 'package:herdr_mobile/services/biometric_gate.dart';
 import 'package:herdr_mobile/widgets/brand_mark.dart';
 import 'package:herdr_mobile/widgets/eyebrow.dart';
 import 'package:herdr_mobile/widgets/ground_grid.dart';
 import 'package:local_auth/local_auth.dart' show BiometricType;
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:material_ui/material_ui.dart' show MaterialApp;
+import 'package:mocktail/mocktail.dart';
+
+class _MockBiometricGate extends Mock implements BiometricGate {}
 
 void main() {
+  group('authentication starts after the lock page is drawn', () {
+    const connectivity = MethodChannel(
+      'dev.fluttercommunity.plus/connectivity',
+    );
+    late _MockBiometricGate gate;
+    setUp(() {
+      gate = _MockBiometricGate();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(connectivity, (_) async => ['wifi']);
+    });
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(connectivity, null);
+    });
+    testWidgets('Face ID begins with the face icon and unlock text visible', (
+      tester,
+    ) async {
+      when(() => gate.availableBiometrics())
+          .thenAnswer((_) async => [BiometricType.face]);
+      final visibleAtUnlock = <bool>[];
+      when(() => gate.unlock()).thenAnswer((_) async {
+        visibleAtUnlock.add(
+          find.byIcon(Symbols.face_rounded).evaluate().isNotEmpty &&
+              find.text('Unlock to continue.').evaluate().isNotEmpty &&
+              tester.binding.schedulerPhase !=
+                  SchedulerPhase.persistentCallbacks,
+        );
+        return const Ok<void>(null);
+      });
+      await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+      await tester.pump();
+      expect(visibleAtUnlock, [true]);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    testWidgets('leaving before the page is ready does not raise Face ID', (
+      tester,
+    ) async {
+      final types = Completer<List<BiometricType>>();
+      when(() => gate.availableBiometrics()).thenAnswer((_) => types.future);
+      when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
+      await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+      await tester.pumpWidget(const SizedBox());
+      types.complete([BiometricType.face]);
+      await tester.pump();
+      verifyNever(() => gate.unlock());
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    testWidgets(
+      'capability lookup failure still permits the real keychain unlock',
+      (tester) async {
+        when(() => gate.availableBiometrics())
+            .thenThrow(PlatformException(code: 'unavailable'));
+        when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
+        await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+        await tester.pump();
+        verify(() => gate.unlock()).called(1);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+    testWidgets(
+      'a manual attempt while capabilities load is not followed by another prompt',
+      (tester) async {
+        final types = Completer<List<BiometricType>>();
+        when(() => gate.availableBiometrics()).thenAnswer((_) => types.future);
+        when(
+          () => gate.unlock(),
+        ).thenAnswer((_) async => const Err<void>('Authentication cancelled'));
+        await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+        await tester.tap(find.text('Use device passcode'));
+        await tester.pump();
+        expect(find.text('Not recognised. Try again.'), findsOneWidget);
+
+        types.complete([BiometricType.face]);
+        await tester.pumpAndSettle();
+        verify(() => gate.unlock()).called(1);
+        expect(find.text('Not recognised. Try again.'), findsOneWidget);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+  });
+
   group('biometricPresentation', () {
     test('face on iOS reads the iOS wording, per the variant table', () {
       final result = biometricPresentation([BiometricType.face], isIOS: true);

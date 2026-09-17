@@ -911,14 +911,26 @@ void main() {
           const connectivityChannel = MethodChannel(
             'dev.fluttercommunity.plus/connectivity',
           );
+          const localAuthChannel = MethodChannel(
+            'plugins.flutter.io/local_auth',
+          );
           TestWidgetsFlutterBinding.instance.defaultBinaryMessenger
               .setMockMethodCallHandler(
                 connectivityChannel,
                 (_) async => <String>['wifi'],
               );
+          // The lock page resolves its glyph before it starts the real gate. This widget
+          // test has no native capability channel, just as it has no native Keychain.
+          TestWidgetsFlutterBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(
+                localAuthChannel,
+                (_) async => <String>['face'],
+              );
           addTearDown(() {
             TestWidgetsFlutterBinding.instance.defaultBinaryMessenger
                 .setMockMethodCallHandler(connectivityChannel, null);
+            TestWidgetsFlutterBinding.instance.defaultBinaryMessenger
+                .setMockMethodCallHandler(localAuthChannel, null);
           });
           appRouter.go(link);
 

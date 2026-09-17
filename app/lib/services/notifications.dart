@@ -30,6 +30,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/painting.dart' show Color;
+import 'package:flutter/services.dart'
+    show MethodChannel, MissingPluginException, PlatformException;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -229,6 +231,7 @@ class NotificationsService {
     SharedPreferencesAsync? preferences,
     DateTime Function() now = DateTime.now,
     Logger? logger,
+    Future<void> Function(int count)? setBadge,
   }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
        _preferences = preferences ?? SharedPreferencesAsync(),
        // `this._now` would make the external parameter name `_now`, unusable from
@@ -236,7 +239,37 @@ class NotificationsService {
        // same reasoning `biometric_gate.dart`'s `_now` param documents.
        // ignore: prefer_initializing_formals
        _now = now,
+       _setBadge = setBadge ?? _nativeSetBadge,
        _log = logger ?? Logger('NotificationsService');
+
+  /// `AppDelegate.swift`'s badge channel (R-22-020): iOS only. Android draws its launcher dot
+  /// from the posted notifications themselves and has no app-set count.
+  static const MethodChannel _badgeChannel = MethodChannel(
+    'dev.herdr.herdr_mobile/badge',
+  );
+
+  static Future<void> _nativeSetBadge(int count) async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    await _badgeChannel.invokeMethod<void>('set', count);
+  }
+
+  final Future<void> Function(int count) _setBadge;
+  int? _lastBadge;
+
+  /// R-22-020: the app icon badge shows [count] unread rows; zero clears it. Idempotent per
+  /// value, so a caller may pass the count on every emission. A missing channel or a platform
+  /// error is logged and swallowed: the badge is a mirror, never the record.
+  Future<void> setBadgeCount(int count) async {
+    if (count == _lastBadge) return;
+    _lastBadge = count;
+    try {
+      await _setBadge(count);
+    } on PlatformException catch (e) {
+      _log.warning('set app icon badge', e);
+    } on MissingPluginException catch (e) {
+      _log.warning('set app icon badge', e);
+    }
+  }
 
   final FlutterLocalNotificationsPlugin _plugin;
   final SharedPreferencesAsync _preferences;
@@ -368,8 +401,8 @@ class NotificationsService {
     return NotificationDeliveryState.granted;
   }
 
-  /// Requests the platform notification permission (R-22-021, R-22-071): alerts and sound only,
-  /// never badges (R-22-020 — "the attention marker lives in-app"). The *call*, not the *moment*:
+  /// Requests the platform notification permission (R-22-021, R-22-071): alerts, sound and, on
+  /// iOS, the badge (R-22-020, amended 2026-09-16). The *call*, not the *moment*:
   /// a caller (`WP-18-a`'s agent-list screen) invokes this exactly once, at the first arrival at
   /// `/hosts/:hostId/agents` after the first successful pair (R-30-509).
   Future<bool> requestPermission() async {
@@ -386,7 +419,7 @@ class NotificationsService {
           .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin
           >()
-          ?.requestPermissions(alert: true, sound: true);
+          ?.requestPermissions(alert: true, sound: true, badge: true);
       return granted ?? false;
     }
     return false;

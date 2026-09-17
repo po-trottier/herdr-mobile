@@ -113,7 +113,13 @@ import 'package:web_socket_channel/web_socket_channel.dart'
 
 class _MockFlutterSecureStorage extends Mock implements FlutterSecureStorage {}
 
-class _MockNotificationsService extends Mock implements NotificationsService {}
+class _MockNotificationsService extends Mock implements NotificationsService {
+  _MockNotificationsService() {
+    // The app icon badge mirror (R-22-020) fires on every emission; stub it once here.
+    when(() => setBadgeCount(any())).thenAnswer((_) async {});
+    when(requestPermission).thenAnswer((_) async => true);
+  }
+}
 
 class _MockPlainStore extends Mock implements PlainStore {}
 
@@ -1128,6 +1134,11 @@ void main() {
               ),
             ),
             agentStatusServiceProvider.overrideWithValue(agentStatus),
+            // The route's post-frame hook asks the notification permission (R-30-509); the
+            // real plugin has no platform here.
+            notificationsServiceProvider.overrideWithValue(
+              _MockNotificationsService(),
+            ),
             relayConnectionProvider.overrideWithValue(relay),
           ],
           child: MaterialApp.router(routerConfig: appRouter),

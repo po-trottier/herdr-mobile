@@ -593,6 +593,12 @@ class AgentStatusService {
     _emittedHostId = _currentHostId() ?? '';
     _attentionController.add(_unseen());
     _notificationsController.add(_sortedLog());
+    // R-22-020: the app icon badge counts unread rows across every Host; zero clears it.
+    unawaited(
+      _notifications.setBadgeCount(
+        _log.values.where((entry) => !entry.seen).length,
+      ),
+    );
   }
 
   /// Spans every Host (R-03-046: `host_list_screen.dart` shows a disconnected computer's

@@ -279,7 +279,13 @@ on iOS:
 - **Android:** A channel with id `herdr_agent_status`, name `Agent status`, importance `IMPORTANCE_DEFAULT`,
   and no vibration override. The channel is created on first launch before any notification is posted.
 - **iOS:** No category registration is needed for a simple alert notification. The app requests
-  authorization for alerts and sounds only, not badges, because the attention marker lives in-app.
+  authorization for alerts, sounds and badges. The app icon badge MUST show the count of unread
+  rows across every Host's notification log, the same count the in-app `Notifications`
+  destination shows for one Host, and MUST fall to zero when the last row is read or removed
+  (amended 2026-09-16 by the product owner, who expected `(1)` on the home screen; until then the
+  rule read "not badges, because the attention marker lives in-app"). The app sets the badge
+  itself through `UNUserNotificationCenter.setBadgeCount` on every change of that count, never by
+  letting posted notifications accumulate one.
 
 ### 3.3 Permission Request Timing
 
@@ -290,8 +296,8 @@ permission a second time. `POST_NOTIFICATIONS` is a runtime permission;
 the app requests it with `ActivityResultContracts.RequestPermission()` targeting
 `Manifest.permission.POST_NOTIFICATIONS`. The minimum SDK is 33, so the
 runtime request is unconditional. On iOS, the app calls
-`UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])`. After the
-permission is granted, the app always posts an alert for an event that earns one.
+`UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])`.
+After the permission is granted, the app always posts an alert for an event that earns one.
 Source: `https://developer.android.com/develop/ui/compose/notifications/notification-permission`
 and `https://developer.apple.com/documentation/usernotifications/asking-permission-to-use-notifications`.
 

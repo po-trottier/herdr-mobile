@@ -1890,28 +1890,27 @@ class _AgentListRouteState extends State<_AgentListRoute> {
   }
 }
 
-/// R-03-091/R-30-521/R-30-522/R-30-523: the one-time App Lock offer. `appLockOfferShown`
-/// makes the trigger moment itself -- not just the sheet -- fire exactly once: this route is
-/// unreachable without a `hostId`, which does not exist before a first successful pair, so the
-/// very first arrival here in the phone's whole history already satisfies "the first arrival
-/// at the agent list after the first successful pair" with no separate pairing-moment flag to
-/// track.
-///
-/// **Disclosed, pre-existing gap.** R-30-509/R-30-521 place this offer "after the platform
-/// notification-permission request resolves". `notifications.dart`'s own doc comment on
-/// `requestPermission()` already names this exact same arrival as its call site, but nothing
-/// in this repository calls `requestPermission()` anywhere -- confirmed by a repository-wide
-/// search before writing this function. That gap predates this change and is out of this
-/// task's scope (`docs/13-security-pairing.md` and `docs/22-platform-integration.md` name no
-/// App-Lock-specific rule that depends on fixing it); it is reported here, not silently fixed
-/// or silently left unmentioned, per `AGENTS.md`'s "never diverge silently from the owning
-/// document". This function wires the App Lock sheet at the same conceptual integration point
-/// the notification permission belongs at, regardless.
+/// R-30-509: the platform notification-permission request, once per app session at the first
+/// arrival at the agent list. This route is unreachable without a `hostId`, which does not exist
+/// before a first successful pair, so the arrival itself is "after the first successful pair" and
+/// `/welcome` never asks. The OS shows its dialog only while the answer is undetermined: a phone
+/// that already answered gets no dialog on any later call, so one call per session is safe and
+/// also heals an install that paired before this call existed (nothing called
+/// `requestPermission()` until 2026-09-16, so iOS dropped every post silently and the product
+/// owner saw the in-app log fill with no banner). Then R-03-091/R-30-521's one-time App Lock
+/// offer, "after the platform notification-permission request resolves".
 Future<void> _maybeOfferAppLock(BuildContext context) async {
   if (!context.mounted) {
     return;
   }
   final container = ProviderScope.containerOf(context, listen: false);
+  if (!_notificationPermissionRequested) {
+    _notificationPermissionRequested = true;
+    await container.read(notificationsServiceProvider).requestPermission();
+    if (!context.mounted) {
+      return;
+    }
+  }
   final AppSettingsService appSettings = container.read(
     appSettingsServiceProvider,
   );
@@ -1944,6 +1943,8 @@ Future<void> _maybeOfferAppLock(BuildContext context) async {
         AppLockOfferSheet(onTurnOn: () => unawaited(_turnAppLockOn(context))),
   );
 }
+
+bool _notificationPermissionRequested = false;
 
 /// R-03-092/R-13-073/R-22-083: turns App Lock on from the one-time offer, sharing every
 /// primitive `settings_screen.dart`'s own toggle uses -- `KeystoreService.retoggleProtection`

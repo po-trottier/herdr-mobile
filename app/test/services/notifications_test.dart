@@ -309,15 +309,20 @@ void main() {
     });
 
     test('requestPermission() calls IOSFlutterLocalNotificationsPlugin.requestPermissions(alert: '
-        'true, sound: true), never the Android permission request', () async {
-      when(() => iosPlugin.requestPermissions(alert: true, sound: true))
-          .thenAnswer((_) async => true);
+        'true, sound: true, badge: true), never the Android permission request '
+        '(R-22-020 amended 2026-09-16)', () async {
+      when(
+        () =>
+            iosPlugin.requestPermissions(alert: true, sound: true, badge: true),
+      ).thenAnswer((_) async => true);
 
       final granted = await service.requestPermission();
 
       expect(granted, isTrue);
-      verify(() => iosPlugin.requestPermissions(alert: true, sound: true))
-          .called(1);
+      verify(
+        () =>
+            iosPlugin.requestPermissions(alert: true, sound: true, badge: true),
+      ).called(1);
       verifyNever(
         () => plugin
             .resolvePlatformSpecificImplementation<

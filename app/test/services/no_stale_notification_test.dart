@@ -31,7 +31,12 @@ import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
-class _MockNotificationsService extends Mock implements NotificationsService {}
+class _MockNotificationsService extends Mock implements NotificationsService {
+  _MockNotificationsService() {
+    // The app icon badge mirror (R-22-020) fires on every emission; stub it once here.
+    when(() => setBadgeCount(any())).thenAnswer((_) async {});
+  }
+}
 
 AgentStatus _liveStatus({
   String paneId = 'w3:p2',

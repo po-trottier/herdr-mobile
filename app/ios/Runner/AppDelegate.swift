@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -48,6 +49,27 @@ import UIKit
       }
       UIApplication.shared.open(url) { success in
         result(success)
+      }
+    }
+
+    // R-22-020: the app icon badge mirrors the unread notification count. Called from
+    // `app/lib/services/notifications.dart` over `dev.herdr.herdr_mobile/badge`, "set", with
+    // an integer count; zero clears the badge.
+    let badgeRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "BadgeChannel")
+    let badgeChannel = FlutterMethodChannel(
+      name: "dev.herdr.herdr_mobile/badge",
+      binaryMessenger: badgeRegistrar.messenger()
+    )
+    badgeChannel.setMethodCallHandler { call, result in
+      guard call.method == "set", let count = call.arguments as? Int else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      if #available(iOS 16.0, *) {
+        UNUserNotificationCenter.current().setBadgeCount(count) { _ in result(nil) }
+      } else {
+        UIApplication.shared.applicationIconBadgeNumber = count
+        result(nil)
       }
     }
   }

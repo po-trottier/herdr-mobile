@@ -33,7 +33,12 @@ import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
-class _MockNotificationsService extends Mock implements NotificationsService {}
+class _MockNotificationsService extends Mock implements NotificationsService {
+  _MockNotificationsService() {
+    // The app icon badge mirror (R-22-020) fires on every emission; stub it once here.
+    when(() => setBadgeCount(any())).thenAnswer((_) async {});
+  }
+}
 
 AgentStatus _live({
   required String paneId,
@@ -588,6 +593,28 @@ void main() {
       ),
     ).called(1);
   });
+
+  test(
+    'the app icon badge mirrors the unread count and clears on read (R-22-020)',
+    () async {
+      // The service dedupes repeats itself; here only the latest value matters.
+      int lastBadge() =>
+          verify(() => notifications.setBadgeCount(captureAny())).captured.last
+              as int;
+
+      await send(_live(paneId: 'w3:p1'));
+      await send(_live(paneId: 'w3:p2'));
+      expect(lastBadge(), 2);
+
+      await service.markSeen('w3:p1');
+      await pumpEventQueue();
+      expect(lastBadge(), 1);
+
+      await service.markAllSeen();
+      await pumpEventQueue();
+      expect(lastBadge(), 0);
+    },
+  );
 
   group('acknowledged identities (R-31-07-01, R-31-07-03, R-31-07-04)', () {
     test(

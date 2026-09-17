@@ -41,11 +41,17 @@ import 'package:herdr_mobile/widgets/app_text_button.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart'
     show ChromeIconAction;
 import 'package:material_ui/material_ui.dart' show MaterialApp;
-import 'package:mocktail/mocktail.dart' show Mock, when;
+import 'package:mocktail/mocktail.dart' show Mock, any, when;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
-class _MockNotificationsService extends Mock implements NotificationsService {}
+class _MockNotificationsService extends Mock implements NotificationsService {
+  _MockNotificationsService() {
+    // The app icon badge mirror (R-22-020) fires on every emission; stub it once here.
+    when(() => setBadgeCount(any())).thenAnswer((_) async {});
+    when(requestPermission).thenAnswer((_) async => true);
+  }
+}
 
 class _MockConnectivity extends Mock implements Connectivity {}
 
@@ -262,6 +268,9 @@ void main() {
           ProviderScope(
             overrides: [
               relayConnectionProvider.overrideWithValue(relay),
+              notificationsServiceProvider.overrideWithValue(
+                _MockNotificationsService(),
+              ),
               agentStatusServiceProvider.overrideWithValue(
                 AgentStatusService(
                   messages: const Stream<Message>.empty(),

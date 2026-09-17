@@ -1489,6 +1489,66 @@ void main() {
       expect(find.byType(AdaptiveTextSelectionToolbar), findsOneWidget);
     });
   });
+
+  group('scroll to dismiss the keyboard', () {
+    testWidgets(
+      'a finger drag on the grid drops focus; a programmatic scroll does not',
+      (tester) async {
+        final rows = List.generate(87, (row) => 'row $row');
+        final terminal = _terminal()
+          ..resize(80, 87)
+          ..write(rows.join('\r\n'));
+        final focus = FocusNode();
+        addTearDown(focus.dispose);
+        await tester.pumpWidget(
+          _harness(
+            height: 300,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 200,
+                  child: TerminalViewWidget(
+                    palette: AppColor.dark,
+                    phase: TerminalGridPhase.live,
+                    terminal: terminal,
+                    maxScrollOffsetFromBottom: 200,
+                  ),
+                ),
+                // Stands in for the composer field: the thing that holds the keyboard.
+                Focus(focusNode: focus, child: const SizedBox(height: 40)),
+              ],
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        focus.requestFocus();
+        await tester.pump();
+        expect(focus.hasFocus, isTrue);
+
+        // The widget's own scroll (a jump, a resync) raises no drag details.
+        final scrollable = tester.widget<Scrollable>(find.byType(Scrollable));
+        scrollable.controller!.jumpTo(40);
+        await tester.pump();
+        expect(
+          focus.hasFocus,
+          isTrue,
+          reason: 'a programmatic scroll keeps focus',
+        );
+
+        await tester.drag(
+          find.byKey(const ValueKey('terminalGridArea')),
+          const Offset(0, 60),
+        );
+        await tester.pump();
+        expect(
+          focus.hasFocus,
+          isFalse,
+          reason: 'a finger drag dismisses the keyboard',
+        );
+      },
+    );
+  });
 }
 
 /// Mirrors the freeze `app/lib/services/terminal.dart` (`WP-16-a`, R-21-041) must implement:

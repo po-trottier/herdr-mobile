@@ -1270,37 +1270,50 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
               // inside the `terminalGridArea` viewport.
               key: const ValueKey('terminalGridCells'),
               width: _gridColumns * _cellWidth,
-              child: TerminalView(
-                terminal,
-                key: _terminalViewKey,
-                controller: interactive ? _controller : null,
-                theme: theme,
-                // The readable size or the explicit overview fit reaches the painter.
-                // Glyphs, pan offsets, and pointer-to-cell mappings share the measured cell size.
-                // The line height stays fixed at the R-21-010 token.
-                textStyle: TerminalStyle(
-                  fontSize: _fontSize,
-                  height: AppType.monoTerminal().height!,
-                  fontFamily: AppType.monoFontFamily,
-                  fontFamilyFallback: _fallbackFontFamilies,
+              // A finger drag on the grid dismisses the software keyboard, the
+              // platform's own scroll-to-dismiss (iOS `keyboardDismissMode = .onDrag`,
+              // Flutter's `ScrollViewKeyboardDismissBehavior.onDrag`). Only a drag with
+              // pointer details counts: the widget's own `jumpTo`/`animateTo` and a
+              // Host-driven resync raise no `dragDetails` and leave focus alone.
+              child: NotificationListener<ScrollStartNotification>(
+                onNotification: (ScrollStartNotification notification) {
+                  if (notification.dragDetails != null) {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                  }
+                  return false;
+                },
+                child: TerminalView(
+                  terminal,
+                  key: _terminalViewKey,
+                  controller: interactive ? _controller : null,
+                  theme: theme,
+                  // The readable size or the explicit overview fit reaches the painter.
+                  // Glyphs, pan offsets, and pointer-to-cell mappings share the measured
+                  // cell size. The line height stays fixed at the R-21-010 token.
+                  textStyle: TerminalStyle(
+                    fontSize: _fontSize,
+                    height: AppType.monoTerminal().height!,
+                    fontFamily: AppType.monoFontFamily,
+                    fontFamilyFallback: _fallbackFontFamilies,
+                  ),
+                  // R-21-038: both differ from the xterm2 default. autoResize
+                  // false keeps the emulator at rect.width, set from the
+                  // outside, never from this widget's own measured size.
+                  // textScaler noScaling keeps the cell advance off the system
+                  // text-scale setting.
+                  autoResize: false,
+                  textScaler: TextScaler.noScaling,
+                  padding: EdgeInsets.zero,
+                  scrollController: _verticalScroll,
+                  cursorType: TerminalCursorType.block,
+                  // R-31-08-08: a single tap on the grid MUST NOT send
+                  // anything to the pane. readOnly stops every keystroke this
+                  // widget could otherwise forward.
+                  readOnly: true,
+                  onTapUp: interactive
+                      ? (_, _) => widget.onGridTap?.call()
+                      : null,
                 ),
-                // R-21-038: both differ from the xterm2 default. autoResize
-                // false keeps the emulator at rect.width, set from the
-                // outside, never from this widget's own measured size.
-                // textScaler noScaling keeps the cell advance off the system
-                // text-scale setting.
-                autoResize: false,
-                textScaler: TextScaler.noScaling,
-                padding: EdgeInsets.zero,
-                scrollController: _verticalScroll,
-                cursorType: TerminalCursorType.block,
-                // R-31-08-08: a single tap on the grid MUST NOT send
-                // anything to the pane. readOnly stops every keystroke this
-                // widget could otherwise forward.
-                readOnly: true,
-                onTapUp: interactive
-                    ? (_, _) => widget.onGridTap?.call()
-                    : null,
               ),
             ),
           ),

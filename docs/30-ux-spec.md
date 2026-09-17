@@ -544,6 +544,7 @@ easiest thing to trigger by accident in a pocket.
 | Intent | Binding | Sends to the pane |
 | --- | --- | --- |
 | Raise the keyboard | Tap the native composer or the grid to focus the composer. The tap sends nothing, per `R-03-130` | no |
+| Dismiss the keyboard | A finger drag on the grid, the platform's own scroll-to-dismiss (iOS `keyboardDismissMode = .onDrag`). The composer loses focus; a latched modifier clears with it, per `R-31-09-19`. A scroll the app performs itself (jump to bottom, Host resync) does not dismiss (added 2026-09-16 by the product owner: "no way to close the keyboard on iOS") | no |
 | Select a word | Double tap on the grid | no |
 | Select a line | Triple tap on the grid | no |
 | Start a free selection | Long press 400 ms, then drag | no |

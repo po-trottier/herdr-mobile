@@ -1289,48 +1289,48 @@ void main() {
   );
 
   testWidgets(
-    'iOS: the pane search is a CupertinoSearchTextField under the bar, above the '
-    'CupertinoSlidingSegmentedControl, on the Workspace axis (R-03-102, R-33-033)',
+    'iOS: switching axes keeps the switcher fixed and search starts the Workspace content',
     (tester) async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       final harness = _Harness();
       addTearDown(harness.dispose);
 
       await _pumpLoaded(tester, harness, _oneAgentSnapshot());
-      expect(
-        find.byType(CupertinoSearchTextField),
-        findsNothing,
-      ); // `Priority`.
-      expect(
-        find.byType(CupertinoSlidingSegmentedControl<AgentListAxis>),
-        findsOneWidget,
+      expect(find.byType(CupertinoSearchTextField), findsNothing);
+      final switcher = find.byType(
+        CupertinoSlidingSegmentedControl<AgentListAxis>,
       );
+      final priorityPosition = tester.getRect(switcher);
+      final titlePosition = tester.getRect(find.text('patrick-desk'));
       expect(find.byType(TabBar), findsNothing);
-      // R-03-108: the segmented control switches with the platform's own transition; no
-      // page view tracks the finger on iOS.
       expect(find.byType(TabBarView), findsNothing);
 
       await tester.tap(find.text('Workspace'));
       await tester.pumpAndSettle();
-      final Finder field = find.byKey(AgentListScreen.searchFieldKey);
-      expect(field, findsOneWidget);
+      expect(tester.getRect(switcher), priorityPosition);
+      expect(tester.getRect(find.text('patrick-desk')), titlePosition);
+      final field = find.byKey(AgentListScreen.searchFieldKey);
       expect(find.byType(CupertinoSearchTextField), findsOneWidget);
       expect(find.byType(SearchBar), findsNothing);
-      // The navigation bar area: under the host chip's row, above the segmented control, at
-      // the platform's `space.4` inset.
       expect(
         tester.getTopLeft(field).dy,
-        greaterThanOrEqualTo(
-          tester.getBottomLeft(find.text('patrick-desk')).dy,
-        ),
+        greaterThan(tester.getBottomLeft(switcher).dy),
       );
       expect(
         tester.getBottomLeft(field).dy,
-        lessThanOrEqualTo(tester.getTopLeft(find.text('Workspace')).dy),
+        lessThan(tester.getTopLeft(find.text('herdr-relay')).dy),
+      );
+      expect(
+        find.ancestor(of: field, matching: find.byType(CustomScrollView)),
+        findsOneWidget,
       );
       expect(tester.getTopLeft(field).dx, AppSpace.space4);
-      debugDefaultTargetPlatformOverride = null;
+
+      await tester.tap(find.text('Priority'));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(switcher), priorityPosition);
+      expect(find.byType(CupertinoSearchTextField), findsNothing);
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
   testWidgets(

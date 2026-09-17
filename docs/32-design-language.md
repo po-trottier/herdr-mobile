@@ -1999,21 +1999,19 @@ space is a row inside it.
   `space.2`, so it keeps the same 48-high step as an agent row (amended 2026-09-10 per
   `R-03-115`). The `unknown` glyph MUST NOT stand in for "no agent", because `R-30-404`
   reserves it for an agent whose status the app cannot read.
-- **R-32-598** The pane search of `docs/31-mockups/06-agent-list.md` `R-31-06-30` (decided
-  2026-09-08 by the product owner) is the platform's own search pattern, per the `Search a list`
-  row of `R-33-033` (amended 2026-09-09 by the product owner, per `R-03-102`: was a `SearchBar`
-  pill first inside the `Workspace` axis content, `space.3` above and `space.6` below, and never
-  in the app bar). On Android it is the search action of the `Agents` app bar, the `search` glyph
-  of `R-32-401` as a `ChromeIconAction`, which opens the Material search view, `SearchAnchor`; the
-  view's fill, edge and type come from `searchViewTheme`. On iOS it is a `CupertinoSearchTextField`
-  directly under the navigation bar at the platform's own inset. With the `Status colours` and
-  `New` actions of `R-03-112` and `R-03-109` the Android bar holds exactly the three trailing
-  controls `R-32-512` permits. The app sets only the placeholder `Search panes`. It MUST NOT
-  restyle the component with a token of this document: no border, no radius, no fill of its own,
-  because a platform component keeps its own shape, per `R-33-033`. A search that matches nothing
-  MUST keep the field and the grouping strip on screen and MUST say so in one `type.body` line in
-  `color.fg.secondary`, `No pane matches "x".`, inset `space.4`; the empty state of `R-32-553` is
-  for a computer with no pane, never for a search.
+- **R-32-598** The pane search of `docs/31-mockups/06-agent-list.md` `R-31-06-30` uses the
+  platform control in the `Search a list` row of `R-33-033`, per `R-03-102`. On Android it is
+  the search action of the `Agents` app bar, the `search` glyph of `R-32-401` as a
+  `ChromeIconAction`, which opens the Material search view, `SearchAnchor`; the view's fill,
+  edge and type come from `searchViewTheme`. On iOS it is a `CupertinoSearchTextField` at the
+  start of Workspace content, inset `space.4` horizontally, with `space.3` above and `space.6`
+  before the first space block (amended 2026-09-16 by the product owner). It scrolls with the
+  content. The title bar and grouping strip keep the same position on both axes. The app sets
+  only the placeholder `Search panes`. It MUST NOT restyle the component: no border, radius
+  or fill of its own, because a platform component keeps its own shape, per `R-33-033`.
+  A search that matches nothing MUST retain the field and grouping strip and MUST say so in
+  one `type.body` line in `color.fg.secondary`, `No pane matches "x".`, inset `space.4`; the
+  empty state of `R-32-553` is for a computer with no pane, never for a search.
 
 ### 7.33 Inline key
 

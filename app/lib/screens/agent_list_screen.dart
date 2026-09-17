@@ -96,7 +96,6 @@ import 'package:flutter/widgets.dart'
         DefaultTextStyle,
         Directionality,
         EdgeInsets,
-        EdgeInsetsDirectional,
         Expanded,
         Icon,
         IgnorePointer,
@@ -320,7 +319,7 @@ class AgentListScreen extends StatefulWidget {
   final DateTime Function() now;
 
   /// The pane search (R-31-06-30, R-03-102), for an end-to-end test: on iOS the
-  /// `CupertinoSearchTextField` under the app bar; on Android the search action in the app bar
+  /// `CupertinoSearchTextField` at the start of Workspace; on Android the app bar search action
   /// that opens the Material search view, because `SearchAnchor` builds the view's own field
   /// and takes no key for it (type into `SearchBar` once the view is open).
   static const Key searchFieldKey = ValueKey<String>('agent_list_search');
@@ -602,26 +601,6 @@ class _AgentListScreenState extends State<AgentListScreen>
     final Widget content = Column(
       children: <Widget>[
         headerRow,
-        // R-03-102 (2026-09-09): on iOS the pane search sits in the navigation bar area, under
-        // the bar at the platform's own inset, while the `Workspace` axis is shown; on Android
-        // it is the search action of [_trailingControls].
-        if (_isIos && showStrip && view.axis == AgentListAxis.workspace)
-          ColoredBox(
-            color: color.bgBase,
-            child: Padding(
-              padding: const EdgeInsetsDirectional.only(
-                start: AppSpace.space4,
-                end: AppSpace.space4,
-                top: AppSpace.space2,
-                bottom: AppSpace.space2,
-              ),
-              child: CupertinoSearchTextField(
-                key: AgentListScreen.searchFieldKey,
-                controller: _searchController,
-                placeholder: _searchPlaceholder,
-              ),
-            ),
-          ),
         if (showStrip)
           // R-32-582 as R-03-059 leaves it (2026-09-09): the block's one hairline closes the
           // strip, drawn by [_GroupingStrip]; the header row above draws none.
@@ -847,6 +826,13 @@ class _AgentListScreenState extends State<AgentListScreen>
     child: view.workspaceCount == 0
         ? _emptyBody(noun: 'panes')
         : _SpaceList(
+            searchField: _isIos
+                ? CupertinoSearchTextField(
+                    key: AgentListScreen.searchFieldKey,
+                    controller: _searchController,
+                    placeholder: _searchPlaceholder,
+                  )
+                : null,
             spaces: view.spaces,
             search: view.search,
             collapsed: view.collapsed,
@@ -1267,13 +1253,15 @@ class _PriorityList extends StatelessWidget {
 /// The `Workspace` axis (R-31-06-27 to R-31-06-31): one [_SpaceBlock] per space, inset
 /// `space.4` from the screen edge and `space.6` apart, on the screen's plain `color.bg.base`
 /// (R-03-107, amended 2026-09-09). Nothing pins here; see this file's header doc for why. The
-/// pane search left this list on 2026-09-09 (R-03-102): it is the platform's own search pattern
-/// in the header block now, and the same list body is what the Android search view shows
-/// ([_SearchResults]). The list ends with its last card; the [_createClearance] after it is the
+/// iOS pane search starts the scrolling content, above the first space (R-31-06-30, amended
+/// 2026-09-16). Keeping it below the grouping strip prevents the switcher from moving when the
+/// axis changes. Android uses this same list inside its search view ([_SearchResults]), without
+/// an inline field. The list ends with its last card; the [_createClearance] after it is the
 /// scroll view's own end padding for the floating create button (R-03-109, corrected
 /// 2026-09-10).
 class _SpaceList extends StatelessWidget {
   const _SpaceList({
+    this.searchField,
     required this.spaces,
     required this.search,
     required this.collapsed,
@@ -1283,6 +1271,7 @@ class _SpaceList extends StatelessWidget {
     required this.onToggleSpace,
   });
 
+  final Widget? searchField;
   final List<SpaceGroup> spaces;
 
   /// The trimmed search text the [spaces] are already narrowed to; `''` when none.
@@ -1297,11 +1286,21 @@ class _SpaceList extends StatelessWidget {
   Widget build(BuildContext context) => SlidableAutoCloseBehavior(
     child: CustomScrollView(
       slivers: <Widget>[
+        if (searchField != null)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.space4,
+              AppSpace.space3,
+              AppSpace.space4,
+              AppSpace.space6,
+            ),
+            sliver: SliverToBoxAdapter(child: searchField),
+          ),
         SliverPadding(
-          padding: const EdgeInsets.only(
+          padding: EdgeInsets.only(
             left: AppSpace.space4,
             right: AppSpace.space4,
-            top: AppSpace.space3,
+            top: searchField == null ? AppSpace.space3 : 0,
           ),
           sliver: spaces.isEmpty
               // R-31-06-30: reached only while a search matches nothing (the empty tree never

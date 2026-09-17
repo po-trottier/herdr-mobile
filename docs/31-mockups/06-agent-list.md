@@ -71,13 +71,14 @@ of callout 13 (amended 2026-09-09 per `R-03-102` and `R-03-112`). `[ + ]` bottom
 floating create button of callout 18, drawn over the body on both platforms, never a row of the
 list (corrected 2026-09-10 per `R-03-109`); the blank line above it is the body showing through
 where the list has ended, not a band the list reserves. On iOS the bar carries no `q`, and the
-search field sits under the bar as the iOS wireframe below draws it.
+search field starts Workspace content as the iOS wireframe below draws it.
 
 ## Wireframe, workspace grouping
 
-The same computer, drawn as the desktop sidebar draws it. The pane search of callout 22 lives in
-the header block since 2026-09-09 (`R-03-102`): the `q` action on Android, the field under the bar
-on iOS; it is the search the pane tree screen used to hold. Each space is one raised block, one per
+The same computer, drawn as the desktop sidebar draws it. The pane search of callout 22 is the
+`q` action in the Android header and the first item of iOS Workspace content, below the fixed
+switcher (`R-03-102`, amended 2026-09-16). It is the search the pane tree screen used to hold. Each
+space is one raised block, one per
 top-level entry of the desktop sidebar, in the desktop's own order. Inside the block three tiers
 read at a glance (amended 2026-09-09 by the product owner, per `R-03-057`, after two rounds that
 changed spacing alone left a tab title reading as a grey row): the space header is a band on
@@ -172,7 +173,7 @@ clear of it, so no band sits between the card and the bottom band.
 attention cannot hide inside a closed block. A closed block is its band alone: the expander turns
 to `>`, and no hairline or row follows.
 
-## Wireframe, the iOS header block at its heaviest
+## Wireframe, the iOS header and start of Workspace
 
 `R-32-512` permits three app bar actions and, beside them, the alerts off marker of callout 12,
 which is a state and not an action (amended 2026-09-09 per `R-03-112`; corrected 2026-09-10 per
@@ -180,16 +181,19 @@ which is a state and not an action (amended 2026-09-09 per `R-03-112`; corrected
 heaviest case this screen reaches is the `Status colours` action and the marker together: one
 action and the marker, two actions under the ceiling. On Android the search action of callout 2
 takes a second slot, so the Android bar holds two actions and `R-31-06-24` says where a later
-action goes. The iOS search is not a bar control: on the `Workspace` axis the
-`CupertinoSearchTextField` of callout 22 sits under the bar, in the navigation bar area, above the
-segmented control (added 2026-09-09 per `R-03-102`); on the `Priority` axis that line is absent.
+action goes. On iOS the `CupertinoSearchTextField` of callout 22 starts Workspace content
+below the segmented control and above the first space. It is absent on Priority. The title bar
+and segmented control keep the same position on both axes (amended 2026-09-16 per `R-03-102`).
 
 ```text
 +--------------------------------------+
 | patrick-desk  v            (i)   (x) |
-| [ q Search panes                   ] |
 |      PRIORITY         [ WORKSPACE ]   |
 +--------------------------------------+
+| [ q Search panes                   ] |
+|                                      |
+| .----------------------------------. |
+| |[ herdr-mobile      4 panes     - ]| |
 ```
 
 ## Wireframe, the revealed swipe action
@@ -255,7 +259,7 @@ row sit under the pane until it closes.
    `R-33-033` with its glyph of `R-32-401`: the `Status colours` action of callout 26 and, on
    Android only, the search action of callout 22 (added 2026-09-09 per `R-03-102`), drawn while
    the list has something to search, on both axes, which opens the Material search view. iOS
-   carries no search action here; its field sits under the bar. So the Android bar holds two of
+   carries no search action here; its field starts Workspace content. So the Android bar holds two of
    the three actions `R-32-512` permits, and the alerts off marker of callout 12 beside them when
    alerts are off; the iOS bar holds one action and that marker. The `New` action stood second in
    this bar for one day, 2026-09-09, per `R-03-109`; the corrected `R-03-109` of 2026-09-10 put
@@ -456,21 +460,18 @@ row sit under the pane until it closes.
     line and its row is `size.target.min` high; it MUST NOT keep a blank second line (decided
     2026-09-08 by the product owner, per `R-32-517`). A tap opens the pane like any other row.
 22. Pane search. The platform's own search pattern, per the `Search a list` row of `R-33-033` and
-    the values of `R-32-598`, amended 2026-09-09 by the product owner, per `R-03-102`: a search
-    field MUST NOT sit as a loose pill in the body of a list, and the pill this axis carried under
-    its strip was not the native pattern on either platform. On Android the search is the action of
+    the values of `R-32-598`, amended 2026-09-16 by the product owner, per `R-03-102`.
+    On Android the search is the action of
     callout 2 in the app bar, drawn on both axes while the list has something to search; a tap opens
     the Material 3 search view of `SearchAnchor`, a full-screen route whose field carries the
     placeholder `Search panes` and whose body is the `Workspace` tree narrowed as the person types,
     with the `No pane matches "x".` line of `R-32-598` when nothing matches; a result tap closes
     the view and opens the pane, and closing the view shows the whole tree again. The view's fill,
     edge and type come from `searchViewTheme` in `app/lib/app.dart`. On iOS the search is a
-    `CupertinoSearchTextField` in the navigation bar area: directly under the bar at the platform's
-    own inset, `space.4` from each edge, `space.2` below the bar and `space.2` above the segmented
-    control (the gap above was missing until 2026-09-16, when the product owner saw the field flush
-    under the bar), drawn on the
-    `Workspace` axis and absent on `Priority`, which lists agents only; typing narrows the blocks in
-    place, per `R-31-06-30`, and the field's own clear control shows them all again. Both carry the
+    `CupertinoSearchTextField` at the start of Workspace content, below the fixed switcher and
+    above the first space block. It uses the insets of `R-32-598` and scrolls with the blocks.
+    It is absent on Priority. Typing narrows the blocks in place, per `R-31-06-30`, and the
+    field's own clear control shows them all again. Both carry the
     `Search panes` glyph of `R-32-401`; the wireframes write it `q`. Neither carries a shadow: a
     search field is not on the closed list of `R-32-320`.
 23. Guide rule (added 2026-09-09 by the product owner, per `R-03-057`). A `border.hairline` in
@@ -716,10 +717,11 @@ row sit under the pane until it closes.
   owner): with the pane tree screen gone, this axis is the only place a person can find a pane by
   name. The search MUST be the platform's own search pattern, per the `Search a list` row of
   `R-33-033` and the values of `R-32-598`: on Android a search action in the app bar that opens the
-  Material search view, and on iOS a `CupertinoSearchTextField` in the navigation bar area
-  (amended 2026-09-09 by the product owner, per `R-03-102`; until then the field was the first
-  item of the axis content and never an app bar control, and it MUST NOT return to the body as a
-  loose pill). The Android action counts toward the ceiling of `R-32-512`. The match MUST be a
+  Material search view, and on iOS a `CupertinoSearchTextField` as the first item of Workspace
+  content, below the grouping strip and above the first space block. The field MUST scroll with
+  the Workspace content. Switching axes MUST NOT move the title bar or grouping strip (amended
+  2026-09-16 by the product owner, per `R-03-102`). The Android action counts toward the ceiling of
+  `R-32-512`. The match MUST be a
   case-insensitive substring over the space name, the worktree label, the tab title, the pane
   display name of `R-31-07-08`, the pane `title` and the agent kind. A tier whose own name matches
   MUST keep its whole subtree; otherwise it MUST stay only for the descendants that match, so a

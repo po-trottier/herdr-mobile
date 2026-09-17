@@ -240,14 +240,15 @@ product owner. `R-03-050` still states that the phone has full control of every 
 API exposes; this rule decides which of them the sheet shows. `docs/31-mockups/10-pane-actions.md`
 owns the sheet; `docs/31-mockups/11-prompt-composer.md` is retired.
 
-**R-03-102**: Search MUST use the platform's own search pattern, and a switch between sibling
+**R-03-102**: Search MUST use the platform's own search control, and a switch between sibling
 views MUST use the platform's own view switcher. On Android, search is a search action in the top
 app bar that opens the Material 3 search view (`SearchAnchor`), and a view switch is a `TabBar` of
-primary tabs; on iOS, search is a `CupertinoSearchTextField` in the navigation bar area, and a
-view switch is a `CupertinoSlidingSegmentedControl`. A search field MUST NOT sit as a loose pill
-in the body of a list. Decided 2026-09-09 by the product owner, who pointed at the search pill of
-the Agents screen under its segmented control and asked whether that is the native pattern; it is
-not. `docs/33-platform-chrome.md` owns the control map; the owning mockup names the placement.
+primary tabs. On iOS, search uses `CupertinoSearchTextField`, and a view switch uses
+`CupertinoSlidingSegmentedControl`. The Agents screen MUST follow the placement in
+`docs/31-mockups/06-agent-list.md` R-31-06-30. Its header and switcher MUST NOT move when the
+selected axis changes. Amended 2026-09-16 by the product owner: a field above the switcher made
+it jump when changing axes. The iOS field moves into Workspace content above the first space.
+`docs/33-platform-chrome.md` owns the control map; the owning mockup names the placement.
 
 **R-03-103**: A key or a key combination named in interface text MUST be drawn as a key, not as
 a word: an inline key cap in `type.mono.key` on its own small raised box, so `r`, `d`, `Enter`

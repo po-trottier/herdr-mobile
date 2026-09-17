@@ -227,7 +227,7 @@ and no glyph.
 | Confirmation | `AlertDialog`, roles placed by the component | `CupertinoAlertDialog`, `Cancel` leading |
 | Terminal state that ends the work: `pane gone`, `read failed`, `protocol mismatch` | `AlertDialog`, not barrier-dismissible, the back gesture refused, the title, the body and one or two actions named by role and placed by the component, the default action trailing (added 2026-09-10, per `R-03-119`; `docs/31-mockups/08-terminal.md` `R-31-08-27` owns the states) | `CupertinoAlertDialog` with `CupertinoDialogAction` actions, the default action marked `isDefaultAction`, no barrier dismissal (added 2026-09-10, per `R-03-119`) |
 | A compose task | a full-screen route with a close control | a full-height `CupertinoSheetRoute` with `Cancel` |
-| Search a list | a search action (`IconButton`, the `Search` glyph of `R-32-401`) in the top app bar that opens the Material 3 search view, `SearchAnchor`; the view's fill, edge and type come from `searchViewTheme` (amended 2026-09-09, per `R-03-102`: a `SearchBar` pill in the body is not the native pattern) | `CupertinoSearchTextField` in the navigation bar area: the bar's bottom slot, or directly under the bar at the platform's own inset where the screen draws its own bar (amended 2026-09-09, per `R-03-102`) |
+| Search a list | a search action (`IconButton`, the `Search` glyph of `R-32-401`) in the top app bar that opens the Material 3 search view, `SearchAnchor`; the view's fill, edge and type come from `searchViewTheme` (amended 2026-09-09, per `R-03-102`: a `SearchBar` pill in the body is not the native pattern) | `CupertinoSearchTextField`, placed by the owning mockup; the Agents field starts Workspace content below its fixed switcher (amended 2026-09-16, per `R-03-102` and `R-31-06-30`) |
 | App bar action, an icon control | `IconButton` with its tooltip | `CupertinoButton`, at least 48 wide, filling the bar, per `R-33-076` |
 | Input bar field | Filled `TextField`, per `R-03-132` | `CupertinoTextField` with rounded `BoxDecoration`, per `R-03-132` |
 | Send control | Round `IconButton.filled` outside the field, 48 dp | `CupertinoButton` inside the field suffix, 30 pt circle with 3 pt inset |
@@ -264,8 +264,9 @@ and no glyph.
   on that control, per `R-32-598`. The row was amended and the `Switch between sibling views` row
   added on 2026-09-09 by decision of the product owner, per `R-03-102`: search is the platform's
   own search pattern, an app bar action that opens the Material search view on Android and a
-  `CupertinoSearchTextField` in the navigation bar area on iOS, never a loose pill in a list body;
-  a switch between sibling views is a `TabBar` of primary tabs on Android and a
+  `CupertinoSearchTextField` on iOS. The iOS placement was amended on 2026-09-16 under
+  `R-03-102`; `R-31-06-30` keeps the Agents switcher fixed. A switch between sibling views is a
+  `TabBar` of primary tabs on Android and a
   `CupertinoSlidingSegmentedControl` on iOS. The `Segmented choice` row stays for a choice of
   values, such as the theme setting. The `App bar action` row was added on 2026-09-08 by decision of
   the product owner: three screens had built the same control three ways, one of them as a bare

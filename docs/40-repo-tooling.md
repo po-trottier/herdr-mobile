@@ -763,8 +763,8 @@ deploy/
 ```
 
 The directory is the GitOps deployment source, per `R-14-024`. It contains no secret.
-An optional, uncommitted `.env` beside the Compose file sets `RELAY_BIND` and
-`RELAY_CLIENT_IP_HEADER`; `docs/14-relay-deployment.md` R-14-024 owns these settings.
+An optional, uncommitted `.env` beside the Compose file sets `RELAY_BIND`;
+`docs/14-relay-deployment.md` R-14-024 owns that setting.
 The operator manages all ingress outside this repository, with TLS and WebSocket support,
 per R-14-001 and R-14-010.
 

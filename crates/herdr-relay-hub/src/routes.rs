@@ -114,7 +114,7 @@ async fn host_upgrade(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let ip = client_ip(&headers, addr.ip(), &state.config.client_ip_header);
+    let ip = client_ip(&headers, addr.ip());
     accept(ws, &headers, state, ip, &handle, Role::Host)
 }
 
@@ -125,17 +125,20 @@ async fn device_upgrade(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let ip = client_ip(&headers, addr.ip(), &state.config.client_ip_header);
+    let ip = client_ip(&headers, addr.ip());
     accept(ws, &headers, state, ip, &handle, Role::Device)
 }
 
-/// Resolves the address for both per-IP limits (R-12-071).
-fn client_ip(headers: &HeaderMap, peer: IpAddr, header_name: &str) -> IpAddr {
-    headers
-        .get(header_name)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .and_then(|value| value.trim().parse().ok())
+/// Resolves the address for both per-IP limits (R-12-071): `CF-Connecting-IP`, then the
+/// first `X-Forwarded-For` entry, then the TCP peer. The relay is never reachable except
+/// through the operator's ingress (R-14-013), so these headers are the ingress's own.
+fn client_ip(headers: &HeaderMap, peer: IpAddr) -> IpAddr {
+    ["cf-connecting-ip", "x-forwarded-for"]
+        .iter()
+        .filter_map(|name| headers.get(*name))
+        .filter_map(|value| value.to_str().ok())
+        .filter_map(|value| value.split(',').next())
+        .find_map(|value| value.trim().parse().ok())
         .unwrap_or(peer)
 }
 
@@ -189,7 +192,7 @@ fn requests_subprotocol(headers: &HeaderMap) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn trusted_client_ip_header() {
+    fn forwarding_headers_name_the_client() {
         let peer = "192.0.2.1".parse().unwrap();
         for (value, expected) in [
             (None, peer),
@@ -206,12 +209,16 @@ mod tests {
             if let Some(value) = value {
                 headers.insert("x-forwarded-for", HeaderValue::from_str(value).unwrap());
             }
-            assert_eq!(
-                super::client_ip(&headers, peer, "X-Forwarded-For"),
-                expected
-            );
-            assert_eq!(super::client_ip(&headers, peer, ""), peer);
+            assert_eq!(super::client_ip(&headers, peer), expected);
         }
+        // Cloudflare's header wins over a forwarded chain.
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.9"));
+        headers.insert("cf-connecting-ip", HeaderValue::from_static("203.0.113.7"));
+        assert_eq!(
+            super::client_ip(&headers, peer),
+            "203.0.113.7".parse::<std::net::IpAddr>().unwrap()
+        );
     }
 
     use super::{healthz, requests_subprotocol};

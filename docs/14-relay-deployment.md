@@ -40,7 +40,6 @@ services:
     environment:
       HERDR_RELAY_LISTEN: "0.0.0.0:8080"
       HERDR_RELAY_METRICS_LISTEN: "0.0.0.0:9090"
-      HERDR_RELAY_CLIENT_IP_HEADER: "${RELAY_CLIENT_IP_HEADER:-}"
       HERDR_RELAY_MAX_HANDLES: "4096"
       HERDR_RELAY_CONNECTION_RATE: "10"
       HERDR_RELAY_FRAME_RATE: "100"
@@ -90,17 +89,15 @@ A non-loopback bind does not provide access control by itself.
 | --- | --- | --- |
 | `HERDR_RELAY_LISTEN` | `0.0.0.0:8080` | Relay endpoint inside the container |
 | `HERDR_RELAY_METRICS_LISTEN` | `0.0.0.0:9090` | Private metrics endpoint; R-12-050 |
-| `HERDR_RELAY_CLIENT_IP_HEADER` | `${RELAY_CLIENT_IP_HEADER:-}` | Trusted client IP; R-12-071 |
 | `HERDR_RELAY_MAX_HANDLES` | `4096` | R-12-034 |
 | `HERDR_RELAY_CONNECTION_RATE` | `10` | R-12-031 |
 | `HERDR_RELAY_FRAME_RATE` | `100` | R-12-032 |
 | `HERDR_RELAY_HANDLE_RATE` | `5` | R-12-033 |
 | `HERDR_RELAY_LOG_JSON` | `true` | JSON logs |
 
-Set `RELAY_CLIENT_IP_HEADER` to the header that the ingress writes, such as `X-Forwarded-For`.
-Leave it empty when the ingress does not set a header or when clients could reach the relay directly.
-R-12-071 owns header parsing, the peer-IP fallback, and use by per-IP limits.
-R-12-042 owns log restrictions.
+The relay takes the client IP for its per-IP limits from `CF-Connecting-IP` or
+`X-Forwarded-For` when the ingress sets one, else from the TCP peer (R-12-071). Nothing to
+configure. R-12-042 owns log restrictions.
 
 **R-14-015** The relay MUST use the `json-file` log driver.
 Set `max-size=10m` and `max-file=3` to bound disk use.
@@ -109,23 +106,21 @@ Set `max-size=10m` and `max-file=3` to bound disk use.
 
 **R-14-025** The operator's TLS ingress MUST terminate TLS and pass WebSocket upgrades.
 It MUST route `/healthz` to the relay.
-If a client-IP header is configured, the ingress MUST write that header.
-It MUST replace client-supplied values.
-The header name MUST match `RELAY_CLIENT_IP_HEADER` in R-14-014.
+It SHOULD write the client's address in `CF-Connecting-IP` or `X-Forwarded-For`, replacing any
+client-supplied value, so the per-IP limits count clients and not the ingress (R-12-071).
 The ingress is outside this repository's scope. This profile gives no ingress configuration example.
 
 ## Deployment directory
 
 **R-14-024** The committed `deploy/relay/` directory MUST contain only `compose.yaml`.
 A GitOps deployment MUST select that file from `main`.
-The operator MAY create an optional, uncommitted `.env` beside it with these overrides:
+The operator MAY create an optional, uncommitted `.env` beside it with this override:
 
 ```dotenv
 RELAY_BIND=127.0.0.1:8080
-RELAY_CLIENT_IP_HEADER=
 ```
 
-Both variables have defaults. Compose works without `.env`.
+The variable has a default. Compose works without `.env`.
 The operator MUST NOT commit `.env` or any secret.
 
 ## Health Verification

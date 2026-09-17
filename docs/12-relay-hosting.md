@@ -286,17 +286,13 @@ relay creates a fresh registration. This is the restart behaviour that R-12-013 
 explicitly for the crash case. No peer receives advance notice; the Device detects the drop
 through the WebSocket close or the ping timeout (R-12-022) and reconnects with backoff.
 
-**R-12-071** `HERDR_RELAY_CLIENT_IP_HEADER` is a string with an empty default.
-When empty, the relay MUST use the TCP peer IP for R-12-031 and R-12-033.
-Otherwise, the relay MUST read the named request header.
-The relay MUST parse its first comma-separated entry as an IP address.
-The relay MUST remove whitespace around that entry and accept IPv4 and IPv6.
-If the header is absent or the entry is invalid, the relay MUST use the TCP peer IP.
-The variable MUST name a trusted client-IP header when the relay is behind a proxy or tunnel.
-The proxy or tunnel MUST replace that header with the client IP and prevent direct access to the relay.
-The variable MUST stay empty when clients connect directly.
-A client-controlled header would defeat the limits.
-The relay MUST NOT log the header value or the IP address (R-12-042).
+**R-12-071** The client IP for R-12-031 and R-12-033 is, in order: the `CF-Connecting-IP` header,
+the first comma-separated entry of `X-Forwarded-For`, then the TCP peer address. The relay MUST
+trim the entry and accept IPv4 and IPv6; an absent header or an unparsable entry falls through
+to the next source. No setting selects the header: the relay is reachable only through the
+operator's TLS ingress (`docs/14-relay-deployment.md` R-14-013, R-14-025), so these headers are
+the ingress's own, and a client cannot inject them. The relay MUST NOT log the header value or
+the IP address (R-12-042).
 
 ## Logging
 

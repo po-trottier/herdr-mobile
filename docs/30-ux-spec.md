@@ -1181,8 +1181,9 @@ another.
     the chosen computer is not registered at the relay. Either one leaves the person connected to
     nothing. That state is real, it is not a fault in the app, and the app MUST say so plainly.
   - The app MUST land on `/hosts`. It MUST show the row it tried as `Switch failed` with a
-    `Try again` action, and a strip reading `No computer is connected. Choose one.` with
-    `treat.warning`. `docs/31-mockups/05-host-list.md` owns that row and that strip.
+    `Try again` action, and a strip reading `Could not connect to <host name>. Tap for details.`
+    with `treat.warning` (wording amended 2026-09-16). `docs/31-mockups/05-host-list.md` owns
+    that row and that strip.
   - The app MUST NOT draw the connected glyph on the row it left or on the row it tried. Neither
     one is connected.
   - The app MUST NOT dial the computer it left again on its own. The person asked to leave it, and
@@ -1849,8 +1850,8 @@ https://github.com/flutter/flutter/blob/stable/packages/flutter/lib/src/services
   per `R-30-948`.
 - [ ] Land here, not on a per-Host route, whenever the named computer is not connected, per
   `R-30-946`.
-- [ ] Add the failed switch: the `Switch failed` row with `Try again`, the `No computer is
-  connected. Choose one.` strip, and no automatic return to the computer just left, per `R-30-947`.
+- [ ] Add the failed switch: the `Switch failed` row with `Try again`, the `Could not connect to
+  <host name>. Tap for details.` strip, and no automatic return to the computer just left, per `R-30-947`.
 - [ ] Clear every `:hostId` route from the stack on a switch, and discard every grid of the
   computer left, per `R-30-949`.
 

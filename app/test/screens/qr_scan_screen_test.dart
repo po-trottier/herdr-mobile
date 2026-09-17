@@ -28,6 +28,7 @@ import 'package:herdr_mobile/screens/qr_scan_screen.dart';
 import 'package:herdr_mobile/services/biometric_gate.dart';
 import 'package:herdr_mobile/services/connectivity.dart';
 import 'package:herdr_mobile/services/frame_codec.dart';
+import 'package:herdr_mobile/services/keystore.dart' show KeystoreService;
 import 'package:herdr_mobile/services/noise.dart';
 import 'package:herdr_mobile/services/origin.dart';
 import 'package:herdr_mobile/services/pairing.dart';
@@ -138,7 +139,18 @@ void main() {
         buildNumber: '1',
         buildSignature: '',
       );
-      final gate = _Gate();
+      // A real gate over a mocked keystore, like `relay_test.dart`: `connect` reads
+      // `isLocked`, `lockGeneration` and `addListener`, which a bare mock returns null for.
+      final keystore = _Keystore();
+      final key = await tester.runAsync(() => X25519().newKeyPair());
+      when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(key!));
+      when(() => keystore.existingDeviceKeyPair())
+          .thenAnswer((_) async => Ok(key!));
+      final gate = BiometricGate(
+        appLockEnabled: false,
+        keystore: keystore,
+        setNativeLocked: (_) {},
+      );
       final store = _Store();
       final connectivity = _Connectivity();
       when(() => connectivity.onConnectivityChanged)
@@ -147,9 +159,7 @@ void main() {
           .thenAnswer((_) async => const Ok('device-1'));
       when(() => store.deviceName())
           .thenAnswer((_) async => const Ok<String?>('Phone'));
-      when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
-      final key = await tester.runAsync(() => X25519().newKeyPair());
-      when(() => gate.deviceStaticKey).thenReturn(key);
+      expect(await tester.runAsync(gate.unlock), isA<Ok<void>>());
       final entered = Completer<void>();
       final released = Completer<NoiseSession>();
       final closed = Completer<void>();
@@ -816,7 +826,7 @@ class _FailedCamera extends MobileScannerController {
   Future<void> pause() async {}
 }
 
-class _Gate extends Mock implements BiometricGate {}
+class _Keystore extends Mock implements KeystoreService {}
 
 class _Store extends Mock implements PlainStore {}
 

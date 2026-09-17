@@ -283,7 +283,7 @@ void main() {
             switchOutcome: const SwitchFailed(
               hostId: 'a',
               reason: SwitchFailureReason.other,
-              detail: 'boom',
+              detail: 'No Host is registered under this handle',
             ),
           );
           await renderAndSettle(tester, harness, brightness);
@@ -292,11 +292,14 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(
-            find.text('No computer is connected. Choose one, or see why.'),
+            find.text('Could not connect to alpha-box. Tap for details.'),
             findsOneWidget,
           );
           expect(find.text('TRY AGAIN'), findsOneWidget);
-          expect(find.text('Could not reach this computer.'), findsOneWidget);
+          expect(
+            find.text('No Host is registered under this handle'),
+            findsOneWidget,
+          );
 
           await expectLater(
             find.byType(HostListScreen),

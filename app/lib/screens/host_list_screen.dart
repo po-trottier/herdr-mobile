@@ -582,15 +582,19 @@ class _HostListScreenState extends State<HostListScreen> {
                 if (id != null) widget.onOpenDiagnostics?.call(id);
               },
             )
-          else if (_lastAttempt != null && _liveState is! RelayConnected)
+          else if (_lastAttempt case final attempt?
+              when _liveState is! RelayConnected)
             AppStrip(
-              child: const Treatment.warning(
-                label: 'No computer is connected. Choose one, or see why.',
+              // R-31-05-18 (amended 2026-09-16): name the computer; the row carries the
+              // raw failure text (R-30-803).
+              child: Treatment.warning(
+                label:
+                    'Could not connect to '
+                    '${_findRecord(attempt.hostId)?.hostName ?? 'this computer'}. '
+                    'Tap for details.',
               ),
-              onTapDestination: () {
-                final id = _lastAttempt?.hostId;
-                if (id != null) widget.onOpenDiagnostics?.call(id);
-              },
+              onTapDestination: () =>
+                  widget.onOpenDiagnostics?.call(attempt.hostId),
             ),
           Expanded(
             // The list ends with the hint under its last row (R-03-109): no clearance and no
@@ -802,9 +806,8 @@ class _HostListScreenState extends State<HostListScreen> {
       case HostRowState.rejected:
         return 'Removed by this computer. Pair again.';
       case HostRowState.switchFailed:
-        return _lastAttempt?.reason == SwitchFailureReason.unknownHost
-            ? 'The relay does not know this computer.'
-            : 'Could not reach this computer.';
+        // R-30-803: the raw reason, never a paraphrase.
+        return _lastAttempt?.detail ?? 'Could not reach this computer.';
       case HostRowState.saved:
         final lastSeen = row.record.lastSeen;
         if (lastSeen == null) return 'NOT CONNECTED YET';

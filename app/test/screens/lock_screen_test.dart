@@ -52,7 +52,7 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(connectivity, null);
     });
-    testWidgets('Face ID begins with the face icon and unlock text visible', (
+    testWidgets('Face ID begins with the lock icon and unlock text visible', (
       tester,
     ) async {
       when(() => gate.availableBiometrics())
@@ -60,7 +60,7 @@ void main() {
       final visibleAtUnlock = <bool>[];
       when(() => gate.unlock()).thenAnswer((_) async {
         visibleAtUnlock.add(
-          find.byIcon(Symbols.face_rounded).evaluate().isNotEmpty &&
+          find.byIcon(Symbols.lock_rounded).evaluate().isNotEmpty &&
               find.text('Unlock to continue.').evaluate().isNotEmpty &&
               tester.binding.schedulerPhase !=
                   SchedulerPhase.persistentCallbacks,
@@ -200,7 +200,7 @@ void main() {
   group('biometricPresentation', () {
     test('face on iOS reads the iOS wording, per the variant table', () {
       final result = biometricPresentation([BiometricType.face], isIOS: true);
-      expect(result.glyph, Symbols.face_rounded);
+      expect(result.glyph, Symbols.lock_rounded);
       expect(result.label, 'Unlock with Face ID');
     });
 
@@ -210,7 +210,7 @@ void main() {
         final result = biometricPresentation([
           BiometricType.face,
         ], isIOS: false);
-        expect(result.glyph, Symbols.face_rounded);
+        expect(result.glyph, Symbols.lock_rounded);
         expect(result.label, 'Unlock with face unlock');
       },
     );
@@ -219,7 +219,7 @@ void main() {
       final result = biometricPresentation([
         BiometricType.fingerprint,
       ], isIOS: true);
-      expect(result.glyph, Symbols.fingerprint_rounded);
+      expect(result.glyph, Symbols.lock_rounded);
       expect(result.label, 'Unlock with Touch ID');
     });
 
@@ -229,14 +229,14 @@ void main() {
         final result = biometricPresentation([
           BiometricType.fingerprint,
         ], isIOS: false);
-        expect(result.glyph, Symbols.fingerprint_rounded);
+        expect(result.glyph, Symbols.lock_rounded);
         expect(result.label, 'Unlock with your fingerprint');
       },
     );
 
     test('iris reads the one wording the table gives, per R-22-070', () {
       final result = biometricPresentation([BiometricType.iris], isIOS: false);
-      expect(result.glyph, Symbols.visibility_rounded);
+      expect(result.glyph, Symbols.lock_rounded);
       expect(result.label, 'Unlock with iris');
     });
 

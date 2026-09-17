@@ -151,10 +151,11 @@ wireframe serves an iPhone with Touch ID, with the label from the table above.
   case of `R-30-511`.
 - **R-31-04-05** This screen MUST NOT show the relay address, a routing handle, a pairing phrase, or
   a key fingerprint. A locked phone shows nothing that identifies what it can reach.
-- **R-31-04-06** The glyph and the primary label MUST come from the biometric type that
-  `getAvailableBiometrics()` reports, per `R-32-407`, and MUST NOT be selected by
-  `Platform.isIOS` or `Platform.isAndroid`. A platform-keyed screen shows a face glyph to an iPhone
-  SE user, who has Touch ID, and a fingerprint glyph to an Android user whose phone unlocks by face.
+- **R-31-04-06** The glyph is `lock` in every state, per `R-32-407` (amended 2026-09-16). The
+  primary label MUST come from the biometric type that `getAvailableBiometrics()` reports, and
+  MUST NOT be selected by `Platform.isIOS` or `Platform.isAndroid`. A platform-keyed label says
+  `Face ID` to an iPhone SE user, who has Touch ID, and `fingerprint` to an Android user whose
+  phone unlocks by face.
   The reported type alone selects the row: the glyph, and which pair of pre-written label strings
   applies. The platform then selects only which of that row's iOS or Android column to show — never
   a different row.

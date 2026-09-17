@@ -96,40 +96,30 @@ class BiometricPresentation {
 }
 
 /// Maps `local_auth`'s reported [types] to the one row of `docs/31-mockups/04-lock.md`'s
-/// variant table that applies (R-31-04-06, R-32-407): the type decides the glyph and which
-/// label to use, and [isIOS] only picks that label's platform wording, never a type of its
-/// own. Checked in the table's own row order; a device is not expected to report more than one
-/// specific type, but `face` is checked first because it is the first row.
+/// variant table that applies (R-31-04-06, R-32-407, amended 2026-09-16): the glyph is the lock
+/// in every row, the type decides which label to use, and [isIOS] only picks that label's
+/// platform wording, never a type of its own. Checked in the table's own row order; a device is
+/// not expected to report more than one specific type, but `face` is checked first because it
+/// is the first row.
 BiometricPresentation biometricPresentation(
   List<BiometricType> types, {
   required bool isIOS,
 }) {
+  final String label;
   if (types.contains(BiometricType.face)) {
-    return BiometricPresentation(
-      glyph: Symbols.face_rounded,
-      label: isIOS ? 'Unlock with Face ID' : 'Unlock with face unlock',
-    );
-  }
-  if (types.contains(BiometricType.fingerprint)) {
-    return BiometricPresentation(
-      glyph: Symbols.fingerprint_rounded,
-      label: isIOS ? 'Unlock with Touch ID' : 'Unlock with your fingerprint',
-    );
-  }
-  if (types.contains(BiometricType.iris)) {
+    label = isIOS ? 'Unlock with Face ID' : 'Unlock with face unlock';
+  } else if (types.contains(BiometricType.fingerprint)) {
+    label = isIOS ? 'Unlock with Touch ID' : 'Unlock with your fingerprint';
+  } else if (types.contains(BiometricType.iris)) {
     // iOS has no iris sensor; the mockup's variant table marks this cell "not reachable" and
     // names no iOS wording for it, per R-22-070.
-    return const BiometricPresentation(
-      glyph: Symbols.visibility_rounded,
-      label: 'Unlock with iris',
-    );
+    label = 'Unlock with iris';
+  } else {
+    // R-22-070: the platform reported only `strong` or `weak`, or nothing at all. The app MUST
+    // NOT guess a sensor from the manufacturer, the model or the API level.
+    label = 'Unlock with biometrics';
   }
-  // R-22-070: the platform reported only `strong` or `weak`, or nothing at all. The app MUST
-  // NOT guess a sensor from the manufacturer, the model or the API level.
-  return const BiometricPresentation(
-    glyph: Symbols.lock_rounded,
-    label: 'Unlock with biometrics',
-  );
+  return BiometricPresentation(glyph: Symbols.lock_rounded, label: label);
 }
 
 /// The reassurance line, callout 4. `docs/13-security-pairing.md` owns the exact storage

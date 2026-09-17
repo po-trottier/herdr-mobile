@@ -170,7 +170,7 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
 | Default | Two or more computers are saved and one of them is connected. | The wireframe above. |
 | Loading | A cold start, with one connection attempt running, per `R-31-05-16`. | The row being attempted keeps its name and shows the skeleton of `R-32-560` in place of its detail line. The skeleton appears only after 150 ms, so a fast connection never flashes. Every other row draws its saved state at once, because a saved row reads from storage and needs no network. Every control that would start a second attempt is disabled, per `R-31-05-17`. |
 | Switching | A switch is running, per `R-30-948`. | The row the app is leaving takes the saved bar at once, and its detail line takes the last-seen form of callout 5 with the time of its last contact. The row the app is reaching shows the skeleton of `R-32-560`. No row carries the connected bar, per `R-31-05-10`. Every other row is inert, and only scrolling still works, per `R-31-05-17`. |
-| Switch failed | The outcome `R-30-947` fixes. Nothing is connected, and every computer is still saved. | Every row draws as an ordinary saved row, because none of them is broken. A strip under the title reads `No computer is connected. Choose one, or see why.` with `treat.warning`, and it opens diagnostics for the computer the app tried, per `R-31-05-18`. The trailing slot of the row the app tried reads `Try again`, per `R-31-05-15`, and that row's detail line names which failure it was: `in use on another phone` per `R-30-944`, or the third failure sentence of `R-30-808` when the relay does not know that computer. |
+| Switch failed | The outcome `R-30-947` fixes. Nothing is connected, and every computer is still saved. | Every row draws as an ordinary saved row, because none of them is broken. A strip under the title reads `Could not connect to <host name>. Tap for details.` with `treat.warning`, and it opens diagnostics for the computer the app tried, per `R-31-05-18`. The trailing slot of the row the app tried reads `Try again`, per `R-31-05-15`, and that row's detail line names which failure it was: `in use on another phone` per `R-30-944`, or the third failure sentence of `R-30-808` when the relay does not know that computer. |
 | Disconnected | The person tapped `Disconnect` on `/hosts/:hostId/diagnostics`, per `R-30-960`. | No row carries the connected bar. That row draws its saved state, and its trailing slot reads `Reconnect`, per `R-30-961` and `R-31-05-15`. The app MUST NOT reconnect on its own, per `R-31-13-14`. |
 | Empty | No Host is paired. | This route is not reachable at a cold start. The app shows `/welcome` instead. See `R-31-01-01`. This screen shows its own empty-state block, the anatomy of `docs/32-design-language.md` section 7.19 on the ground grid of callout 12, left at `space.4` (amended 2026-09-09 per `R-03-107`; it was centred): the eyebrow `COMPUTERS`, the title `No computer yet.` in `type.title` and `color.accent.text`, the sentence `Scan a QR code or enter a phrase to pair your first computer.` in `type.body` `color.fg.secondary`, one `AppGhostButton` routing to `/pair/scan`, and the watermark bottom-right. It appears if a person forgets the last saved computer without leaving `/hosts`, because `R-31-05-02`'s forget action never navigates away. The hint text of callout 9 is absent: there is no row to swipe. |
 | Single Host | Exactly one Host is paired. | This route is still reachable from the host chip, and it shows one row. The app MUST NOT skip it, because the `+` action lives here. |
@@ -279,11 +279,15 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
   reveal `Forget` on the row the attempt is reaching, because forgetting that computer mid-attempt
   would destroy the Device key the attempt is using.
 - **R-31-05-18** The strip of the `Switch failed` state MUST be tappable and MUST open
-  `/hosts/:hostId/diagnostics`, mockup `13-connection.md`. It reads `No computer is connected.
-  Choose one, or see why.` and the second clause is what makes the tap discoverable. `R-30-946`
-  names diagnostics as its one exception to route entry, so a saved computer with no live
-  connection is a legal target, and this is the moment a person most needs that screen: `Try again`
-  repeats the attempt without ever saying what failed. `:hostId` is the computer the app tried. The
+  `/hosts/:hostId/diagnostics`, mockup `13-connection.md`. It reads `Could not connect to
+  <host name>. Tap for details.` (amended 2026-09-16 by the product owner: the earlier `No
+  computer is connected. Choose one, or see why.` named neither the computer nor the failure and
+  read as unclear). The row the app tried carries the raw failure text in its detail line, per
+  `R-30-803`: the relay's error message, the close code, or the timeout, never a friendly
+  paraphrase. `R-30-946` names diagnostics as its one exception to route entry, so a saved computer
+  with no live connection is a legal target, and this is the moment a person most needs that
+  screen: `Try again` repeats the attempt without ever saying what failed. `:hostId` is the computer
+  the app tried. The
   strip of the `Offline` state, which `R-30-806` already requires to be tappable, MUST use the same
   target rule: the computer whose link the app is trying to recover, or, when there is none, the
   computer `R-31-05-16` names, which is the newest stored last-seen time. Neither strip may open

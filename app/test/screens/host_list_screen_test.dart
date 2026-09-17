@@ -479,9 +479,11 @@ void main() {
 
       expect(find.text('TRY AGAIN'), findsOneWidget);
       expect(
-        find.text('No computer is connected. Choose one, or see why.'),
+        find.text('Could not connect to alpha-box. Tap for details.'),
         findsOneWidget,
       );
+      // R-30-803: the row carries the raw failure text.
+      expect(find.text('boom'), findsOneWidget);
     },
   );
 

@@ -882,14 +882,16 @@ Primer, and the set is closed.
 - **R-32-406** The attention badge icon MUST be `notifications_active`, not `error`. The badge
   counts agents that need a person; an error glyph in a warning hue claims a failure that did not
   happen.
-- **R-32-407** The biometric glyph MUST be chosen from the biometric type the operating system
-  **reports at run time**, never from the platform. An iPhone with Touch ID reports a fingerprint and
-  an Android phone with face unlock reports a face, so a platform-keyed glyph is wrong on both.
-  `local_auth` `getAvailableBiometrics()` returns `BiometricType`, and its own documentation states
-  that some platforms report a specific type while others report only the `strong` or `weak`
-  classification. When only a classification arrives, the app MUST use the `lock` glyph and the
-  generic label, and MUST NOT guess a sensor. `docs/22-platform-integration.md` owns the call and
-  `docs/31-mockups/04-lock.md` owns the screen.
+- **R-32-407** The lock screen glyph MUST be `lock` in every state, and MUST NOT change with the
+  biometric type (amended 2026-09-16 by the product owner: the screen first painted the lock, then
+  swapped in a face once `getAvailableBiometrics()` answered, and the swap read as a defect; until
+  then this rule chose `face`, `fingerprint` or `lock` from the reported type). The primary label
+  still comes from the biometric type the operating system **reports at run time**, never from the
+  platform: an iPhone with Touch ID reports a fingerprint and an Android phone with face unlock
+  reports a face, so a platform-keyed label is wrong on both. `local_auth`
+  `getAvailableBiometrics()` returns `BiometricType`; when only a `strong` or `weak` classification
+  arrives, the app MUST use the generic label and MUST NOT guess a sensor.
+  `docs/22-platform-integration.md` owns the call and `docs/31-mockups/04-lock.md` owns the screen.
 
 ### The app icon and the notification icon
 

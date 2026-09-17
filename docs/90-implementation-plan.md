@@ -4862,9 +4862,10 @@ watched pane, the six unnamed keys move the cursor in a `vim` pane, and
       dialog, and only ever makes the one attempt `onSwitch` was called for — no timer, no
       `ReconnectPolicy`. `host_list_screen_test.dart`'s tap-to-switch case confirms no
       confirmation dialog appears and `onSwitched` fires on success.
-- [x] Implement the failed switch: show the `Switch failed` row with `Try again`, the `No
-      computer is connected. Choose one.` strip, and no automatic return to the computer just
-      left, in `app/lib/screens/host_list_screen.dart` (R-30-947). Verified: a `SwitchFailed`
+- [x] Implement the failed switch: show the `Switch failed` row with `Try again`, the `Could not
+      connect to <host name>. Tap for details.` strip (wording amended 2026-09-16), and no
+      automatic return to the computer just left, in `app/lib/screens/host_list_screen.dart`
+      (R-30-947). Verified: a `SwitchFailed`
       outcome sets that row's trailing slot to `Try again` and raises the strip whenever
       nothing is connected; the screen never re-attempts or falls back to the left computer on
       its own. `host_list_screen_test.dart`'s failed-switch case proves both.

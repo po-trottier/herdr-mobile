@@ -83,6 +83,7 @@ Widget _row({
   Object? reconciliation,
   KeyRowLinkState linkState = KeyRowLinkState.live,
   bool landscape = false,
+  bool withGrid = false,
 }) => MaterialApp(
   home: Scaffold(
     body: _Harness(
@@ -91,6 +92,7 @@ Widget _row({
       reconciliation: reconciliation,
       linkState: linkState,
       landscape: landscape,
+      withGrid: withGrid,
     ),
   ),
 );
@@ -102,12 +104,16 @@ class _Harness extends StatefulWidget {
     this.reconciliation,
     required this.linkState,
     required this.landscape,
+    this.withGrid = false,
   });
   final List<Message>? sent;
   final Stream<SendInputAck>? acks;
   final Object? reconciliation;
   final KeyRowLinkState linkState;
   final bool landscape;
+
+  /// With a grid the panel overlays it bottom-anchored, as on the terminal screen.
+  final bool withGrid;
   @override
   State<_Harness> createState() => _HarnessState();
 }
@@ -139,6 +145,7 @@ class _HarnessState extends State<_Harness> {
       ],
     ),
     paneId: 'w1:p1',
+    grid: widget.withGrid ? const SizedBox.expand() : null,
     send: (Message message, {String? corr}) => widget.sent?.add(message),
     sendInputAcks: widget.acks ?? _noAcks(),
     linkState: widget.linkState,
@@ -687,7 +694,39 @@ void main() {
       rect('keyRowArrow>').left,
     );
     expect(_cap('keyRowBankTwoToggle'), findsNothing);
+    // R-03-117 (2026-09-16): the inverted T is bottom-aligned. `←` `↓` `→` share the bottom
+    // row with `del` `end` `pgdn`; `↑` shares row two with `ins` `home` `pgup`.
+    expect(rect('keyRowArrowv').top, rect('keyRowNavdel').top);
+    expect(rect('keyRowArrow>').top, rect('keyRowNavdel').top);
+    expect(rect('keyRowArrow^').top, rect('keyRowNavins').top);
+    expect(rect('keyRowEsc').top, lessThan(rect('keyRowArrow^').top));
   });
+
+  testWidgets(
+    'latching ctrl adds the hint above the caps and moves no cap (R-03-117)',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(_row(withGrid: true));
+      await tester.pumpAndSettle();
+      final Map<String, Rect> before = <String, Rect>{
+        for (final id in <String>['keyRowEsc', 'keyRowCtrl', 'keyRowArrowv'])
+          id: tester.getRect(_cap(id)),
+      };
+      await tester.tap(_cap('keyRowCtrl'));
+      await tester.pumpAndSettle();
+      final Finder hint = find.textContaining('is held. Press one key.');
+      expect(hint, findsOneWidget);
+      for (final entry in before.entries) {
+        expect(tester.getRect(_cap(entry.key)), entry.value, reason: entry.key);
+      }
+      expect(
+        tester.getRect(hint).bottom,
+        lessThanOrEqualTo(before['keyRowEsc']!.top),
+      );
+    },
+  );
 
   group('KeyRow panel (R-31-09-24, R-03-117)', () {
     final List<Message> sent = <Message>[];

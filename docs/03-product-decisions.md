@@ -398,15 +398,19 @@ the app bar.
 **R-03-117**: The key row MUST hold only the keys the phone keyboard has no key for, and MUST lay
 them out the way a keyboard does. The symbol caps (`- _ = + | \ { } [ ] ( )` and the rest) leave
 the row: every one of them is on the phone keyboard's own symbol pages. What stays, in a grid of
-six columns and three rows, is the keyboard's own navigation block and its inverted-T arrows: row
-one, always visible, `esc` `tab` `ctrl` `alt` `↑` and the bank toggle; row two, in the expansion,
-`ins` `home` `pgup` `←` `↓` `→`; row three, `del` `end` `pgdn`. So `ins` sits over `del`, `home`
-over `end`, `pgup` over `pgdn`, as on a keyboard, and `↑` sits directly over `↓` with `←` and `→`
-beside it, the inverted T. `↓` is in the expansion, not the closed row, because the T is the rule.
-Amends `R-03-116`. Decided 2026-09-10 by the product owner, who asked why `tab` sat beside `ctrl`
-while `alt` sat at the far end of the list, whether `[ ] { }` were not already on the native
-keyboard, and then asked for the keys to sit the way they do on a keyboard: the arrows stacked,
-`ins`/`del` and `pgup`/`pgdn` vertical pairs. `docs/31-mockups/09-key-row.md` owns the grid.
+six columns and three rows, is the keyboard's own navigation block and its inverted-T arrows,
+bottom-aligned as on a keyboard: row one `esc` `tab` `ctrl` `alt`; row two `ins` `home` `pgup`
+and `↑` in column five; row three `del` `end` `pgdn` `←` `↓` `→`. So `ins` sits over `del`,
+`home` over `end`, `pgup` over `pgdn`, and `↑` sits directly over `↓` with `←` and `→` beside
+it, the inverted T on the bottom row (amended 2026-09-16 by the product owner: the T sat on
+rows one and two, top-aligned; "the arrows should be bottom-aligned"). The latch hint and every
+other status strip of the key panel MUST sit **above** the caps, never below them, so tapping
+`ctrl` or `alt` adds the hint without moving a single cap (same amendment: "clicking CTRL moves
+the whole thing because the status text is below"). Amends `R-03-116`. Decided 2026-09-10 by the
+product owner, who asked why `tab` sat beside `ctrl` while `alt` sat at the far end of the list,
+whether `[ ] { }` were not already on the native keyboard, and then asked for the keys to sit the
+way they do on a keyboard: the arrows stacked, `ins`/`del` and `pgup`/`pgdn` vertical pairs.
+`docs/31-mockups/09-key-row.md` owns the grid.
 
 **R-03-118**: A latched modifier cap (`ctrl`, `alt`, held or locked) MUST show its state through
 the platform's own high-emphasis button form: on Android the `FilledButton` (the theme's primary

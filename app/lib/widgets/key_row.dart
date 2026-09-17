@@ -532,18 +532,29 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     // the terminal chrome cannot shrink further.
     final TextScaler clamped = MediaQuery.textScalerOf(context)
         .clamp(maxScaleFactor: 2.0);
+    // R-03-117 (2026-09-16): every status strip sits ABOVE the caps. With the panel open
+    // the strips join the panel overlay, which is anchored to the bottom and grows
+    // upward, so a latch hint appearing under a tap moves no cap.
+    final List<Widget> strips = <Widget>[
+      if (widget.linkState == KeyRowLinkState.offline) _buildOfflineStrip(),
+      if (_outcomeUnknownLabel case final String label)
+        _buildOutcomeUnknownStrip(label),
+      if (_outcomeUnknownLabel == null && _errorMessage != null)
+        _buildErrorStrip(),
+      if (_chordLatch.latched.isNotEmpty) _buildLatchHint(color),
+    ];
     final Widget bar = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        if (widget.linkState == KeyRowLinkState.offline) _buildOfflineStrip(),
-        if (_outcomeUnknownLabel case final String label)
-          _buildOutcomeUnknownStrip(label),
-        if (_outcomeUnknownLabel == null && _errorMessage != null)
-          _buildErrorStrip(),
-        if (_chordLatch.latched.isNotEmpty) _buildLatchHint(color),
+        if (!widget.panelOpen) ...strips,
         _buildToolbar(color),
       ],
+    );
+    Widget panel() => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[...strips, _buildPanel(color)],
     );
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaler: clamped),
@@ -564,14 +575,14 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
                       child: SafeArea(
                         top: false,
                         bottom: false,
-                        child: _buildPanel(color),
+                        child: panel(),
                       ),
                     ),
                 ],
               ),
             )
           else if (widget.panelOpen)
-            _buildPanel(color),
+            panel(),
           if (widget.grid != null) SafeArea(top: false, child: bar) else bar,
         ],
       ),
@@ -721,27 +732,29 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
         vertical: AppSpace.space2,
       ),
       child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) =>
-            _capTheme(
-              context,
-              minWidth: _moduleWidth(constraints.maxWidth),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  _buildLeadingColumn(),
-                  const SizedBox(width: AppSpace.space2),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      key: const ValueKey<String>('keyRowScrollRegion'),
-                      scrollDirection: Axis.horizontal,
-                      child: _buildMiddleColumns(),
-                    ),
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final double module = _moduleWidth(constraints.maxWidth);
+          return _capTheme(
+            context,
+            minWidth: module,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _buildLeadingColumn(),
+                const SizedBox(width: AppSpace.space2),
+                Expanded(
+                  child: SingleChildScrollView(
+                    key: const ValueKey<String>('keyRowScrollRegion'),
+                    scrollDirection: Axis.horizontal,
+                    child: _buildMiddleColumns(module),
                   ),
-                  const SizedBox(width: AppSpace.space2),
-                  _buildTrailingColumn(),
-                ],
-              ),
+                ),
+                const SizedBox(width: AppSpace.space2),
+                _buildTrailingColumn(),
+              ],
             ),
+          );
+        },
       ),
     ),
   );
@@ -779,7 +792,7 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
   }
 
   /// The middle four columns scroll together and preserve the navigation pairs.
-  Widget _buildMiddleColumns() {
+  Widget _buildMiddleColumns(double module) {
     final bool sendable = _sendingEnabled;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -821,9 +834,8 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
               locked: _chordLatch.isLocked(ChordModifier.alt),
               onTap: sendable ? () => _toggleLatch(ChordModifier.alt) : null,
             ),
-            const SizedBox(width: AppSpace.space2),
-            // Column five: `↑`, directly over `↓` on row two.
-            _arrowCap(_arrowUp, sendable),
+            // Column five is empty on row one: the inverted T is bottom-aligned, `↑`
+            // on row two over `↓` on row three (R-03-117, amended 2026-09-16).
           ],
         ),
         if (widget.panelOpen) ...<Widget>[
@@ -835,12 +847,11 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
               _rawCap(_keyHome, sendable),
               const SizedBox(width: AppSpace.space2),
               _rawCap(_keyPgup, sendable),
-              // Columns four and five: `←` and `↓` by name (R-10-037), the left and the
-              // stem of the inverted T.
+              // Column five: `↑`, directly over `↓` on row three (R-10-037).
               const SizedBox(width: AppSpace.space2),
-              _arrowCap(_arrowLeft, sendable),
+              SizedBox(width: module, height: AppSize.keycapHeight),
               const SizedBox(width: AppSpace.space2),
-              _arrowCap(_arrowDown, sendable),
+              _arrowCap(_arrowUp, sendable),
             ],
           ),
           _rowGap,
@@ -848,10 +859,14 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               // Columns two and three: the bottom of each pair, directly under row two's.
-              // Columns four and five stay empty (R-03-117).
+              // Columns four and five: `←` and the stem `↓` of the inverted T.
               _rawCap(_keyEnd, sendable),
               const SizedBox(width: AppSpace.space2),
               _rawCap(_keyPgdn, sendable),
+              const SizedBox(width: AppSpace.space2),
+              _arrowCap(_arrowLeft, sendable),
+              const SizedBox(width: AppSpace.space2),
+              _arrowCap(_arrowDown, sendable),
             ],
           ),
         ],
@@ -859,16 +874,16 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     );
   }
 
-  /// The right arrow occupies the fixed sixth column.
+  /// The right arrow occupies the fixed sixth column, on the bottom row beside `↓`.
   Widget _buildTrailingColumn() => Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.end,
     children: <Widget>[
       _emptyCell,
       _rowGap,
-      _arrowCap(_arrowRight, _sendingEnabled),
-      _rowGap,
       _emptyCell,
+      _rowGap,
+      _arrowCap(_arrowRight, _sendingEnabled),
     ],
   );
 

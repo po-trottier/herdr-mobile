@@ -40,9 +40,9 @@ On iOS, use the same panel above the iOS bar. Do not add an outside send control
 +------------------------------------------------+
 |                terminal grid                   |
 +------------------------------------------------+
-|  (esc) (tab) (ctrl) (alt)  ( ^ )                 |
-|  (ins) (home)(pgup) ( < )  ( v ) ( > )           |
-|  (del) (end) (pgdn)                             |
+|  (esc) (tab) (ctrl) (alt)                        |
+|  (ins) (home)(pgup)        ( ^ )                 |
+|  (del) (end) (pgdn) ( < )  ( v ) ( > )           |
 +------------------------------------------------+
 |  (x) [ Type here                         ] (>) |
 +------------------------------------------------+
@@ -50,8 +50,9 @@ On iOS, use the same panel above the iOS bar. Do not add an outside send control
 +------------------------------------------------+
 ```
 
-The six-column order is `esc tab ctrl alt Up empty`,
-`ins home pgup Left Down Right`, then `del end pgdn empty empty empty`.
+The six-column order is `esc tab ctrl alt empty empty`, `ins home pgup empty Up empty`, then
+`del end pgdn Left Down Right` (amended 2026-09-16 per `R-03-117`: the inverted T is
+bottom-aligned).
 
 ### Wrapped field
 
@@ -103,10 +104,10 @@ states.
 
 ```text
 +------------------------------------------------+
-|  (esc) (tab) (ctrl) (alt)  ( ^ )                 |
-|  (ins) (home)(pgup) ( < )  ( v ) ( > )           |
-|  (del) (end) (pgdn)                             |
 |  ctrl is held. Press one key.                  |
+|  (esc) (tab) (ctrl) (alt)                        |
+|  (ins) (home)(pgup)        ( ^ )                 |
+|  (del) (end) (pgdn) ( < )  ( v ) ( > )           |
 +------------------------------------------------+
 |  (x) [ Type here                         ] (>) |
 +------------------------------------------------+
@@ -184,8 +185,7 @@ unreachable.
 | Host in use | The relay answered `host_in_use`. | The field, send control, and every key that sends are disabled at `opacity.disabled`, and a keystroke from the keyboard sends nothing, because `R-30-807` disables only what needs the network. The banner of `R-30-940` carries the words, so the toolbar adds no second line. |
 | Offline | No route to the relay. | The field, send control, and every panel key are disabled, per R-30-807. The `+` / `×` control stays enabled so the panel can open and close. The offline indicator opens diagnostics, per R-30-806. |
 | Keyboard up | Field focus, a grid tap, or a modifier latch. | The bar stays above the keyboard inset, per R-30-519. Field focus and modifier latches leave the panel open. A grid tap closes it. |
-| Modifier latched | A tap on `ctrl` or `alt`. | The hint line `ctrl is held. Press one key.` above the input bar, the latched cap, and the keyboard up, per `R-31-09-19`. One key clears it. A tap on the other modifier adds it rather than replacing it, per `R-03-120`: both caps then read as latched and the hint names both. |
-| Both modifiers latched | A tap on `ctrl`, then a tap on `alt`, in either order, per `R-03-120`. | Both caps latched, each reporting its own toggle, and one hint line naming both: `ctrl and alt are held. Press one key.`. The next key is one `ctrl+alt+<char>` call, per `R-31-09-08`. |
+| Modifier latched | A tap on `ctrl` or `alt`. | The hint line `ctrl is held. Press one key.` above the caps when the panel is open, else above the input bar (`R-03-117`, 2026-09-16: no cap moves when the hint appears), the latched cap, and the keyboard up, per `R-31-09-19`. One key clears it. A tap on the other modifier adds it rather than replacing it, per `R-03-120`: both caps then read as latched and the hint names both. |
 | Modifier locked | A quick second tap, within the double-tap window of `R-30-301`, on the held `ctrl` or `alt`, per `R-31-09-23` and `R-03-122`. (amended 2026-09-10 per R-03-122; until then any second tap locked). | The hint line `ctrl is locked. Tap ctrl again to release.`, the same latched cap, and the keyboard up. Every key is a chord until a third tap or a lifecycle exit of `R-31-09-19`. A lock and a one-shot latch of the other modifier hold together, and the key press clears the one-shot and keeps the lock, per `R-03-120`. |
 | Key panel open | Tap `+`. | The panel overlays the bottom of the grid above the bar. The keyboard state is unchanged. The leading glyph is `×`. Field focus and modifier latches leave it open. |
 
@@ -305,8 +305,9 @@ unreachable.
   2026-09-09 per `R-03-113`; amended 2026-09-10 per `R-03-120`).
 - **R-31-09-20** Retired. The Shortcuts palette is gone. The key panel uses R-31-09-21.
 
-- **R-31-09-21** The panel MUST use six columns: `esc tab ctrl alt Up empty`; `ins home pgup Left
-  Down Right`; `del end pgdn empty empty empty`. Empty cells MUST stay empty. `Up` MUST sit above
+- **R-31-09-21** The panel MUST use six columns: `esc tab ctrl alt empty empty`; `ins home pgup
+  empty Up empty`; `del end pgdn Left Down Right` (amended 2026-09-16 per `R-03-117`; until then
+  the T sat on rows one and two). Empty cells MUST stay empty. `Up` MUST sit above
   `Down`. The panel MUST use `space.4` horizontal inset, `space.2` gaps and vertical padding, and
   the native caps of R-32-535. Every row MUST share its column widths. All three rows MUST remain
   visible without scroll. The bar control MUST stay outside the grid.

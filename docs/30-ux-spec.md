@@ -1917,9 +1917,8 @@ https://github.com/flutter/flutter/blob/stable/packages/flutter/lib/src/services
 - [ ] Add key press haptics and the pressed fill for `motion.duration.fast`.
 - [ ] Draw a latched or locked modifier cap as the platform's own high-emphasis button, with the
   label unchanged and a `toggled` semantics flag, per `R-31-09-25` and `R-03-118`.
-- [ ] Use native composer editing, per `R-03-130`. Disable autocorrect, suggestions and
-  automatic capitalisation, per `R-31-09-30`.
-- [ ] Send every native composer edit immediately, per `R-03-130` and `R-31-09-27`.
+- [ ] Use native composer editing, per `R-03-130`. Keep the platform's autocorrect, suggestions
+  and capitalisation on; smart punctuation off, per `R-31-09-30`.
 - [ ] Submit `Enter` once and clear the composer without deletion keys, per `R-31-09-28`.
 - [ ] Keep named keys and modifier chords outside the field, per `R-31-09-29`.
 - [ ] Add the send refused, outcome unknown and offline states.

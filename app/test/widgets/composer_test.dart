@@ -265,6 +265,11 @@ void main() {
         expect(sent.length, sends);
         await tester.enterText(field, 'z');
         expect(sent.last, 'z');
+        // An autocorrect replacement ("helo " -> "hello ") arrives as one edit: the
+        // Host sees one Backspace and the tail, never a cleared and retyped word.
+        await tester.enterText(field, 'helo');
+        await tester.enterText(field, 'hello ');
+        expect(sent.sublist(sent.length - 2), <String>['\b', 'lo ']);
         await tester.pumpWidget(const SizedBox.shrink());
         debugDefaultTargetPlatformOverride = null;
       },

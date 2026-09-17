@@ -229,7 +229,7 @@ unreachable.
   stopping a runaway command and a dialog would defeat that.
 - **R-31-09-06** The composer MUST use native editing, per `R-03-130` and `R-31-09-30`.
   The app MUST NOT implement its own cursor, selection or backspace.
-  `R-31-09-30` disables autocorrect, suggestions and automatic capitalisation.
+  `R-31-09-30` keeps the platform's autocorrect, suggestions and capitalisation on.
 - **R-31-09-07** Retired. See `## Retired rules`. The live composer is specified by `R-31-09-26`
   through `R-31-09-30`.
 - **R-31-09-08** A latched `ctrl` MUST clear after one key, unless it is locked per `R-31-09-23`.
@@ -392,8 +392,12 @@ unreachable.
 - **R-31-09-30** Before the Host echoes input, only the native composer MUST show the typed
   text.
   The grid MUST show only Host frames, per `R-03-130`. The app MUST NOT predict glyphs or a cursor.
-  Native editing owns the cursor, selection and backspace. The composer MUST disable
-  autocorrect, suggestions and automatic capitalisation.
+  Native editing owns the cursor, selection and backspace. The composer MUST keep the platform
+  keyboard's autocorrect, suggestions, personalised learning and sentence capitalisation on,
+  as `R-03-130` says ("native ... autocorrect"; amended 2026-09-16 by the product owner, who
+  found the field without autocorrect "super annoying"; until then this rule turned them off).
+  Smart quotes and smart dashes MUST stay off: a curly quote or an en dash sent into a shell
+  breaks the command, so the composer sends the ASCII character the person typed.
 
 ## Retired rules
 

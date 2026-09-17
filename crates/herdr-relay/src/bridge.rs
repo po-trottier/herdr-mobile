@@ -1717,151 +1717,166 @@ fn bridge_thread(
         } else {
             Duration::from_millis(200)
         };
-        match req_rx.recv_timeout(wait) {
-            Ok(BridgeRequest::TreeRequest(corr)) => match bridge.tree_snapshot() {
-                Ok(snapshot) => {
-                    let _ = out_tx.send((Message::TreeSnapshot(snapshot), corr));
-                }
-                Err(err) => {
-                    let mapped = crate::watch::map_watch_error(&err);
-                    let _ = out_tx.send((Message::Error(mapped), corr));
-                }
-            },
-            Ok(BridgeRequest::WatchPane(request, corr)) => {
-                match bridge.watch_pane(request) {
-                    Ok((ack, frame)) => {
-                        let _ = out_tx.send((Message::WatchAck(ack), corr));
-                        let _ = out_tx.send((Message::PaneFrame(frame), None));
-                        // The subscription opened at session start stays the
-                        // one long-lived connection (R-10-011): a watch or a
-                        // watch switch opens no second one and re-reads
-                        // nothing beyond `watch_pane`'s own §5.1 calls. Only a
-                        // failed startup open is retried here, the historical
-                        // open point.
-                        if subscription.is_none() {
-                            subscription = open_subscription(&client, &bridge);
+        // Every queued request is served before the subscription tick below, which
+        // blocks up to 50 ms. Serving one request per tick capped the Device at
+        // roughly 15 requests per second, so fast typing (one `send_input` per
+        // keystroke) queued for seconds and the phone's acknowledgement deadline
+        // passed (measured 2026-09-16: 12 frames per second reached Herdr while the
+        // phone typed 28).
+        let mut next = req_rx.recv_timeout(wait);
+        loop {
+            match next {
+                Ok(BridgeRequest::TreeRequest(corr)) => match bridge.tree_snapshot() {
+                    Ok(snapshot) => {
+                        let _ = out_tx.send((Message::TreeSnapshot(snapshot), corr));
+                    }
+                    Err(err) => {
+                        let mapped = crate::watch::map_watch_error(&err);
+                        let _ = out_tx.send((Message::Error(mapped), corr));
+                    }
+                },
+                Ok(BridgeRequest::WatchPane(request, corr)) => {
+                    match bridge.watch_pane(request) {
+                        Ok((ack, frame)) => {
+                            let _ = out_tx.send((Message::WatchAck(ack), corr));
+                            let _ = out_tx.send((Message::PaneFrame(frame), None));
+                            // The subscription opened at session start stays the
+                            // one long-lived connection (R-10-011): a watch or a
+                            // watch switch opens no second one and re-reads
+                            // nothing beyond `watch_pane`'s own §5.1 calls. Only a
+                            // failed startup open is retried here, the historical
+                            // open point.
                             if subscription.is_none() {
-                                // Fixed text only: the Herdr error text names
-                                // a socket path, which stays out of every log
-                                // and wire line this crate emits (AGENTS.md).
-                                let _ = out_tx.send((
-                                    Message::Error(ErrorMessage {
-                                        code: WireErrorCode::InternalError,
-                                        message: "subscribing to pane updates failed".to_owned(),
-                                        fatal: false,
-                                    }),
-                                    None,
-                                ));
+                                subscription = open_subscription(&client, &bridge);
+                                if subscription.is_none() {
+                                    // Fixed text only: the Herdr error text names
+                                    // a socket path, which stays out of every log
+                                    // and wire line this crate emits (AGENTS.md).
+                                    let _ = out_tx.send((
+                                        Message::Error(ErrorMessage {
+                                            code: WireErrorCode::InternalError,
+                                            message: "subscribing to pane updates failed"
+                                                .to_owned(),
+                                            fatal: false,
+                                        }),
+                                        None,
+                                    ));
+                                }
                             }
                         }
-                    }
-                    Err(err) => {
-                        let mapped = crate::watch::map_watch_error(&err);
-                        let _ = out_tx.send((Message::Error(mapped), corr));
-                    }
-                }
-            }
-            Ok(BridgeRequest::SendInput(request, corr)) => match bridge.send_input(request) {
-                Ok(reply) => {
-                    let _ = out_tx.send((reply, corr));
-                }
-                Err(err) => {
-                    let mapped = crate::watch::map_watch_error(&err);
-                    let _ = out_tx.send((Message::Error(mapped), corr));
-                }
-            },
-            Ok(BridgeRequest::ScrollRequest(request, corr)) => {
-                match bridge.scroll_request(request) {
-                    Ok(response) => {
-                        let _ = out_tx.send((Message::ScrollResponse(response), corr));
-                    }
-                    Err(err) => {
-                        let mapped = crate::watch::map_watch_error(&err);
-                        let _ = out_tx.send((Message::Error(mapped), corr));
-                    }
-                }
-            }
-            Ok(BridgeRequest::UnwatchPane(request)) => {
-                // R-11-050: no reply. A stale `unwatch_pane` for another pane
-                // is a no-op. The subscription stays up either way: it carries
-                // the session-long `tree_update`/`agent_status` flow
-                // (R-10-011), not just the watched pane's frames — those stop
-                // because the subscription-line handler ignores every pane
-                // that is not the watched one (R-01-007, R-02-013).
-                bridge.unwatch_pane(request);
-            }
-            Ok(BridgeRequest::MarkSeen(request)) => {
-                // R-10-072: log only the call count, never the target.
-                (lock(&state).log)("herdr-relay: mark_seen calls=1");
-                if let Err(err) = bridge.mark_seen(request) {
-                    let mapped = crate::watch::map_watch_error(&err);
-                    let _ = out_tx.send((Message::Error(mapped), None));
-                }
-            }
-            Ok(BridgeRequest::ActionListRequest(request, corr)) => {
-                match bridge.action_list_request(request) {
-                    Ok(reply) => {
-                        let _ = out_tx.send((reply, corr));
-                    }
-                    Err(err) => {
-                        let mapped = crate::watch::map_watch_error(&err);
-                        let _ = out_tx.send((Message::Error(mapped), corr));
-                    }
-                }
-            }
-            Ok(BridgeRequest::HostAction(request, corr)) => match bridge.host_action(request) {
-                Ok(reply) => {
-                    let _ = out_tx.send((reply, corr));
-                }
-                Err(err) => {
-                    let mapped = crate::watch::map_watch_error(&err);
-                    let _ = out_tx.send((Message::Error(mapped), corr));
-                }
-            },
-            Ok(BridgeRequest::DeviceListRequest(request, corr)) => {
-                let reply = {
-                    let host = lock(&state);
-                    Bridge::<HerdrClient>::device_list_request(
-                        &host.store,
-                        Some(device_id.as_str()),
-                        request,
-                    )
-                };
-                let _ = out_tx.send((reply, corr));
-            }
-            Ok(BridgeRequest::RevokeDevice(request, corr)) => {
-                let mut guard = lock(&state);
-                let host: &mut HostState = &mut guard;
-                // R-11-065: the reply is queued BEFORE the registry fires the close
-                // signal. `serve_session` drains `out_rx` when the signal lands, so a
-                // close fired first can find the queue still empty and send the fatal
-                // `revoked` error ahead of `revoke_result`.
-                let outcome = Bridge::<HerdrClient>::revoke_device_request(
-                    &mut host.store,
-                    &host.paths,
-                    request,
-                    None,
-                );
-                match outcome {
-                    Ok(reply) => {
-                        let result = match &reply {
-                            Message::RevokeResult(result) => Some(result.clone()),
-                            _ => None,
-                        };
-                        let _ = out_tx.send((reply, corr));
-                        if let Some(result) = result {
-                            host.registry.close_for_revocation(&result);
-                            finish_wire_revoke(host, &result);
+                        Err(err) => {
+                            let mapped = crate::watch::map_watch_error(&err);
+                            let _ = out_tx.send((Message::Error(mapped), corr));
                         }
                     }
+                }
+                Ok(BridgeRequest::SendInput(request, corr)) => match bridge.send_input(request) {
+                    Ok(reply) => {
+                        let _ = out_tx.send((reply, corr));
+                    }
                     Err(err) => {
                         let mapped = crate::watch::map_watch_error(&err);
                         let _ = out_tx.send((Message::Error(mapped), corr));
                     }
+                },
+                Ok(BridgeRequest::ScrollRequest(request, corr)) => {
+                    match bridge.scroll_request(request) {
+                        Ok(response) => {
+                            let _ = out_tx.send((Message::ScrollResponse(response), corr));
+                        }
+                        Err(err) => {
+                            let mapped = crate::watch::map_watch_error(&err);
+                            let _ = out_tx.send((Message::Error(mapped), corr));
+                        }
+                    }
                 }
+                Ok(BridgeRequest::UnwatchPane(request)) => {
+                    // R-11-050: no reply. A stale `unwatch_pane` for another pane
+                    // is a no-op. The subscription stays up either way: it carries
+                    // the session-long `tree_update`/`agent_status` flow
+                    // (R-10-011), not just the watched pane's frames — those stop
+                    // because the subscription-line handler ignores every pane
+                    // that is not the watched one (R-01-007, R-02-013).
+                    bridge.unwatch_pane(request);
+                }
+                Ok(BridgeRequest::MarkSeen(request)) => {
+                    // R-10-072: log only the call count, never the target.
+                    (lock(&state).log)("herdr-relay: mark_seen calls=1");
+                    if let Err(err) = bridge.mark_seen(request) {
+                        let mapped = crate::watch::map_watch_error(&err);
+                        let _ = out_tx.send((Message::Error(mapped), None));
+                    }
+                }
+                Ok(BridgeRequest::ActionListRequest(request, corr)) => {
+                    match bridge.action_list_request(request) {
+                        Ok(reply) => {
+                            let _ = out_tx.send((reply, corr));
+                        }
+                        Err(err) => {
+                            let mapped = crate::watch::map_watch_error(&err);
+                            let _ = out_tx.send((Message::Error(mapped), corr));
+                        }
+                    }
+                }
+                Ok(BridgeRequest::HostAction(request, corr)) => match bridge.host_action(request) {
+                    Ok(reply) => {
+                        let _ = out_tx.send((reply, corr));
+                    }
+                    Err(err) => {
+                        let mapped = crate::watch::map_watch_error(&err);
+                        let _ = out_tx.send((Message::Error(mapped), corr));
+                    }
+                },
+                Ok(BridgeRequest::DeviceListRequest(request, corr)) => {
+                    let reply = {
+                        let host = lock(&state);
+                        Bridge::<HerdrClient>::device_list_request(
+                            &host.store,
+                            Some(device_id.as_str()),
+                            request,
+                        )
+                    };
+                    let _ = out_tx.send((reply, corr));
+                }
+                Ok(BridgeRequest::RevokeDevice(request, corr)) => {
+                    let mut guard = lock(&state);
+                    let host: &mut HostState = &mut guard;
+                    // R-11-065: the reply is queued BEFORE the registry fires the close
+                    // signal. `serve_session` drains `out_rx` when the signal lands, so a
+                    // close fired first can find the queue still empty and send the fatal
+                    // `revoked` error ahead of `revoke_result`.
+                    let outcome = Bridge::<HerdrClient>::revoke_device_request(
+                        &mut host.store,
+                        &host.paths,
+                        request,
+                        None,
+                    );
+                    match outcome {
+                        Ok(reply) => {
+                            let result = match &reply {
+                                Message::RevokeResult(result) => Some(result.clone()),
+                                _ => None,
+                            };
+                            let _ = out_tx.send((reply, corr));
+                            if let Some(result) = result {
+                                host.registry.close_for_revocation(&result);
+                                finish_wire_revoke(host, &result);
+                            }
+                        }
+                        Err(err) => {
+                            let mapped = crate::watch::map_watch_error(&err);
+                            let _ = out_tx.send((Message::Error(mapped), corr));
+                        }
+                    }
+                }
+                Err(std_mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(std_mpsc::RecvTimeoutError::Timeout) => break,
             }
-            Err(std_mpsc::RecvTimeoutError::Disconnected) => return,
-            Err(std_mpsc::RecvTimeoutError::Timeout) => {}
+            next = match req_rx.try_recv() {
+                Ok(request) => Ok(request),
+                Err(std_mpsc::TryRecvError::Empty) => break,
+                Err(std_mpsc::TryRecvError::Disconnected) => return,
+            };
         }
 
         // R-10-073/R-11-242: use the unsolicited snapshot outbound path.

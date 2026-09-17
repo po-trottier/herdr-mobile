@@ -144,10 +144,14 @@ class _ComposerState extends State<Composer> {
             minLines: 1,
             maxLines: 5,
             keyboardType: TextInputType.multiline,
-            autocorrect: false,
-            enableSuggestions: false,
-            enableIMEPersonalizedLearning: false,
-            textCapitalization: TextCapitalization.none,
+            // R-03-130, R-31-09-30 (amended 2026-09-16): the platform keyboard edits the
+            // composer natively, autocorrect and predictions included. Only smart
+            // punctuation stays off: a curly quote or an en dash into a shell breaks the
+            // command, and no terminal wants one.
+            autocorrect: true,
+            enableSuggestions: true,
+            enableIMEPersonalizedLearning: true,
+            textCapitalization: TextCapitalization.sentences,
             smartDashesType: SmartDashesType.disabled,
             smartQuotesType: SmartQuotesType.disabled,
             textInputAction: TextInputAction.send,
@@ -172,10 +176,10 @@ class _ComposerState extends State<Composer> {
             minLines: 1,
             maxLines: 5,
             keyboardType: TextInputType.multiline,
-            autocorrect: false,
-            enableSuggestions: false,
-            enableIMEPersonalizedLearning: false,
-            textCapitalization: TextCapitalization.none,
+            autocorrect: true,
+            enableSuggestions: true,
+            enableIMEPersonalizedLearning: true,
+            textCapitalization: TextCapitalization.sentences,
             smartDashesType: SmartDashesType.disabled,
             smartQuotesType: SmartQuotesType.disabled,
             textInputAction: TextInputAction.send,

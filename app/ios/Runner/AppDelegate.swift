@@ -22,18 +22,23 @@ import UserNotifications
   /// `dev.herdr.herdr_mobile/app_settings` channel, "open" method.
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    CameraZoomChannel.register(
-      with: engineBridge.pluginRegistry.registrar(forPlugin: "CameraZoomChannel")
-    )
+    if let cameraZoomRegistrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "CameraZoomChannel"
+    ) {
+      CameraZoomChannel.register(with: cameraZoomRegistrar)
+    }
 
-    let chromeReduceTransparencyRegistrar = engineBridge.pluginRegistry.registrar(
+    if let chromeReduceTransparencyRegistrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "ChromeReduceTransparencyChannel"
-    )
-    chromeReduceTransparencyChannel = ChromeReduceTransparencyChannel.register(
-      with: chromeReduceTransparencyRegistrar
-    )
+    ) {
+      chromeReduceTransparencyChannel = ChromeReduceTransparencyChannel.register(
+        with: chromeReduceTransparencyRegistrar
+      )
+    }
 
-    let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AppSettingsChannel")
+    guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AppSettingsChannel") else {
+      return
+    }
     let channel = FlutterMethodChannel(
       name: "dev.herdr.herdr_mobile/app_settings",
       binaryMessenger: registrar.messenger()
@@ -55,7 +60,9 @@ import UserNotifications
     // R-22-020: the app icon badge mirrors the unread notification count. Called from
     // `app/lib/services/notifications.dart` over `dev.herdr.herdr_mobile/badge`, "set", with
     // an integer count; zero clears the badge.
-    let badgeRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "BadgeChannel")
+    guard let badgeRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "BadgeChannel") else {
+      return
+    }
     let badgeChannel = FlutterMethodChannel(
       name: "dev.herdr.herdr_mobile/badge",
       binaryMessenger: badgeRegistrar.messenger()

@@ -709,7 +709,8 @@ app/
 │               ├── drawable-xxhdpi/
 │               └── drawable-xxxhdpi/
 └── ios/
-    ├── Podfile
+    ├── Runner.xcodeproj/
+    │   └── project.pbxproj
     └── Runner/
         ├── AppDelegate.swift
         ├── CameraZoomChannel.swift # Owner: CameraZoom (R-90-018)
@@ -1207,7 +1208,7 @@ platform limit written in two places drifts. One owner prevents it.
 | Android SDK | Platform 36, build-tools 36.0.0, platform-tools | Yes | Yes | Yes | Android build (`docs/20-mobile-framework.md` §7). |
 | Android Studio | Optional IDE | Optional | Optional | Optional | SDK Manager and Android IDE. Command-line SDK tools are sufficient for builds. |
 | Docker client and engine | Engine 24+ | Docker Engine in WSL 2 | Docker Engine | Docker Engine through Colima | The only relay build, test and deployment prerequisite (`docs/12-relay-hosting.md` R-12-012). |
-| Xcode + iOS SDK + CocoaPods | Xcode 27, iOS 26 SDK | No | No | Yes | iOS build and signing only (`docs/23-public-release.md` R-23-057). |
+| Xcode + iOS SDK | Xcode 27, iOS 26 SDK | No | No | Yes | iOS build and signing; native dependencies use Swift Package Manager (R-20-026). |
 
 Each listed version is an exact pin. Update a pin only through a deliberate compatibility change.
 Do not use a floating `latest` tag or version.
@@ -1306,9 +1307,10 @@ macOS-only tools:
 # Xcode 27, from the App Store, then:
 sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
 xcodebuild -version   # Xcode 27
-brew install cocoapods
-pod --version
 ```
+
+Xcode includes Swift Package Manager. All pinned iOS plugins support it, so this app needs no
+CocoaPods installation or separate Ruby runtime (R-20-026).
 
 #### 7.2.3 Component build commands
 
@@ -2160,7 +2162,9 @@ of Phase 0.
 - Ubuntu release list — `https://ubuntu.com/project/docs/release-team/list-of-releases/` — Ubuntu 26.04
   LTS is the latest Ubuntu LTS example for WSL guidance.
 - Xcode — `https://developer.apple.com/xcode/` — Xcode 27, iOS 26 SDK.
-- CocoaPods — `https://cocoapods.org` — CocoaPods for iOS builds.
+- Flutter Swift Package Manager —
+  `https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-app-developers` —
+  native iOS dependency setup and removal of redundant CocoaPods integration.
 
 ## Open questions
 

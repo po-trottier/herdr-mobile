@@ -781,8 +781,9 @@ iOS and Material You on Android. No glass, no platform view, no version
 branch.**
 
 **R-20-026**: `android/app/build.gradle.kts` MUST set `minSdk = 33`, `targetSdk = 36`,
-and `compileSdk = 36`. `ios/Podfile` and the Xcode project MUST set the
-deployment target to `15.0`.
+and `compileSdk = 36`. The Xcode project MUST set the iOS deployment target to `15.0`.
+The app MUST use Swift Package Manager for its native iOS dependencies. Every pinned iOS plugin
+supports it. The app MUST NOT retain a Podfile or require CocoaPods for this dependency set.
 
 **R-20-027**: The app MUST NOT raise `minSdkVersion` above 33 or the iOS
 deployment target above 15.0 without recording the reason. Raising a floor
@@ -883,7 +884,7 @@ directly. A controller MUST NOT paint. This is the same constraint that R-20-022
 ### Platform minimums
 
 - [ ] Set `minSdk = 33`, `targetSdk = 36`, `compileSdk = 36` in `app/android/app/build.gradle.kts` (R-20-026).
-- [ ] Set the iOS deployment target to `15.0` in `app/ios/Podfile` and in the Xcode project (R-20-026).
+- [ ] Set the iOS deployment target to `15.0` in the Xcode project (R-20-026).
 - [ ] Adopt the `UIScene` lifecycle in the iOS host project (R-20-028).
 - [ ] Run `flutter build apk --debug` and `flutter build ios --debug --no-codesign` to prove both
   hosts compile.
@@ -975,6 +976,10 @@ directly. A controller MUST NOT paint. This is the same constraint that R-20-022
 ---
 
 ## Sources
+
+- Flutter Swift Package Manager —
+  `https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-app-developers` —
+  enabled by default since Flutter 3.44; CocoaPods can be removed when all plugins support SwiftPM.
 
 Read for this document:
 

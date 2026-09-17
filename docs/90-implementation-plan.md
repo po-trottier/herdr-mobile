@@ -357,7 +357,7 @@ producer has finished (R-90-020). A package that publishes nothing says so.
     request, in the same wave, before this package closes.
 - **WP-0-b** — wave 1. The Flutter project, its identifiers and its manifests. 12 checkboxes.
   - **Paths.** `app/analysis_options.yaml`, `app/android/app/build.gradle.kts`,
-    `app/android/app/src/main/AndroidManifest.xml`, `app/ios/Podfile`,
+    `app/android/app/src/main/AndroidManifest.xml`, `app/ios/Runner.xcodeproj/project.pbxproj`,
     `app/ios/Runner/AppDelegate.swift`, `app/ios/Runner/Info.plist`, `app/lib/main.dart`,
     `app/pubspec.yaml`, `app/test/widget_test.dart`.
   - **Needs.** `WP-G`.
@@ -1214,7 +1214,8 @@ consumers link the shared crate.
 
 **Owns.** `.github/dependabot.yml`, `.github/workflows/ci.yml`, `app/analysis_options.yaml`,
 `app/android/app/build.gradle.kts`, `app/android/app/src/main/AndroidManifest.xml`,
-`app/ios/Podfile`, `app/ios/Runner/AppDelegate.swift`, `app/ios/Runner/Info.plist`,
+`app/ios/Runner.xcodeproj/project.pbxproj`, `app/ios/Runner/AppDelegate.swift`,
+`app/ios/Runner/Info.plist`,
 `app/lib/main.dart`, `app/pubspec.yaml`, `app/test/widget_test.dart`, `crates/Cargo.toml`,
 `crates/rust-toolchain.toml`, `crates/herdr-relay-hub/Cargo.toml`,
 `crates/herdr-relay-hub/Dockerfile`, `crates/herdr-relay-proto/Cargo.toml`,
@@ -1327,11 +1328,11 @@ consumers link the shared crate.
       (R-20-026). Verified: `app/android/app/build.gradle.kts` sets `compileSdk = 36` at the
       `android {}` level and `minSdk = 33`, `targetSdk = 36` in `defaultConfig {}`, matching
       R-20-026.
-- [x] Set the iOS deployment target to `15.0` in `app/ios/Podfile` and the Xcode project (R-20-026).
-      Verified: `app/ios/Podfile` sets `platform :ios, '15.0'`, matching R-20-026's iOS
-      deployment-target requirement. (Grep confirms the Podfile line; the Xcode project's
-      `IPHONEOS_DEPLOYMENT_TARGET` was not independently re-grepped in this pass beyond the Podfile,
-      which drives the CocoaPods build the Xcode project consumes.)
+- [x] Set the iOS deployment target to `15.0` in the Xcode project (R-20-026).
+      Verified: all three `IPHONEOS_DEPLOYMENT_TARGET` entries in
+      `app/ios/Runner.xcodeproj/project.pbxproj` are `15.0`. The former Podfile was removed during
+      the personal-device build setup: every pinned iOS plugin supports Swift Package Manager,
+      so CocoaPods added no dependency the app needed. This maintenance belongs to `WP-0-b`.
 - [x] Adopt the `UIScene` lifecycle in `app/ios/Runner/AppDelegate.swift` (R-20-028). Verified:
       `app/ios/Runner/Info.plist` declares `UIApplicationSceneManifest` with a
       `UISceneConfigurations`/`UIWindowSceneSessionRoleApplication` entry naming `SceneDelegate`,

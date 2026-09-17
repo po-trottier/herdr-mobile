@@ -34,7 +34,7 @@ only what each kind of work needs. Read §7 for the exact versions.
 | Flutter app | The Flutter SDK, which bundles Dart |
 | Android app | A JDK, the Android SDK platform, build-tools and platform-tools at the pinned levels |
 | Relay | A Docker client and Docker Engine only. No Linux build package, no host Rust |
-| iOS app | A macOS machine with Xcode, the iOS SDK and CocoaPods |
+| iOS app | A macOS machine with Xcode and the iOS SDK; Xcode includes Swift Package Manager |
 
 Choose one Android setup. Both build the same app, and you do not need both:
 
@@ -103,7 +103,8 @@ shows the phone, then use its serial number as `<device-id>`.
 For an Android Studio emulator, start it in **Device Manager** before `flutter devices`. To launch
 from Android Studio, open `app/`, select the device and run `lib/main.dart`.
 
-An iOS launch uses the same `flutter run` command, but it must run on macOS with Xcode and CocoaPods.
+An iOS launch uses the same `flutter run` command, but it must run on macOS with Xcode.
+Native dependencies use Swift Package Manager; CocoaPods is not required (R-20-026).
 
 ### Launch the full product after its phases exist
 

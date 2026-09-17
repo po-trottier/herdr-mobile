@@ -393,6 +393,11 @@ and `https://developer.apple.com/documentation/usernotifications/asking-permissi
 The Xcode project MUST reference this file through `CODE_SIGN_ENTITLEMENTS`.
 The signed entitlement and provisioning profile MUST match the APNs environment.
 The operator MUST enable Push Notifications for the app identifier.
+Local installs signed by Xcode's free Personal Team MAY set
+`CODE_SIGN_ENTITLEMENTS=Runner/Personal.entitlements` to select the empty entitlement file.
+This development-only build omits APNs because that team cannot provision Push Notifications.
+It MUST retain the local notification and foreground relay paths. Distribution builds MUST retain
+the APNs entitlement. `docs/40-repo-tooling.md` section 7.2.3 gives the local build command.
 After notification permission is granted under R-22-021, the app MUST call
 `UIApplication.registerForRemoteNotifications()`.
 Source: <https://developer.apple.com/documentation/bundleresources/entitlements/aps-environment>.
@@ -1171,6 +1176,9 @@ is revived.)*
 
 ## Sources
 
+- Apple supported iOS capabilities —
+  <https://developer.apple.com/help/account/reference/supported-capabilities-ios> —
+  Push Notifications requires Apple Developer Program or Enterprise Program membership.
 - Apple task-switcher privacy guidance —
   <https://developer.apple.com/library/archive/qa/qa1838/_index.html> —
   UIKit captures the window at backgrounding; sensitive views must be covered without animation.

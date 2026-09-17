@@ -725,6 +725,7 @@ app/
     │   └── KeychainSessionTests.swift # Owner: WP-13-a
     └── Runner/
         ├── AppDelegate.swift
+        ├── Personal.entitlements # Owner: WP-0-b (R-90-018)
         ├── KeychainSession.swift # Owner: WP-13-a
         ├── CameraZoomChannel.swift # Owner: CameraZoom (R-90-018)
         ├── ChromeReduceTransparencyChannel.swift
@@ -1336,6 +1337,18 @@ CocoaPods installation or separate Ruby runtime (R-20-026).
 | Relay final image | `docker build -f crates/herdr-relay-hub/Dockerfile -t herdr-relay-hub .`; deploy with `docker compose` per R-14-010 | `docs/12-relay-hosting.md`; `docs/14-relay-deployment.md` |
 | Android app | `flutter build apk --debug` | `docs/20-mobile-framework.md` §7 |
 | iOS app, macOS only | `flutter build ios --debug --no-codesign` | `docs/20-mobile-framework.md` §7 |
+
+For an iPhone install with Xcode's free Personal Team, select that team and a unique bundle
+identifier in Xcode. Then run these commands from `app/` (R-22-089). The empty entitlement file
+keeps the local build installable without APNs. Use the same bundle identifier for each update to
+preserve the app's data and pairing.
+
+```bash
+flutter build ios --config-only --release --no-codesign --target lib/main.dart
+xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
+  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+  CODE_SIGN_ENTITLEMENTS=Runner/Personal.entitlements build
+```
 
 ##### Launch the Android app
 

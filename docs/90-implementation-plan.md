@@ -361,6 +361,7 @@ producer has finished (R-90-020). A package that publishes nothing says so.
   - **Paths.** `app/analysis_options.yaml`, `app/android/app/build.gradle.kts`,
     `app/android/app/src/main/AndroidManifest.xml`, `app/ios/Runner.xcodeproj/project.pbxproj`,
     `app/ios/Runner/AppDelegate.swift`, `app/ios/Runner/Info.plist`, `app/lib/main.dart`,
+    `app/ios/Runner/Personal.entitlements` (self-declared, R-90-018, 2026-09-16),
     `app/pubspec.yaml`, `app/test/widget_test.dart`.
   - **Needs.** `WP-G`.
   - **Publishes.** `dev.herdr.remote`, the display name `Herdr Remote`, `minSdk 33`,
@@ -1228,6 +1229,7 @@ consumers link the shared crate.
 `app/android/app/build.gradle.kts`, `app/android/app/src/main/AndroidManifest.xml`,
 `app/ios/Runner.xcodeproj/project.pbxproj`, `app/ios/Runner/AppDelegate.swift`,
 `app/ios/Runner/Info.plist`,
+`app/ios/Runner/Personal.entitlements` (self-declared, `WP-0-b`, R-90-018, 2026-09-16),
 `app/lib/main.dart`, `app/pubspec.yaml`, `app/test/widget_test.dart`, `crates/Cargo.toml`,
 `crates/rust-toolchain.toml`, `crates/herdr-relay-hub/Cargo.toml`,
 `crates/herdr-relay-hub/Dockerfile`, `crates/herdr-relay-proto/Cargo.toml`,

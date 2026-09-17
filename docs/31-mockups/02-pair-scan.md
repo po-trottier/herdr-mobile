@@ -227,6 +227,9 @@ The four values the app takes from it:
  Use `CupertinoButton` on iOS. Use `TextButton` and selected `FilledButton.tonal` on Android.
  Each preset MUST expose toggled selection semantics and its ratio, for example `Zoom 5x`.
  Keep the native selected appearance and the minimum target in `R-30-290`.
+ The preset row sits on the scrim directly below the frame, `space.4` under its bottom edge,
+ centred; it MUST NOT overlap the frame, so the target area stays clear (amended 2026-09-16 by
+ the product owner: the first build placed the row inside the frame's bottom edge).
  At gesture start, save the current factor. Multiply that factor by each pinch update's cumulative scale.
  Clamp the result to the device range. Do not multiply the previous update by the cumulative scale.
  Do not replace preset labels with a synthetic zoom label during pinch.

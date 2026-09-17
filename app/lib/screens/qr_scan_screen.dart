@@ -594,10 +594,12 @@ class _ViewfinderState extends State<_Viewfinder>
                 ),
               ),
               if (range != null)
+                // Below the frame, on the scrim: the target area stays clear
+                // (R-31-02-13).
                 PositionedDirectional(
                   start: AppSpace.space4,
                   end: AppSpace.space4,
-                  bottom: (constraints.maxHeight - side) / 2 + AppSpace.space4,
+                  top: (constraints.maxHeight + side) / 2 + AppSpace.space4,
                   child: Center(
                     child: Material(
                       color: color.bgBase,

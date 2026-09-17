@@ -1355,7 +1355,7 @@ with a bare count was how a native tab badge looks, and neither platform draws o
 | Autocomplete strip | full content width, at most six chips of `size.row.one_line` plus `space.2` vertical padding, surface `color.bg.raised`, a 1 px `color.border.subtle` top rule, `elev.2`, chip label `type.mono.phrase` in `color.fg.primary` |
 | Focused | `border.focus` |
 | Error | `border.error` on the field that failed |
-| Compact manual-pairing actions | below `4 * size.field` of available height, one row with width shares of 1 for `Pair` and 2 for `Scan the QR code instead`, separated by `space.2`; the focused field stays above the row per `R-31-03-15` |
+| Compact manual-pairing actions | below `4 * size.field` of available height, plus the native navigation bar's height on iOS, one row with width shares of 1 for `Pair` and 2 for `Scan the QR code instead`, separated by `space.2`; the focused field stays above the row per `R-31-03-15` |
 
 - **R-32-531** A word field MUST use `type.mono.phrase`, because a phrase is transcribed character
   by character and a proportional font hides a repeated letter.
@@ -1588,6 +1588,7 @@ and the tab bar, per `R-30-045`. The owner rejected leaving the strip visible be
 | Corner marks | four, each `size.viewfinder.corner` long and `border.frame` thick, in `color.accent.primary`, at `radius.sm` |
 | Scrim | `color.bg.base` at `opacity.dim` outside the frame |
 | Hint | `type.body` in `color.fg.secondary` on `color.bg.raised`, at most two lines in portrait; wraps in the scrollable landscape panel of `R-31-02-16` |
+| Landscape panel | `space.4` outside inset on all sides within its half of the safe area; a complete `border.hairline` frame in `color.border.strong`, including the connecting state |
 | Preview | fills the area behind the frame, excluded from the semantics tree |
 
 - **R-32-558** The frame is a framing aid for the person, not a constraint on the decoder. The

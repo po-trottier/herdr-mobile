@@ -13,10 +13,14 @@ class PairingConnectingPanel extends StatelessWidget {
     super.key,
     required this.host,
     required this.onCancel,
+    this.framed = false,
   });
 
   final String host;
   final VoidCallback onCancel;
+
+  /// The QR landscape sidebar is an inset card rather than an edge-to-edge footer.
+  final bool framed;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +28,9 @@ class PairingConnectingPanel extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: color.bgRaised,
-        border: Border(top: BorderSide(color: color.borderStrong, width: 1)),
+        border: framed
+            ? Border.all(color: color.borderStrong, width: 1)
+            : Border(top: BorderSide(color: color.borderStrong, width: 1)),
       ),
       child: SafeArea(
         top: false,

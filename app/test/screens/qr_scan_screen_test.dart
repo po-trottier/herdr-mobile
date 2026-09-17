@@ -20,7 +20,16 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart' show Offset, SizedBox, StatefulBuilder;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
-    show CustomPaint, MediaQuery, Rect, Size, TextScaler;
+    show
+        Border,
+        BorderStyle,
+        BoxDecoration,
+        CustomPaint,
+        DecoratedBox,
+        MediaQuery,
+        Rect,
+        Size,
+        TextScaler;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/models/frame.dart';
@@ -38,6 +47,7 @@ import 'package:herdr_mobile/services/plain_store.dart';
 import 'package:herdr_mobile/services/relay.dart';
 import 'package:herdr_mobile/widgets/app_text_button.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
+import 'package:herdr_mobile/widgets/theme/app_space.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show AppBar, IconButton, Material, MaterialApp;
@@ -60,6 +70,51 @@ IconButton _flashButton(WidgetTester tester) => tester.widget<IconButton>(
 );
 
 void main() {
+  for (final phase in [QrScanPhase.ready, QrScanPhase.pairing]) {
+    testWidgets(
+      'landscape ${phase.name} panel has visible side borders and margins',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(812, 375);
+        tester.view.padding = const FakeViewPadding(
+          left: 44,
+          right: 44,
+          bottom: 21,
+        );
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(home: QrScanScreenBody(phase: phase)),
+        );
+        await tester.pump();
+        final label = find.text(
+          phase == QrScanPhase.ready ? 'PAIRING' : 'CONNECTING',
+        );
+        final panel = find
+            .ancestor(of: label, matching: find.byType(DecoratedBox))
+            .first;
+        final decoration =
+            tester.widget<DecoratedBox>(panel).decoration as BoxDecoration;
+        final border = decoration.border! as Border;
+        final color = AppColor.of(tester.element(panel));
+        for (final side in [
+          border.top,
+          border.right,
+          border.bottom,
+          border.left,
+        ]) {
+          expect(side.style, BorderStyle.solid);
+          expect(side.width, greaterThan(0));
+          expect(side.color, color.borderStrong);
+        }
+        final rect = tester.getRect(panel);
+        expect(rect.left, greaterThanOrEqualTo(406 + AppSpace.space4));
+        expect(rect.right, lessThanOrEqualTo(812 - 44 - AppSpace.space4));
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+  }
+
   setUp(() {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;

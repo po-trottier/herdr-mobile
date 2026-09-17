@@ -227,9 +227,11 @@ The bottom actions use the panel of `R-31-02-14`. The form stays visible but rea
   the confirmation in `R-30-958`. Cancellation MUST NOT disconnect or start a handshake.
   Confirmation MUST close the current connection before the handshake starts, per `R-30-945`.
   This exception to `R-31-03-10` MUST NOT change the stored origin automatically, per `R-30-927`.
-- **R-31-03-15** When the viewport above the keyboard cannot hold the app bar and one full field,
+- **R-31-03-15** When the form viewport cannot hold the app bar and one full field with its scroll
+  padding, after reserving the keyboard inset, actions and suggestion strip,
   the app bar MUST scroll with the content, so the focused field stays fully visible, per
-  `R-30-519`. On a viewport that holds both, nothing changes. The app bar MUST NOT be removed,
+  `R-30-519`. On iOS, when that viewport holds both, the app bar MUST stay pinned above the
+  scrollable form, including while a field holds focus. The app bar MUST NOT be removed,
   collapsed or hidden by any other means, and the back control MUST return with one scroll.
   Rotation and a change to the keyboard inset MUST keep the whole focused field visible above
   the pinned actions. Every entered value and the current field focus MUST survive rotation.

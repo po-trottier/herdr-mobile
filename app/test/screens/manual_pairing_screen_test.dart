@@ -30,6 +30,7 @@ import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, MethodCall, SystemChannels, TextInputAction;
 import 'package:flutter/widgets.dart'
     show
+        Brightness,
         CustomScrollView,
         EdgeInsets,
         MediaQuery,
@@ -40,6 +41,8 @@ import 'package:flutter/widgets.dart'
         SizedBox;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/app.dart'
+    show ResolvedChrome, appThemeFrom, sdkMaterialLocalizations;
 import 'package:herdr_mobile/core/result/result.dart' show Ok;
 import 'package:herdr_mobile/screens/manual_pairing_screen.dart';
 import 'package:herdr_mobile/services/keystore.dart';
@@ -54,6 +57,7 @@ import 'package:herdr_mobile/services/pairing.dart'
 import 'package:herdr_mobile/services/plain_store.dart';
 import 'package:herdr_mobile/widgets/app_filled_button.dart';
 import 'package:herdr_mobile/widgets/ground_grid.dart';
+import 'package:herdr_mobile/widgets/theme/chrome_scheme.dart';
 import 'package:material_ui/material_ui.dart' show AlertDialog, MaterialApp;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -607,6 +611,66 @@ void main() {
   );
 
   group('Autocomplete strip (R-30-904, R-32-532, R-30-519)', () {
+    for (final landscape in [false, true]) {
+      for (final keyboardHeight
+          in landscape ? [0.0, 180.0, 216.0] : [0.0, 336.0]) {
+        testWidgets(
+          'iOS keeps navigation pinned with room for a field: landscape=$landscape keyboard=$keyboardHeight',
+          (tester) async {
+            tester.view.devicePixelRatio = 1;
+            tester.view.physicalSize = landscape
+                ? const Size(852, 393)
+                : const Size(393, 852);
+            tester.view.padding = landscape
+                ? const FakeViewPadding(left: 59, right: 59)
+                : const FakeViewPadding(top: 59);
+            tester.view.viewInsets = FakeViewPadding(bottom: keyboardHeight);
+            addTearDown(tester.view.reset);
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: appThemeFrom(ChromeScheme.fixed(Brightness.dark)),
+                localizationsDelegates: sdkMaterialLocalizations,
+                builder: (_, child) => ResolvedChrome(child: child!),
+                initialRoute: '/pair',
+                routes: {
+                  '/': (_) => const SizedBox(),
+                  '/pair': (_) => ManualPairingScreen(effWords: words),
+                },
+              ),
+            );
+            await tester.pumpAndSettle();
+            final nav = find.byType(CupertinoNavigationBar);
+            final initialTop = tester.getTopLeft(nav).dy;
+            await _fillValidPhrase(tester);
+            await tester.pumpAndSettle();
+            expect(find.text('Pair by hand').hitTestable(), findsOneWidget);
+            expect(tester.getTopLeft(nav).dy, initialTop);
+            final last = find.byType(CupertinoTextField).last;
+            expect(
+              tester.getRect(last).top,
+              greaterThanOrEqualTo(tester.getRect(nav).bottom),
+            );
+            expect(
+              tester.getRect(last).bottom,
+              lessThanOrEqualTo(
+                tester.getRect(find.byType(CustomScrollView)).bottom,
+              ),
+            );
+            expect(
+              tester.widget<CupertinoTextField>(last).focusNode!.hasFocus,
+              isTrue,
+            );
+            final back = find.byType(CupertinoNavigationBarBackButton);
+            expect(back.hitTestable(), findsOneWidget);
+            await tester.tap(back);
+            await tester.pumpAndSettle();
+            expect(find.byType(ManualPairingScreen), findsNothing);
+          },
+          variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+        );
+      }
+    }
+
     for (final scale in [1.0, 2.0]) {
       testWidgets(
         'iOS rotation keeps the focused final word above landscape actions at ${scale}x text',

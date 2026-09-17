@@ -112,8 +112,9 @@
     they refuse the drag and the tap outside (amended 2026-09-08 by the product owner: the two
     sheets on this screen had two paddings, two title sizes and two corner treatments).
 11. In landscape, the preview and the hint/actions panel sit beside each other inside the safe
-    area. The panel scrolls when its text and actions need more height. The square frame fits the
-    preview's available width and height, with room for zoom controls below it. Portrait keeps the
+    area. The panel has an inset frame on all four sides and scrolls when its text and actions
+    need more height. The square frame fits the preview's available width and height, with room
+    for zoom controls below it. Portrait keeps the
     bottom bar. `docs/32-design-language.md` section 7.21 owns the dimensions.
 
 ## What the QR carries
@@ -266,7 +267,9 @@ The four values the app takes from it:
   MUST scroll when needed, including while pairing and at accessibility text sizes. Camera failure
   and permission messages MUST also scroll when needed. The frame and every zoom target MUST fit
   inside the preview without overlap. Rotating MUST keep the scanner mounted and preserve the
-  current camera state. Portrait MUST keep the preview above the bottom bar.
+  current camera state. The landscape panel MUST have a complete frame with side margins,
+  using the frame and inset of `docs/32-design-language.md` section 7.21. This also applies
+  to its connecting state. Portrait MUST keep the preview above the bottom bar.
 
 ## Accessibility
 

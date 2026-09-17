@@ -311,6 +311,8 @@ class QrScanScreenBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     final Widget preview = switch (phase) {
       QrScanPhase.cameraUnavailable => const Center(
         child: SingleChildScrollView(
@@ -339,9 +341,11 @@ class QrScanScreenBody extends StatelessWidget {
         ? PairingConnectingPanel(
             host: connectingHost,
             onCancel: onCancel ?? () {},
+            framed: landscape,
           )
         : _BottomBar(
             color: color,
+            framed: landscape,
             hintText: _hintText,
             hintIsError: hint?.isError ?? false,
             hintIsOk: hint != null && !hint!.isError,
@@ -355,8 +359,6 @@ class QrScanScreenBody extends StatelessWidget {
                 ? onOpenSettings
                 : null,
           );
-    final landscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
     // Keep the same preview subtree when rotating so the camera remains mounted.
     final Widget body = SafeArea(
       top: false,
@@ -368,7 +370,12 @@ class QrScanScreenBody extends StatelessWidget {
         children: <Widget>[
           Expanded(child: preview),
           if (landscape)
-            Expanded(child: SingleChildScrollView(child: panel))
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(AppSpace.space4),
+                child: panel,
+              ),
+            )
           else
             panel,
         ],
@@ -732,6 +739,7 @@ class _ViewfinderPainter extends CustomPainter {
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
     required this.color,
+    required this.framed,
     required this.hintText,
     required this.hintIsError,
     required this.hintIsOk,
@@ -745,6 +753,7 @@ class _BottomBar extends StatelessWidget {
   });
 
   final AppColor color;
+  final bool framed;
 
   /// `null` draws no hint line: the preview area already carries the state's one line.
   final String? hintText;
@@ -762,12 +771,14 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
       color: color.bgRaised,
-      border: Border.symmetric(
-        horizontal: BorderSide(
-          color: color.borderSubtle,
-          width: AppBorder.hairline,
-        ),
-      ),
+      border: framed
+          ? Border.all(color: color.borderStrong, width: AppBorder.hairline)
+          : Border.symmetric(
+              horizontal: BorderSide(
+                color: color.borderSubtle,
+                width: AppBorder.hairline,
+              ),
+            ),
     ),
     child: SafeArea(
       top: false,

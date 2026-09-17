@@ -12,5 +12,9 @@ $ErrorActionPreference = 'Stop'
 # The half-block QR glyphs are not ASCII (R-31-16-12).
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# ponytail: Stop-ScheduledTask ends only this wrapper; the binary is not in a
+# job object and survives. Its own Herdr probe exits it within 5 minutes of the
+# server going away, so the orphan is bounded (R-10-049). Add a job object if
+# an immediate stop ever matters.
 & $RelayBin @RelayArgs
 exit $LASTEXITCODE

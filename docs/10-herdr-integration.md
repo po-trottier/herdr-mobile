@@ -1193,8 +1193,8 @@ mechanism per platform, no alternatives:
 
 | Platform | Mechanism             | Unit or job                                             | Restart policy                          |
 | -------- | --------------------- | ------------------------------------------------------- | --------------------------------------- |
-| Linux    | systemd user unit     | `~/.config/systemd/user/herdr-relay.service`            | `Restart=always`, `RestartSec=5`        |
-| macOS    | launchd user agent    | `~/Library/LaunchAgents/dev.herdr.relay.plist`          | `KeepAlive=true`                        |
+| Linux    | systemd user unit     | `~/.config/systemd/user/herdr-relay.service`            | `Restart=on-failure`, `RestartSec=5`    |
+| macOS    | launchd user agent    | `~/Library/LaunchAgents/dev.herdr.relay.plist`          | `KeepAlive.SuccessfulExit=false`        |
 | Windows  | Task Scheduler        | `\Herdr\herdr-relay`, trigger at logon, no execution time limit | restart every 1 minute, up to 999 times |
 
 Windows Task Scheduler is chosen over a Windows Service because a service needs administrator rights
@@ -1206,6 +1206,14 @@ The Windows job MUST set `ExecutionTimeLimit` to zero: Task Scheduler's default 
 after 72 hours, and the restart policy fires only on a failure exit, so a bridge older than three
 days stayed down until the next logon (measured live 2026-09-17). The job runs a hidden PowerShell
 host that executes the binary inline, never the console binary itself, so no window ever appears.
+
+The bridge MUST exit with status zero once `ping` has failed for five minutes without a break
+(one probe every 30 seconds). The supervisor restarts only a failure exit, so a Herdr that is quit
+for the day leaves no bridge behind, and the next Herdr start reconciles and starts the unit again
+through the `[[startup]]` hook (R-10-050). A Herdr restart shorter than the window is invisible: the
+socket returns and the count resets. Herdr's plugin host has no supervised-daemon entry (its
+startup hooks are one-shot by documentation), which is why the OS supervisor still owns the
+process; if Herdr gains one, this rule moves the lifetime there and the units go away.
 
 **R-10-050**: The `[[startup]]` hook MUST NOT start the bridge directly. It MUST do exactly two
 things, then exit: ensure the unit, agent, or task exists and is enabled, and ensure the default key

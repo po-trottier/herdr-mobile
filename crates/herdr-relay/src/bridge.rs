@@ -446,16 +446,43 @@ fn run_inner() -> Result<(), &'static str> {
         log,
     };
 
+    let probe = host_config.client.clone();
     let runtime = tokio::runtime::Runtime::new().map_err(|_| "start the async runtime failed")?;
     runtime.block_on(async move {
         let host = start(host_config)
             .await
             .map_err(|_| "start the host bridge failed")?;
         // R-10-062: a clean exit removes the `control` key.
-        let _ = tokio::signal::ctrl_c().await;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = herdr_gone(probe) => {}
+        }
         host.shutdown().await;
         Ok(())
     })
+}
+
+/// R-10-049: the bridge lives as long as the Herdr server does. Resolves once
+/// `ping` has failed for `HERDR_GONE_AFTER` straight, so a quit Herdr leaves
+/// no orphan bridge and the supervisor's next start (Herdr's startup hook
+/// reconciles it) begins from a clean registration. A restart shorter than the
+/// window is invisible: the socket returns and the counter resets.
+const HERDR_GONE_AFTER: Duration = Duration::from_secs(5 * 60);
+const HERDR_PROBE_EVERY: Duration = Duration::from_secs(30);
+
+async fn herdr_gone(client: HerdrClient) {
+    let mut failures = 0u32;
+    loop {
+        tokio::time::sleep(HERDR_PROBE_EVERY).await;
+        let probe = client.clone();
+        let ok = tokio::task::spawn_blocking(move || probe.ping().is_ok())
+            .await
+            .unwrap_or(false);
+        failures = if ok { 0 } else { failures + 1 };
+        if u64::from(failures) * HERDR_PROBE_EVERY.as_secs() >= HERDR_GONE_AFTER.as_secs() {
+            return;
+        }
+    }
 }
 
 /// R-10-068: the machine hostname as `host_info.host_name` (at most 64 UTF-8

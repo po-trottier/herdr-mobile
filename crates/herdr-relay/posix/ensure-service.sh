@@ -21,7 +21,7 @@ Description=Herdr Relay bridge
 
 [Service]
 ExecStart=/bin/sh $RUN_SH
-Restart=always
+Restart=on-failure
 RestartSec=5
 
 [Install]
@@ -49,7 +49,7 @@ EOF
         <string>$RUN_SH</string>
     </array>
     <key>KeepAlive</key>
-    <true/>
+    <dict><key>SuccessfulExit</key><false/></dict>
     <key>RunAtLoad</key>
     <true/>
 </dict>

@@ -44,15 +44,15 @@
 // long as the app stays unlocked, so a caller building the Noise handshake (a later work
 // package's `RelayConnection.connect()`) uses the very key the biometric gate just read,
 // never an independently generated one. [BiometricGate._lock] clears the cached key the
-// instant the app locks -- on the 120-second background timeout and on the killed-process
-// defence-in-depth path alike -- so no key material lingers in memory past a lock.
+// instant the app locks -- on the background timeout and engine detach alike -- so callers
+// cannot obtain it through this gate. Dropping Dart references is not a managed-heap wipe.
 library;
 
 import 'dart:async';
 
 import 'package:cryptography/cryptography.dart' show SimpleKeyPair;
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, ValueChanged, defaultTargetPlatform;
+    show ChangeNotifier, TargetPlatform, ValueChanged, defaultTargetPlatform;
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:local_auth/local_auth.dart'
@@ -62,16 +62,16 @@ import '../core/result/result.dart' show Err, Ok, Result;
 import 'keystore.dart' show KeystoreService;
 
 /// The method channel `app/android/app/src/main/kotlin/.../MainActivity.kt` listens on to set
-/// or clear `FLAG_SECURE` while the app is locked (R-31-04-02). iOS has no matching native
-/// file in this work package's `Owns.` line, so [_defaultSetNativeLocked] is a no-op there;
-/// `MainActivity.kt`'s own doc comment records that FLAG_SECURE is also set synchronously in
-/// `onCreate`, before this channel exists, so a cold start is covered with no race.
+/// or clear `FLAG_SECURE` while locked (R-31-04-02). The iOS app delegate uses the same
+/// channel to preserve its safe lock page during Face ID and cover other inactive content.
+/// Android also secures its window synchronously before Dart starts.
 const MethodChannel _lockChannel = MethodChannel(
   'dev.herdr.herdr_mobile/biometric_lock',
 );
 
 void _defaultSetNativeLocked(bool locked) {
-  if (defaultTargetPlatform != TargetPlatform.android) {
+  if (defaultTargetPlatform != TargetPlatform.android &&
+      defaultTargetPlatform != TargetPlatform.iOS) {
     return;
   }
   unawaited(
@@ -114,7 +114,7 @@ void syncNativeLockState({required bool appLockEnabled}) {
 /// The Device's session-level biometric gate. One instance covers the whole app session; a
 /// caller (a later work package's router redirect or app root) reads [isLocked] to decide
 /// whether to show `/lock`, and calls [unlock] there.
-class BiometricGate {
+class BiometricGate extends ChangeNotifier {
   /// [appLockEnabled] is required, with no default, mirroring `keystore.dart`'s own
   /// constructor: every caller states the current App Lock setting
   /// (`docs/03-product-decisions.md` R-03-090) explicitly, so a silent fallback to "always
@@ -160,8 +160,8 @@ class BiometricGate {
   /// `unlock()` or `reauthenticateForDestructiveAction()` performed. `null` whenever
   /// [isLocked] is true, including before the first successful `unlock()`: this is the only
   /// way a caller reaches the actual key material the biometric-gated read produced, so it
-  /// can never be read while the app is locked, and it never lingers in memory past a lock
-  /// (see [_lock]).
+  /// cannot be obtained from this gate while locked. [_lock] releases the reference;
+  /// the Dart runtime does not promise immediate erasure of its former storage.
   SimpleKeyPair? _deviceStaticKey;
 
   /// The single background-lock timeout for the whole repository (R-22-017). No other file
@@ -190,7 +190,12 @@ class BiometricGate {
   /// See [appLockEnabled]'s doc comment. Called only after
   /// `KeystoreService.retoggleProtection` has already migrated the storage this gate reads,
   /// so the two never disagree about which mode is actually in effect.
-  void setAppLockEnabled({required bool value}) => _appLockEnabled = value;
+  void setAppLockEnabled({required bool value}) {
+    if (_appLockEnabled == value) return;
+    _appLockEnabled = value;
+    _setNativeLocked(isLocked);
+    notifyListeners();
+  }
 
   /// Whether the app currently withholds pane content, agent names and Host names (R-31-04-02
   /// belongs to `lock_screen.dart` and `MainActivity.kt`; this flag is the signal both would
@@ -214,6 +219,9 @@ class BiometricGate {
   /// (R-31-04-02).
   Future<Result<void>>? _pendingUnlock;
   int _authenticationGeneration = 0;
+
+  /// Invalidates work that began before the latest lock, even after a later unlock.
+  int get lockGeneration => _authenticationGeneration;
 
   Future<Result<void>> unlock() {
     if (!_locked) return Future.value(const Ok(null));
@@ -272,7 +280,9 @@ class BiometricGate {
     // `BiometricAuthenticationException`; both pass through unchanged for
     // `lock_screen.dart` to pattern-match on.
     final generation = _authenticationGeneration;
-    final keyResult = await _keystore.deviceKeyPair();
+    final keyResult = _appLockEnabled
+        ? await _keystore.existingDeviceKeyPair()
+        : await _keystore.deviceKeyPair();
     if (generation != _authenticationGeneration) {
       return const Err('authentication ended because the app locked');
     }
@@ -290,6 +300,7 @@ class BiometricGate {
     if (_locked) {
       _locked = false;
       _setNativeLocked(false);
+      notifyListeners();
     }
     _backgroundedAt = null;
     return const Ok(null);
@@ -301,7 +312,8 @@ class BiometricGate {
     _deviceStaticKey = null;
     if (!_locked) {
       _locked = true;
-      _setNativeLocked(true);
+      _setNativeLocked(isLocked);
     }
+    notifyListeners();
   }
 }

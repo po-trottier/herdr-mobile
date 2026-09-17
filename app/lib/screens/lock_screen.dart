@@ -18,17 +18,18 @@
 /// is not in this work package's `Owns.` line.
 library;
 
-import 'dart:async' show unawaited;
+import 'dart:async' show Completer, unawaited;
 
 import 'package:connectivity_plus/connectivity_plus.dart'
     show Connectivity, ConnectivityResult;
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
-import 'package:flutter/services.dart' show PlatformException;
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:flutter/widgets.dart'
     show
         BuildContext,
+        AppLifecycleState,
         Center,
         ColoredBox,
         Column,
@@ -49,13 +50,15 @@ import 'package:flutter/widgets.dart'
         TextAlign,
         VoidCallback,
         Widget,
-        WidgetsBinding;
+        WidgetsBinding,
+        WidgetsBindingObserver;
 import 'package:local_auth/local_auth.dart' show BiometricType;
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:material_ui/material_ui.dart' show Scaffold;
 
 import '../core/result/result.dart' show Err, Ok;
 import '../services/biometric_gate.dart';
+import '../services/frame_presentation.dart';
 import '../services/keystore.dart'
     show BiometricAuthenticationException, BiometricFailureReason;
 import '../widgets/app_filled_button.dart';
@@ -331,7 +334,7 @@ class LockScreen extends StatefulWidget {
   State<LockScreen> createState() => _LockScreenState();
 }
 
-class _LockScreenState extends State<LockScreen> {
+class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   late final BiometricGate _gate =
       widget._providedGate ?? BiometricGate(appLockEnabled: true);
 
@@ -342,27 +345,87 @@ class _LockScreenState extends State<LockScreen> {
   );
   bool _offline = false;
   bool _unlockAttempted = false;
+  bool _unlockInFlight = false;
+  RasterizedFrame? _frame;
+  late final Future<bool> _presented;
+  Completer<void>? _resumed;
+
+  static const _nativeLock = MethodChannel(
+    'dev.herdr.herdr_mobile/biometric_lock',
+  );
 
   @override
   void initState() {
     super.initState();
-    unawaited(_startUnlockAfterFrame());
+    WidgetsBinding.instance.addObserver(this);
+    _presented = _preparePresentation();
+    unawaited(_startUnlockAfterPresentation());
     unawaited(_checkOffline());
   }
 
-  Future<void> _startUnlockAfterFrame() async {
+  Future<bool> _preparePresentation() async {
     try {
       await _loadBiometricPresentation();
     } on PlatformException {
       // Capability detection only chooses the glyph. The Keychain remains the real gate.
     }
-    if (!mounted) return;
-    // Submit the branded page and its biometric glyph before the native sheet can make
-    // Flutter inactive. Starting in initState can leave the launch grid behind Face ID.
-    await WidgetsBinding.instance.endOfFrame;
-    if (mounted && !_unlockAttempted) {
+    if (!mounted) return false;
+    _frame = RasterizedFrame();
+    if (!await _frame!.ready || !mounted) return false;
+    try {
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        // Raster completion and the native launch-screen transition are separate events.
+        await _nativeLock.invokeMethod<void>('waitUntilDisplayed');
+      }
+    } on PlatformException {
+      if (mounted) setState(() => _phase = LockScreenPhase.rejected);
+      return false;
+    }
+    return mounted;
+  }
+
+  Future<void> _startUnlockAfterPresentation() async {
+    if (await _presented && mounted && !_unlockAttempted) {
       await _attemptUnlock();
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _resumed?.complete();
+    _resumed = null;
+    _frame?.cancel();
+    super.dispose();
+  }
+
+  bool get _active =>
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _resumed?.complete();
+      _resumed = null;
+    }
+  }
+
+  Future<bool> _revealWhenActive() async {
+    while (mounted) {
+      if (!_active) {
+        _resumed ??= Completer<void>();
+        await _resumed!.future;
+        continue;
+      }
+      if (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android) {
+        // An inactive scene retains its native cover. Wait for resume before removing it,
+        // then recheck lifecycle after the channel call, immediately before authentication.
+        await _nativeLock.invokeMethod<void>('frameReady');
+      }
+      if (_active) return mounted;
+    }
+    return false;
   }
 
   Future<void> _loadBiometricPresentation() async {
@@ -394,9 +457,26 @@ class _LockScreenState extends State<LockScreen> {
   }
 
   Future<void> _attemptUnlock() async {
+    if (_unlockInFlight) return;
+    _unlockInFlight = true;
     _unlockAttempted = true;
+    if (!await _presented || !mounted) {
+      _unlockInFlight = false;
+      return;
+    }
+    try {
+      if (!await _revealWhenActive()) {
+        _unlockInFlight = false;
+        return;
+      }
+    } on PlatformException {
+      _unlockInFlight = false;
+      if (mounted) setState(() => _phase = LockScreenPhase.rejected);
+      return;
+    }
     setState(() => _phase = LockScreenPhase.checking);
     final result = await _gate.unlock();
+    _unlockInFlight = false;
     if (!mounted) {
       return;
     }

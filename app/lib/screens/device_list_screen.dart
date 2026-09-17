@@ -160,6 +160,7 @@ class DeviceListScreen extends StatefulWidget {
     required this.messages,
     required this.connectionState,
     required this.send,
+    required this.reauthenticate,
     this.onRemovedThisPhone,
     this.appSettings,
   });
@@ -177,6 +178,10 @@ class DeviceListScreen extends StatefulWidget {
   final Stream<Message> messages;
   final Stream<RelayConnectionState> connectionState;
   final SendFrame send;
+
+  /// R-22-017: the session gate must authenticate each confirmed removal while App Lock
+  /// is enabled. The composition root supplies an explicit success only when it is off.
+  final Future<Result<void>> Function() reauthenticate;
 
   /// Called once `revoke_result` confirms this Device (or every Device) was removed
   /// (R-11-064). The mockup's own `Navigation` section routes this to `/hosts`; wiring that
@@ -204,6 +209,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
   _LiveConnection _connection = _LiveConnection.connected;
   final Set<String> _revokingIds = <String>{};
   bool _revokingAll = false;
+  bool _authenticating = false;
   bool _reconciling = false;
   _PendingRevoke? _pendingRevoke;
   bool _showSkeleton = false;
@@ -255,12 +261,24 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
   /// earlier revoke's outcome is still unknown.
   bool get _canRevoke =>
       !_isOffline &&
+      !_authenticating &&
       _revokingIds.isEmpty &&
       !_revokingAll &&
       _phase != _Phase.outcomeUnknown;
 
   bool _isThisPhone(DeviceListEntry device) =>
       device.id == widget.localDeviceId;
+
+  Future<bool> _authenticateRemoval() async {
+    if (!_canRevoke) return false;
+    setState(() => _authenticating = true);
+    final result = await widget.reauthenticate();
+    if (!mounted) return false;
+    setState(() => _authenticating = false);
+    // A cancelled prompt denies only this action. Also recheck the connection after the
+    // prompt: a previously available computer may have disconnected while it was open.
+    return result is Ok<void> && _canRevoke;
+  }
 
   /// Guards the leading `setState` so the very first call — made synchronously from
   /// `initState` via `unawaited(_load())`, before this element's first build completes —
@@ -340,6 +358,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
           destructiveLabel: 'Remove',
         );
     if (outcome != ChromeConfirmationOutcome.destructive || !mounted) return;
+    if (!await _authenticateRemoval()) return;
     setState(() {
       _revokingIds.add(device.id);
       _refusalText = null;
@@ -383,6 +402,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
           destructiveLabel: 'Remove other phones',
         );
     if (outcome != ChromeConfirmationOutcome.destructive || !mounted) return;
+    if (!await _authenticateRemoval()) return;
     setState(() {
       _revokingIds.addAll(others.map((d) => d.id));
       _refusalText = null;
@@ -437,6 +457,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
           destructiveLabel: 'Remove every phone',
         );
     if (outcome != ChromeConfirmationOutcome.destructive || !mounted) return;
+    if (!await _authenticateRemoval()) return;
     setState(() {
       _revokingAll = true;
       _refusalText = null;

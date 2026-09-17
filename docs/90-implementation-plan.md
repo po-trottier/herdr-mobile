@@ -456,6 +456,7 @@ producer has finished (R-90-020). A package that publishes nothing says so.
     five tokens do not earn a fourth theme file.
 - **WP-12-b** — wave 4. The app root, the router and the three-destination shell. 9 checkboxes.
   - **Paths.** `app/lib/app.dart`, `app/lib/routing.dart`, `app/lib/screens/app_shell.dart`,
+    `app/test/app_lock_test.dart` (self-declared, R-90-018, 2026-09-16),
     `app/test/screens/goldens/app_shell_android_agents_dark.png`,
     `app/test/screens/goldens/app_shell_android_agents_light.png`,
     `app/test/screens/goldens/app_shell_android_notifications_dark.png`,
@@ -505,6 +506,8 @@ producer has finished (R-90-020). A package that publishes nothing says so.
 - **WP-13-b** — wave 5. The biometric gate and the lock screen. 13 checkboxes.
   - **Paths.** `app/android/app/src/main/kotlin/.../MainActivity.kt`,
     `app/lib/screens/lock_screen.dart`, `app/lib/services/biometric_gate.dart`,
+    `app/lib/services/frame_presentation.dart`, `app/test/frame_presentation_support.dart`,
+    `app/integration_test/lock_presentation_test.dart` (self-declared, R-90-018, 2026-09-16),
     `app/test/screens/goldens/lock_screen_default_dark.png`,
     `app/test/screens/goldens/lock_screen_default_light.png`,
     `app/test/screens/goldens/lock_screen_locked_out_dark.png`,
@@ -3422,6 +3425,7 @@ macOS and `schtasks /query /tn \Herdr\herdr-relay` on Windows.
 `app/lib/widgets/theme/chrome_working_icon_motion.dart` (self-declared, R-90-018, 2026-09-08),
 `app/lib/widgets/treatments.dart`,
 `app/test/routing_stack_test.dart` (self-declared, R-90-018, 2026-09-08),
+`app/test/app_lock_test.dart` (self-declared, `WP-12-b`, R-90-018, 2026-09-16),
 `app/test/routing_test.dart` (self-declared, R-90-018, 2026-09-08),
 `app/test/screens/app_shell_test.dart` (self-declared, R-90-018, 2026-09-08),
 `app/test/screens/goldens/app_shell_android_agents_dark.png`,
@@ -3821,6 +3825,8 @@ biometric check.
 **Owns.** `app/android/app/src/main/kotlin/.../MainActivity.kt`,
 `app/integration_test/keystore_survival_test.dart`, `app/lib/core/result/result.dart`,
 `app/lib/screens/lock_screen.dart`, `app/lib/services/biometric_gate.dart`,
+`app/lib/services/frame_presentation.dart`, `app/test/frame_presentation_support.dart`,
+`app/integration_test/lock_presentation_test.dart` (self-declared, `WP-13-b`, R-90-018, 2026-09-16),
 `app/lib/services/keystore.dart`, `app/lib/services/plain_store.dart`,
 `app/test/screens/goldens/lock_screen_default_dark.png`,
 `app/test/screens/goldens/lock_screen_default_light.png`,

@@ -160,8 +160,8 @@ class AppSettingsService {
 
   /// `R-03-092`/`R-31-15-18`: persists the switch alone. The storage-mode migration itself
   /// (R-13-073, R-22-083) is `KeystoreService.retoggleProtection`'s job; a caller MUST call
-  /// that first and only call this once it succeeds, per R-22-083's "leave the previous
-  /// protection level and the previous switch state in place" failure rule.
+  /// that with this writer as its persistence callback. The transaction orders the policy
+  /// and key writes so a stored `true` never precedes the required key protection.
   Future<Result<void>> setAppLockEnabled({required bool value}) =>
       _write(() => _preferences.setBool(_appLockEnabledKey, value));
 

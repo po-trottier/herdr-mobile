@@ -190,31 +190,54 @@ Future<NoiseSession> _defaultHandshaker(
   WebSocketChannel channel,
   NoiseHandshakeMode mode,
   BiometricGate gate,
-  SimpleKeyPair localStatic,
-) async {
+  SimpleKeyPair localStatic, {
+  void Function()? checkCurrent,
+}) async {
+  final lockGeneration = gate.lockGeneration;
+  Future<T> whileUnlocked<T>(Future<T> operation) async {
+    final value = await operation;
+    checkCurrent?.call();
+    if (gate.isLocked || gate.lockGeneration != lockGeneration) {
+      throw const NoiseSessionLockedException();
+    }
+    return value;
+  }
+
   try {
     switch (mode) {
       case PairingMode(:final psk):
         final initiator = NoiseXxPsk0Initiator();
-        await initiator.init(gate: gate, localStatic: localStatic);
-        channel.sink.add(await initiator.writeMessage1(psk));
-        await initiator.readMessage2(
-          await _expectBinary(iterator, 'Noise handshake message 2'),
+        await whileUnlocked(
+          initiator.init(gate: gate, localStatic: localStatic),
         );
-        channel.sink.add(await initiator.writeMessage3());
-        return await initiator.finish();
+        channel.sink.add(await whileUnlocked(initiator.writeMessage1(psk)));
+        await whileUnlocked(
+          initiator.readMessage2(
+            await whileUnlocked(
+              _expectBinary(iterator, 'Noise handshake message 2'),
+            ),
+          ),
+        );
+        channel.sink.add(await whileUnlocked(initiator.writeMessage3()));
+        return await whileUnlocked(initiator.finish());
       case ReconnectMode(:final remoteStaticPublicKey):
         final initiator = NoiseKkInitiator();
-        await initiator.init(
-          gate: gate,
-          localStatic: localStatic,
-          remoteStaticPublicKey: remoteStaticPublicKey,
+        await whileUnlocked(
+          initiator.init(
+            gate: gate,
+            localStatic: localStatic,
+            remoteStaticPublicKey: remoteStaticPublicKey,
+          ),
         );
-        channel.sink.add(await initiator.writeMessage1());
-        await initiator.readMessage2(
-          await _expectBinary(iterator, 'Noise handshake message 2'),
+        channel.sink.add(await whileUnlocked(initiator.writeMessage1()));
+        await whileUnlocked(
+          initiator.readMessage2(
+            await whileUnlocked(
+              _expectBinary(iterator, 'Noise handshake message 2'),
+            ),
+          ),
         );
-        final session = await initiator.finish();
+        final session = await whileUnlocked(initiator.finish());
         if (!_bytesEqual(
           session.remoteStaticPublicKey,
           remoteStaticPublicKey,
@@ -496,6 +519,12 @@ final class RelayConnection {
   Timer? _reconnectTimer;
 
   WebSocketChannel? _channel;
+  WebSocketChannel? _pendingChannel;
+  PairingCancellation? _openingCancellation;
+  BiometricGate? _gate;
+  int _connectionGeneration = 0;
+  bool _backgrounded = false;
+  bool _disposed = false;
   String? _pushToken;
   String? _pushPlatform;
 
@@ -546,14 +575,23 @@ final class RelayConnection {
   Duration? _lastRoundTrip;
   final Map<String, DateTime> _outstandingCorr = {};
 
-  final StreamController<Message> _messagesController =
-      StreamController<Message>.broadcast();
+  // A paused listener can receive a broadcast long after decryption finishes. Retain
+  // its session generation until delivery so a lock discards that queued plaintext.
+  final _messagesController =
+      StreamController<({int generation, Message message})>.broadcast();
   final StreamController<RelayConnectionState> _stateController =
       StreamController<RelayConnectionState>.broadcast();
 
   /// Every decrypted application [Message] this session receives, in wire order, including
   /// `error` frames (R-11-092: shown raw, never replaced with a friendly sentence).
-  Stream<Message> get messages => _messagesController.stream;
+  Stream<Message> get messages => _messagesController.stream
+      .where(
+        (event) =>
+            !_disposed &&
+            _gate?.isLocked != true &&
+            event.generation == _connectionGeneration,
+      )
+      .map((event) => event.message);
 
   /// This connection's own lifecycle (see [RelayConnectionState]).
   Stream<RelayConnectionState> get connectionState => _stateController.stream;
@@ -621,6 +659,16 @@ final class RelayConnection {
     required DeviceInfo deviceInfo,
     PairingCancellation? cancellation,
   }) async {
+    if (_disposed || _backgrounded || gate.isLocked) {
+      return const Err(
+        'connect to relay',
+        cause: RelayConnectException(
+          RelayConnectFailure.deviceLocked,
+          'the app is locked or backgrounded; no connection is permitted',
+        ),
+      );
+    }
+    _observeGate(gate);
     // R-13-064: the real device key comes from the biometric-gated read the gate already
     // performed, never an independently generated or passed-in one. While App Lock is off
     // (R-31-04-12) no `/lock` screen ever runs `unlock()`, so the gate reports unlocked with
@@ -642,6 +690,21 @@ final class RelayConnection {
       );
     }
 
+    // A key captured before an await cannot authorize a later session after re-lock.
+    _interruptPendingConnection();
+    final generation = _connectionGeneration;
+    final lockGeneration = gate.lockGeneration;
+    void checkAttempt() {
+      cancellation?.check();
+      if (_disposed ||
+          _backgrounded ||
+          gate.isLocked ||
+          gate.lockGeneration != lockGeneration ||
+          generation != _connectionGeneration) {
+        throw const NoiseSessionLockedException();
+      }
+    }
+
     if (cancellation != null) cancellation.disconnectedHost = isConnected;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -650,7 +713,11 @@ final class RelayConnection {
       _wasConnectedBeforeBackground = false;
     }
     await _closeCurrentSocket(deliberate: false);
-    cancellation?.check();
+    try {
+      checkAttempt();
+    } on NoiseSessionLockedException catch (error) {
+      return Err('connect to relay', cause: error);
+    }
     if (mode is ReconnectMode) {
       // R-03-113 item 7, the cheap path: `origin`, `handle` and the pinned key all come from
       // the pairing record the caller read (`host_list.dart`) or from [_lastParams]. This
@@ -661,13 +728,33 @@ final class RelayConnection {
 
     final uri = origin.webSocketUri('/device/$handle');
     final WebSocketChannel channel;
+    final openingCancellation = PairingCancellation();
+    _openingCancellation?.cancel();
+    _openingCancellation = openingCancellation;
+    if (cancellation != null) {
+      unawaited(
+        cancellation._cancelled.future.then(
+          (_) => openingCancellation.cancel(),
+        ),
+      );
+    }
     try {
       channel = await (_channelFactory == _defaultChannelFactory
           ? _defaultChannelFactory(uri, const [
               _subprotocol,
-            ], cancellation: cancellation)
+            ], cancellation: openingCancellation)
           : _channelFactory(uri, const [_subprotocol]));
     } on Exception catch (error) {
+      if (identical(_openingCancellation, openingCancellation)) {
+        _openingCancellation = null;
+      }
+      cancellation?.check();
+      if (generation != _connectionGeneration || gate.isLocked) {
+        return const Err(
+          'connect to relay',
+          cause: NoiseSessionLockedException(),
+        );
+      }
       // Never interpolate a caught exception's own message text here: dart:io's
       // WebSocket/HttpException/SocketException messages routinely embed the full
       // connection URL, which carries the routing handle (R-13-033, R-13-066, `AGENTS.md`
@@ -682,6 +769,9 @@ final class RelayConnection {
         RelayDisconnected(failedStage: stage, failure: failure.message),
       );
       return Err('connect to relay ${_originOnly(uri)}', cause: failure);
+    }
+    if (identical(_openingCancellation, openingCancellation)) {
+      _openingCancellation = null;
     }
     final iterator = StreamIterator<dynamic>(channel.stream);
 
@@ -704,7 +794,8 @@ final class RelayConnection {
       );
     }
     try {
-      cancellation?.check();
+      checkAttempt();
+      _pendingChannel = channel;
       stage = _enterStage(ConnectionStage.registeringHandle);
       channel.sink.add(
         jsonEncode({
@@ -716,7 +807,7 @@ final class RelayConnection {
         iterator,
         'a registration response',
       );
-      cancellation?.check();
+      checkAttempt();
       final decoded = jsonDecode(registration) as Map<String, dynamic>;
       if (decoded['type'] == 'error') {
         final message = decoded['message'] as String;
@@ -741,14 +832,17 @@ final class RelayConnection {
       final registeredPushToken = _pushToken;
       _registerPush(channel);
       stage = _enterStage(ConnectionStage.handshake);
-      final session = await _handshaker(
-        iterator,
-        channel,
-        mode,
-        gate,
-        localStatic,
-      );
-      cancellation?.check();
+      final session = await (_handshaker == _defaultHandshaker
+          ? _defaultHandshaker(
+              iterator,
+              channel,
+              mode,
+              gate,
+              localStatic,
+              checkCurrent: checkAttempt,
+            )
+          : _handshaker(iterator, channel, mode, gate, localStatic));
+      checkAttempt();
       final reassembler = Reassembler();
 
       stage = _enterStage(ConnectionStage.hostInfo);
@@ -759,7 +853,7 @@ final class RelayConnection {
         reassembler,
         'host_info',
       );
-      cancellation?.check();
+      checkAttempt();
       if (firstFrame.type != 'host_info') {
         // R-11-132: the first frame after transport mode MUST be host_info.
         throw const RelayConnectException(
@@ -796,7 +890,8 @@ final class RelayConnection {
         );
       }
 
-      cancellation?.check();
+      checkAttempt();
+      _pendingChannel = null;
       _channel = channel;
       if (_pushToken != registeredPushToken) _registerPush(channel);
       _session = session;
@@ -820,7 +915,7 @@ final class RelayConnection {
       // R-11-131: device_info is the Device's own first frame, sent immediately.
       await _sendOn(channel, session, Message.deviceInfo(deviceInfo));
 
-      cancellation?.check();
+      checkAttempt();
       _reconnectPolicy.noteConnected();
       _stateController.add(const RelayConnected());
       _log.info(
@@ -843,7 +938,9 @@ final class RelayConnection {
       await iterator.cancel();
       await channel.sink.close(ws_status.normalClosure);
       cancellation?.check();
-      _stateController.add(RelayRegistrationError(error.code, error.message));
+      if (!_disposed && generation == _connectionGeneration) {
+        _stateController.add(RelayRegistrationError(error.code, error.message));
+      }
       return Err('register on ${_originOnly(uri)}', cause: error);
     } on RelayConnectException catch (error) {
       await iterator.cancel();
@@ -856,18 +953,66 @@ final class RelayConnection {
             : ws_status.normalClosure,
       );
       cancellation?.check();
-      _stateController.add(
-        RelayDisconnected(failedStage: stage, failure: error.message),
-      );
+      if (!_disposed && generation == _connectionGeneration) {
+        _stateController.add(
+          RelayDisconnected(failedStage: stage, failure: error.message),
+        );
+      }
       return Err('connect to relay ${_originOnly(uri)}', cause: error);
     } on NoiseSessionLockedException catch (error) {
       await iterator.cancel();
       await channel.sink.close(ws_status.normalClosure);
       cancellation?.check();
-      _stateController.add(
-        RelayDisconnected(failedStage: stage, failure: '$error'),
-      );
+      if (!_disposed && generation == _connectionGeneration) {
+        _stateController.add(
+          RelayDisconnected(failedStage: stage, failure: '$error'),
+        );
+      }
       return Err('connect to relay ${_originOnly(uri)}', cause: error);
+    } on RelayNotConnectedException catch (error) {
+      await iterator.cancel();
+      await channel.sink.close(ws_status.normalClosure);
+      cancellation?.check();
+      return Err('connect to relay ${_originOnly(uri)}', cause: error);
+    } finally {
+      if (identical(_pendingChannel, channel)) _pendingChannel = null;
+    }
+  }
+
+  void _observeGate(BiometricGate gate) {
+    if (identical(_gate, gate)) return;
+    _gate?.removeListener(_onGateChanged);
+    _gate = gate;
+    gate.addListener(_onGateChanged);
+  }
+
+  void _onGateChanged() {
+    if (_gate!.isLocked) {
+      _wasConnectedBeforeBackground |=
+          isConnected || (_lastParams != null && _pendingChannel != null);
+      _interruptPendingConnection();
+      unawaited(_closeCurrentSocket(deliberate: true));
+    } else if (!_backgrounded && _wasConnectedBeforeBackground) {
+      unawaited(noteLifecycleChange(AppLifecycleState.resumed));
+    }
+  }
+
+  void _interruptPendingConnection() {
+    _connectionGeneration++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _openingCancellation?.cancel();
+    _openingCancellation = null;
+    final pending = _pendingChannel;
+    _pendingChannel = null;
+    if (pending != null) {
+      unawaited(
+        pending.sink.close(ws_status.normalClosure).catchError((Object error) {
+          _log.warning(
+            'failed to close the pending relay socket: ${error.runtimeType}',
+          );
+        }),
+      );
     }
   }
 
@@ -878,7 +1023,7 @@ final class RelayConnection {
   void send(Message message, {String? corr}) {
     final channel = _channel;
     final session = _session;
-    if (channel == null || session == null) {
+    if (channel == null || session == null || _gate?.isLocked == true) {
       throw const RelayNotConnectedException();
     }
     _sendQueue = _sendQueue
@@ -908,7 +1053,8 @@ final class RelayConnection {
   /// `1000`. Keeps the pairing and the key; does not clear [_lastParams], so an explicit
   /// [connect] later still has them, but does not itself schedule an automatic reconnect.
   Future<void> disconnect() async {
-    _reconnectTimer?.cancel();
+    _wasConnectedBeforeBackground = false;
+    _interruptPendingConnection();
     await _closeCurrentSocket(deliberate: true, sendDisconnectFrame: true);
   }
 
@@ -916,6 +1062,8 @@ final class RelayConnection {
   Future<void> noteLifecycleChange(AppLifecycleState state) async {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
+      _backgrounded = true;
+      _interruptPendingConnection();
       if (isConnected) {
         _wasConnectedBeforeBackground = true;
         await _closeCurrentSocket(deliberate: true, sendDisconnectFrame: true);
@@ -923,8 +1071,12 @@ final class RelayConnection {
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      _backgrounded = false;
       final params = _lastParams;
-      if (params != null && !isConnected && _wasConnectedBeforeBackground) {
+      if (params != null &&
+          !params.gate.isLocked &&
+          !isConnected &&
+          _wasConnectedBeforeBackground) {
         _wasConnectedBeforeBackground = false;
         _reconnectTimer?.cancel();
         await connect(
@@ -940,7 +1092,9 @@ final class RelayConnection {
 
   /// Releases every resource this connection holds (R-41-100).
   Future<void> dispose() async {
-    _reconnectTimer?.cancel();
+    _disposed = true;
+    _gate?.removeListener(_onGateChanged);
+    _interruptPendingConnection();
     await _connectivitySubscription.cancel();
     await _connectivity.dispose();
     await _closeCurrentSocket(deliberate: true);
@@ -960,14 +1114,21 @@ final class RelayConnection {
     // R-22-027: the 1-second debounce already happened inside ConnectivityWatcher. A
     // reconnect only makes sense once a connection has existed before; the first pairing
     // is a person's own explicit action, not something a network blip should retry.
-    if (_lastParams != null && !isConnected && _reconnectTimer == null) {
+    if (!_disposed &&
+        !_backgrounded &&
+        _gate?.isLocked != true &&
+        _lastParams != null &&
+        !isConnected &&
+        _reconnectTimer == null) {
       _scheduleReconnect();
     }
   }
 
   void _scheduleReconnect() {
     final params = _lastParams;
-    if (params == null) return;
+    if (params == null || _disposed || _backgrounded || params.gate.isLocked) {
+      return;
+    }
     _reconnectTimer?.cancel();
     final delay = _reconnectPolicy.nextDelay();
     _stateController.add(RelayReconnecting(delay));
@@ -1013,6 +1174,7 @@ final class RelayConnection {
     bool sendDisconnectFrame = false,
     int closeCode = ws_status.normalClosure,
   }) async {
+    final generation = _connectionGeneration;
     final channel = _channel;
     final session = _session;
     _channel = null;
@@ -1023,7 +1185,12 @@ final class RelayConnection {
     _deliberateClose = deliberate;
     if (sendDisconnectFrame && session != null) {
       try {
-        await _sendOn(channel, session, const Message.disconnect(Disconnect()));
+        await _sendOn(
+          channel,
+          session,
+          const Message.disconnect(Disconnect()),
+          allowClosing: true,
+        );
       } on Exception catch (error) {
         _log.warning(
           'failed to send a deliberate disconnect frame: ${error.runtimeType}',
@@ -1037,7 +1204,7 @@ final class RelayConnection {
         'failed to close the relay socket cleanly: ${error.runtimeType}',
       );
     }
-    if (deliberate) {
+    if (deliberate && !_disposed && generation == _connectionGeneration) {
       _stateController.add(const RelayDisconnected());
     }
   }
@@ -1077,6 +1244,7 @@ final class RelayConnection {
             }
             raw = Uint8List.fromList(current);
         }
+        if (!identical(_channel, channel) || _gate?.isLocked == true) return;
         wireBytesForRecord += raw.length;
         final outcome = await decodeFragment(
           reassembler,
@@ -1084,6 +1252,7 @@ final class RelayConnection {
           raw,
           now: _now,
         );
+        if (!identical(_channel, channel) || _gate?.isLocked == true) return;
         if (outcome case Err(:final cause)) {
           // R-11-121, R-11-237, R-11-238: a fragmentation/reassembly violation closes
           // with protocol_error (4003), never a silent drop (`frame_codec.dart`'s own
@@ -1141,7 +1310,10 @@ final class RelayConnection {
         if (message is MessageHostTheme) {
           _lastHostInfo = _lastHostInfo?.copyWith(theme: message.payload.theme);
         }
-        _messagesController.add(message);
+        _messagesController.add((
+          generation: _connectionGeneration,
+          message: message,
+        ));
         if (message is MessageError && message.payload.fatal) {
           _log.severe(
             'fatal error from Host: ${message.payload.code.wireValue} '
@@ -1202,6 +1374,7 @@ final class RelayConnection {
     NoiseSession session,
     Message message, {
     String? corr,
+    bool allowClosing = false,
   }) async {
     // R-11-033: seq increments once per frame actually sent. An oversized frame is
     // rejected before it ever reaches the wire (R-11-036), so its candidate seq MUST be
@@ -1216,7 +1389,12 @@ final class RelayConnection {
       payload: message.payloadJson,
     );
     final sentAt = _now();
-    final sent = await _sendFrame(channel, session, frame);
+    final sent = await _sendFrame(
+      channel,
+      session,
+      frame,
+      allowClosing: allowClosing,
+    );
     if (sent case Ok() when corr != null) {
       _outstandingCorr[corr] = sentAt;
     }
@@ -1234,6 +1412,7 @@ final class RelayConnection {
             fatal: false,
           ).toJson(),
         ),
+        allowClosing: allowClosing,
       );
     }
     _outgoingSeq = candidateSeq;
@@ -1246,8 +1425,22 @@ final class RelayConnection {
   Future<Result<void>> _sendFrame(
     WebSocketChannel channel,
     NoiseSession session,
-    Frame frame,
-  ) async {
+    Frame frame, {
+    bool allowClosing = false,
+  }) async {
+    final generation = _connectionGeneration;
+    void checkSession() {
+      if (_disposed ||
+          _gate?.isLocked == true ||
+          generation != _connectionGeneration ||
+          (!allowClosing &&
+              !identical(channel, _channel) &&
+              !identical(channel, _pendingChannel))) {
+        throw const RelayNotConnectedException();
+      }
+    }
+
+    checkSession();
     final envelopeBytes = Uint8List.fromList(
       utf8.encode(jsonEncode(frame.toJson())),
     );
@@ -1262,6 +1455,7 @@ final class RelayConnection {
       return Err('encode ${frame.type} frame', cause: const EnvelopeTooLarge());
     }
     final encoded = await encodeFrame(session.send, envelopeBytes);
+    checkSession();
     if (encoded case Err(:final cause)) {
       _log.warning(
         'dropped an outgoing ${frame.type} frame: $cause (R-11-035, R-11-036)',

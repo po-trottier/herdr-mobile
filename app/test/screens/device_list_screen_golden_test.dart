@@ -48,6 +48,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/core/result/result.dart' show Ok;
 import 'package:herdr_mobile/models/codes.dart';
 import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/device_list.dart';
@@ -182,6 +183,7 @@ void main() {
           messages: harness.messages.stream,
           connectionState: harness.connectionState.stream,
           send: harness.send,
+          reauthenticate: () async => const Ok(null),
         ),
       ),
     );

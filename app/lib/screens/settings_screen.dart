@@ -352,36 +352,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // --- App Lock (callout 18) ---
 
-  /// R-03-092/R-13-073/R-22-083: migrates every secret [widget.keystore] owns to the new
-  /// protection level first, and only persists the switch (and syncs [widget.gate]) once
-  /// that succeeds -- never regenerates the Device key, never unpairs (`retoggleProtection`'s
-  /// own doc comment). A failure at either step leaves the switch, the storage mode, and the
-  /// gate all exactly as they were.
+  /// R-03-092/R-13-073/R-22-083: the preference write participates in the key migration.
+  /// Recovery keeps protection at least as strict as the saved policy. Sync the shared gate
+  /// even when the screen closes while storage is pending.
   Future<void> _onAppLockChanged(bool value) async {
     await _fireHaptic(AppHaptic.select);
     final hostIds = _pairedHosts.map((host) => host.hostId).toList();
     final retoggleResult = await widget.keystore.retoggleProtection(
       appLockEnabled: value,
       hostIds: hostIds,
+      persistAppLock: widget.appSettings.setAppLockEnabled,
     );
-    if (!mounted) {
-      return;
+    final enabled = widget.keystore.appLockEnabled;
+    widget.gate.setAppLockEnabled(value: enabled);
+    if (mounted) {
+      setState(() => _settings = _settings.copyWith(appLockEnabled: enabled));
     }
     if (retoggleResult case Err()) {
-      _showSnackbar(_saveFailedSnackbar);
+      if (mounted) _showSnackbar(_saveFailedSnackbar);
       return;
     }
-    final settingResult = await widget.appSettings.setAppLockEnabled(
-      value: value,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (settingResult case Err()) {
-      _showSnackbar(_saveFailedSnackbar);
-      return;
-    }
-    widget.gate.setAppLockEnabled(value: value);
   }
 
   // --- This phone's name ---

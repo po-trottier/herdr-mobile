@@ -140,7 +140,7 @@ Future<BiometricGate> _authenticateAfterRestart(
     () =>
         localAuth.authenticate(localizedReason: any(named: 'localizedReason')),
   ).thenAnswer((_) async => true);
-  when(() => keystore.deviceKeyPair())
+  when(() => keystore.existingDeviceKeyPair())
       .thenAnswer((_) async => Ok(deviceKeyPair));
   final gate = BiometricGate(
     appLockEnabled: true,

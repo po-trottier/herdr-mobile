@@ -181,6 +181,8 @@ class KeystoreService {
   }
 
   bool _appLockEnabled;
+  bool _retoggling = false;
+  Object? _protectionFailure;
 
   /// The Device private key's store, under the current App Lock protection level.
   FlutterSecureStorage _gated;
@@ -196,8 +198,8 @@ class KeystoreService {
   /// does above.
   final FlutterSecureStorage? _storageOverride;
 
-  /// The protection level this instance currently reads and writes under. Mutated only by
-  /// [retoggleProtection], once the migration it describes has actually succeeded.
+  /// The last confirmed App Lock policy. A failed disable can leave storage more restrictive
+  /// than this policy if the platform refuses migration or recovery.
   bool get appLockEnabled => _appLockEnabled;
 
   // R-22-001 names `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` exactly, which is
@@ -309,11 +311,30 @@ class KeystoreService {
   /// call if none exists yet (R-13-043, R-20-035) -- whether or not App Lock is on, and
   /// whether or not the phone has a screen lock at all. Every later call returns the same
   /// keypair; this method never rotates an existing key (R-13-046).
-  Future<Result<SimpleKeyPair>> deviceKeyPair() async {
+  Future<Result<SimpleKeyPair>> deviceKeyPair() =>
+      _deviceKeyPair(createIfMissing: true);
+
+  /// Reads the identity that App Lock already protects. Unlocking must never replace a
+  /// missing identity with a newly generated, unauthenticated key.
+  Future<Result<SimpleKeyPair>> existingDeviceKeyPair() =>
+      _deviceKeyPair(createIfMissing: false);
+
+  Future<Result<SimpleKeyPair>> _deviceKeyPair({
+    required bool createIfMissing,
+  }) async {
+    if (_retoggling || _protectionFailure != null) {
+      return Err('restore device key protection', cause: _protectionFailure);
+    }
     try {
       final storedSeed = await _read(_gated, _privateKeyStorageKey);
       if (storedSeed != null) {
         return Ok(await X25519().newKeyPairFromSeed(base64Decode(storedSeed)));
+      }
+      if (!createIfMissing) {
+        return const Err(
+          'read the existing device key pair',
+          cause: KeyInvalidatedException('device key missing'),
+        );
       }
       final keyPair = await X25519().newKeyPair();
       final seed = await keyPair.extractPrivateKeyBytes();
@@ -451,46 +472,72 @@ class KeystoreService {
   /// touches a paired computer's non-secret `PairedHostRecord`; it MUST NOT be used for
   /// anything but a protection-level change.
   ///
-  /// **Read-delete-write per key, not R-22-083's literal read-write-delete order.** The pinned
-  /// `flutter_secure_storage` 10.3.1 Android implementation
-  /// (`FlutterSecureStorage.java` `writeUnsafe`/`delete`) keeps every value in one
-  /// `SharedPreferences` file, addressed by the same string `key` regardless of
-  /// `AndroidOptions`; there is no separate "old" and "new" entry to distinguish once both
-  /// options write to the identical `key`. Writing the new value first and deleting second, as
-  /// R-22-083's prose literally reads, would delete the just-written new value, because
-  /// `delete` removes whatever currently sits at that key with no memory of which write put it
-  /// there. Deleting first instead (with the value already held in memory from the read) is
-  /// the only order that ends with exactly the migrated value present under the new options,
-  /// and it also avoids iOS's `errSecDuplicateItem` a `SecItemAdd` under new access-control
-  /// flags would otherwise hit against an item that already exists at the same account. This
-  /// comment records the correction rather than silently diverging from R-22-083's prose, per
-  /// `AGENTS.md`.
+  /// Per-key read-delete-write follows R-22-083. The pinned plugin addresses each value by
+  /// the same key under both sets of options. Deleting after writing would remove the new
+  /// value; updating without deleting can retain the old Keychain access-control flags.
   ///
-  /// On success this instance itself starts reading and writing under [appLockEnabled] from
-  /// then on (see [KeystoreService.appLockEnabled]), so a caller holding onto the same
-  /// instance -- `biometric_gate.dart`'s session-shared gate, in particular -- picks up the
-  /// new mode with no separate wiring. A failure leaves this instance, and every entry it has
-  /// not yet migrated, exactly as they were (R-22-083's "leave the previous protection level
-  /// ... in place").
-  ///
-  /// ponytail: per-key migration, not one atomic transaction. The narrow window between a
-  /// successful delete and a failed write for the same key can lose that one value on a real
-  /// device fault; a caller that observes an `Err` here MUST NOT flip the App Lock switch (see
-  /// `settings_screen.dart`), which bounds the damage to "re-pair that one computer", never a
-  /// silently wrong reported setting. Upgrade path if this ever matters in practice: back up
-  /// the value to plain memory before the delete and re-attempt the write once more before
-  /// giving up.
+  /// Reads the current key first, so disabling App Lock requires its authentication. Host
+  /// records move before the private key. Enabling protects the key before saving the on
+  /// policy. Disabling saves the off policy before reducing protection. Recovery may save
+  /// on again only after restoring the protected key. Thus a failed rollback cannot leave
+  /// a persisted on policy pointing at an ungated key after a restart.
+  /// If the platform also refuses recovery, key reads fail closed on this instance; an
+  /// absent key must be handled through [existingDeviceKeyPair] when unlocking.
   Future<Result<void>> retoggleProtection({
     required bool appLockEnabled,
     required List<String> hostIds,
+    Future<Result<void>> Function({required bool value})? persistAppLock,
   }) async {
-    if (appLockEnabled == _appLockEnabled) {
-      return const Ok(null);
+    if (_retoggling || _protectionFailure != null) {
+      return Err('change device key protection', cause: _protectionFailure);
     }
+    if (appLockEnabled == _appLockEnabled) {
+      return persistAppLock == null
+          ? const Ok(null)
+          : persistAppLock(value: appLockEnabled);
+    }
+    _retoggling = true;
     final newGated =
         _storageOverride ?? _storageFor(appLockEnabled: appLockEnabled);
+    String? deviceSeed;
+    var deviceKeyTouched = false;
+    var offPolicyPersisted = false;
+    var onPolicyAttempted = false;
+
+    Future<void> restore() async {
+      if (onPolicyAttempted) {
+        // A preference call can fail after saving. Keep the newly protected key unless
+        // an off policy is confirmed, even when the attempted on write reported failure.
+        try {
+          final result = await persistAppLock!(value: false);
+          if (result case Err()) {
+            _gated = newGated;
+            return;
+          }
+        } on Exception {
+          _gated = newGated;
+          return;
+        }
+      }
+      final restored = await _restoreDeviceKey(deviceSeed!, from: newGated);
+      if (!restored || !offPolicyPersisted) return;
+      try {
+        final result = await persistAppLock!(value: true);
+        if (result case Ok()) _appLockEnabled = true;
+      } on Exception catch (e) {
+        // The confirmed off policy remains safe; do not claim recovery succeeded.
+        _protectionFailure = e;
+      }
+    }
+
     try {
-      await _move(_privateKeyStorageKey, from: _gated, to: newGated);
+      deviceSeed = await _read(_gated, _privateKeyStorageKey);
+      if (deviceSeed == null) {
+        return const Err(
+          'read the existing device key before changing App Lock',
+          cause: KeyInvalidatedException('device key missing'),
+        );
+      }
       for (final hostId in hostIds) {
         for (final key in [
           _hostPublicKeyStorageKey(hostId),
@@ -500,19 +547,70 @@ class KeystoreService {
           await _move(key, from: _gated, to: _plain);
         }
       }
+      if (!appLockEnabled && persistAppLock != null) {
+        final result = await persistAppLock(value: false);
+        if (result case Err()) return result;
+        offPolicyPersisted = true;
+        _appLockEnabled = false;
+      }
+      deviceKeyTouched = true;
+      await _gated.delete(key: _privateKeyStorageKey);
+      await newGated.write(key: _privateKeyStorageKey, value: deviceSeed);
+      if (appLockEnabled && persistAppLock != null) {
+        onPolicyAttempted = true;
+        final result = await persistAppLock(value: true);
+        if (result case Err()) {
+          await restore();
+          return result;
+        }
+      }
       _gated = newGated;
       _appLockEnabled = appLockEnabled;
       endAuthenticationSession();
       return const Ok(null);
     } on PlatformException catch (e) {
+      if (deviceKeyTouched) {
+        await restore();
+      }
       return Err('retoggle App Lock protection', cause: _classify(e));
+    } on Exception catch (e) {
+      if (deviceKeyTouched) {
+        await restore();
+      }
+      return Err('retoggle App Lock protection', cause: e);
+    } finally {
+      _retoggling = false;
     }
   }
 
+  Future<bool> _restoreDeviceKey(
+    String seed, {
+    required FlutterSecureStorage from,
+  }) async {
+    try {
+      await _restoreValue(_privateKeyStorageKey, seed, from: from, to: _gated);
+      return true;
+    } on Exception catch (e) {
+      _protectionFailure = e;
+      return false;
+    }
+  }
+
+  Future<void> _restoreValue(
+    String key,
+    String value, {
+    required FlutterSecureStorage from,
+    required FlutterSecureStorage to,
+  }) async {
+    // A failed write may still have created the target entry. Remove it before restoring
+    // the original access-control options; updating an existing item may keep its flags.
+    await from.delete(key: key);
+    await to.write(key: key, value: value);
+  }
+
   /// Read-delete-write of one key (see [retoggleProtection]). The read goes through [from],
-  /// so it finds an item written under [from]'s options; a Host record an earlier build wrote
-  /// gated is found through the gated store and lands in [_plain], and one already plain is
-  /// left where it is.
+  /// so a legacy gated Host record is authenticated before moving to [_plain]. Both legacy
+  /// and current records finish in the plain store.
   Future<void> _move(
     String key, {
     required FlutterSecureStorage from,
@@ -522,8 +620,13 @@ class KeystoreService {
     if (value == null) {
       return; // Nothing stored under this key yet; nothing to migrate.
     }
-    await from.delete(key: key);
-    await to.write(key: key, value: value);
+    try {
+      await from.delete(key: key);
+      await to.write(key: key, value: value);
+    } on Exception {
+      await _restoreValue(key, value, from: to, to: from);
+      rethrow;
+    }
   }
 
   /// Recognises a permanently invalidated key from the platform's raw error text and wraps

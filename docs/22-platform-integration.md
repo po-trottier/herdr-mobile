@@ -126,6 +126,12 @@ bypass. On iOS, the Device MUST reuse the device-key read's `LAContext` for late
 reads in that unlocked session, including records protected by older builds. Those reads MUST
 set `interactionNotAllowed` so they cannot open additional authentication sheets. Locking MUST
 invalidate the context; a new unlock or destructive-action authentication uses a fresh one.
+
+The app root MUST hide protected routes, modal contents and accessibility content while locked.
+Navigation MUST NOT bypass this gate. Locking MUST close active and pending relay connections and
+reject their delayed work. The Device MUST NOT generate a replacement identity to satisfy an
+unlock when its existing key is missing. iOS MUST cover sensitive content before UIKit captures
+an inactive scene and retain that cover until Flutter submits a safe foreground frame.
 Concurrent unlock requests MUST share the same pending device-key read. A result received after
 locking MUST NOT unlock the app. When App Lock is disabled, the app reads the same Keystore or
 Keychain data with no authentication challenge at all, per R-22-082; the trade-off that mode accepts
@@ -251,8 +257,12 @@ every value in one shared file, keyed by the same string regardless of `AndroidO
 followed by a delete on that key would destroy the value the write just stored. This MUST NOT call
 key generation again and MUST NOT change the Curve25519 keypair, the pinned Host keys, the routing
 handles or the relay origin, per `docs/13-security-pairing.md` R-13-073. A read or write that fails
-MUST leave the previous protection level and the previous switch state in place, and MUST show the
-error state of `docs/31-mockups/15-appearance.md`.
+MUST attempt to restore the previous protection level and switch state, and MUST show the error
+state of `docs/31-mockups/15-appearance.md`. The Device MUST persist the off policy before weakening
+the private key's protection, and MUST protect that key before persisting an on policy. If the OS
+also rejects recovery, the Device MUST NOT report App Lock as enabled over an unprotected key.
+An authenticated disable may leave the switch off with an error in this case. Unlock MUST fail
+closed if recovery leaves the existing identity unavailable.
 
 ---
 
@@ -1161,6 +1171,9 @@ is revived.)*
 
 ## Sources
 
+- Apple task-switcher privacy guidance —
+  <https://developer.apple.com/library/archive/qa/qa1838/_index.html> —
+  UIKit captures the window at backgrounding; sensitive views must be covered without animation.
 - Apple `kSecUseAuthenticationContext` —
   <https://developer.apple.com/documentation/security/ksecuseauthenticationcontext> —
   an authenticated context can serve subsequent Keychain operations without another prompt.

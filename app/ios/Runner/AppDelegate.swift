@@ -29,6 +29,11 @@ import UserNotifications
     pushChannel?.invokeMethod("failed", arguments: error.localizedDescription)
   }
 
+  private let flutterDisplayGate = FlutterDisplayGate()
+  // The first Flutter page is locked. This also keeps that safe page visible when the
+  // system authentication sheet temporarily makes its scene inactive.
+  private(set) var appLocked = true
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -56,6 +61,31 @@ import UserNotifications
         }
         UIApplication.shared.registerForRemoteNotifications()
         result(nil)
+      }
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BiometricLock") {
+      let channel = FlutterMethodChannel(
+        name: "dev.herdr.herdr_mobile/biometric_lock", binaryMessenger: registrar.messenger()
+      )
+      channel.setMethodCallHandler { [self] call, result in
+        switch call.method {
+        case "setLocked":
+          let arguments = call.arguments as? [String: Any]
+          appLocked = arguments?["locked"] as? Bool ?? true
+          // Do not remove an existing cover until the replacement Flutter frame is ready.
+          result(nil)
+        case "frameReady":
+          for scene in UIApplication.shared.connectedScenes {
+            (scene.delegate as? SceneDelegate)?.protectedFrameReady(scene)
+          }
+          result(nil)
+        case "waitUntilDisplayed":
+          flutterDisplayGate.wait(
+            for: registrar.viewController as? FlutterViewController, result: result
+          )
+        default:
+          result(FlutterMethodNotImplemented)
+        }
       }
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "KeychainSession") {
@@ -145,5 +175,52 @@ import UserNotifications
         result(nil)
       }
     }
+  }
+}
+
+/// Rasterization can finish while Flutter's native launch view is still fading out.
+/// Flutter 3.47 emits this KVO change only after the splash-removal completion. Observing
+/// it leaves the engine's single first-render callback available to its existing owner.
+final class FlutterDisplayGate {
+  private weak var observedController: FlutterViewController?
+  private var observation: NSKeyValueObservation?
+  private var pending: [FlutterResult] = []
+
+  func wait(for controller: FlutterViewController?, result: @escaping FlutterResult) {
+    guard let controller = controller else {
+      let error = FlutterError(
+        code: "flutter_view_unavailable", message: "Flutter view is unavailable.", details: nil
+      )
+      complete(error)
+      result(error)
+      return
+    }
+    if !pending.isEmpty && observedController !== controller {
+      complete(FlutterError(
+        code: "flutter_view_changed", message: "Flutter view changed before display.", details: nil
+      ))
+    }
+    if controller.isDisplayingFlutterUI {
+      result(nil)
+      return
+    }
+    pending.append(result)
+    guard observation == nil else { return }
+    observedController = controller
+    observation = controller.observe(\.isDisplayingFlutterUI, options: [.new]) {
+      [weak self] observed, _ in
+      if observed.isDisplayingFlutterUI { self?.complete(nil) }
+    }
+    // Do not miss a completion between the initial read and observation registration.
+    if controller.isDisplayingFlutterUI { complete(nil) }
+  }
+
+  private func complete(_ result: Any?) {
+    observation?.invalidate()
+    observation = nil
+    observedController = nil
+    let callbacks = pending
+    pending.removeAll()
+    for callback in callbacks { callback(result) }
   }
 }

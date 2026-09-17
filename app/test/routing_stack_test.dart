@@ -16,7 +16,8 @@ library;
 
 import 'dart:async' show StreamController, StreamIterator, unawaited;
 import 'dart:convert' show base64Encode, jsonDecode, jsonEncode, utf8;
-import 'dart:io' show HttpServer, WebSocket, WebSocketTransformer;
+import 'dart:io'
+    show HttpOverrides, HttpServer, WebSocket, WebSocketTransformer;
 import 'dart:typed_data' show Uint8List;
 
 import 'package:connectivity_plus/connectivity_plus.dart'
@@ -26,6 +27,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart'
     show
+        AppLifecycleState,
         BuildContext,
         Center,
         Column,
@@ -111,6 +113,8 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 import 'package:web_socket_channel/web_socket_channel.dart'
     show WebSocketChannel;
 
+import 'frame_presentation_support.dart';
+
 class _MockFlutterSecureStorage extends Mock implements FlutterSecureStorage {}
 
 class _MockNotificationsService extends Mock implements NotificationsService {
@@ -195,6 +199,9 @@ _MockFlutterSecureStorage _fakeDeviceKeyStorage() {
 }
 
 class _MockConnectivity extends Mock implements Connectivity {}
+
+/// The loopback fixture needs real sockets inside Flutter's HTTP-mocking test zone.
+class _RealHttpOverrides extends HttpOverrides {}
 
 /// The offline-guard tests' real `RelayConnection` gets a no-op watcher: the default one
 /// listens to `connectivity_plus`'s event channel, which no test here fakes. Duplicated from
@@ -305,12 +312,15 @@ Future<RelayConnection> _connectedThenDroppedRelay({
   );
   addTearDown(relay.dispose);
 
-  final connectResult = relay.connect(
-    origin: origin,
-    handle: 'h2',
-    mode: PairingMode(psk: Uint8List(32)),
-    gate: gate,
-    deviceInfo: _testDeviceInfo,
+  final connectResult = HttpOverrides.runWithHttpOverrides(
+    () => relay.connect(
+      origin: origin,
+      handle: 'h2',
+      mode: PairingMode(psk: Uint8List(32)),
+      gate: gate,
+      deviceInfo: _testDeviceInfo,
+    ),
+    _RealHttpOverrides(),
   );
 
   while (connections.isEmpty) {
@@ -349,6 +359,10 @@ Future<RelayConnection> _connectedThenDroppedRelay({
 }
 
 void main() {
+  setUp(() {
+    TestWidgetsFlutterBinding.ensureInitialized()
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  });
   for (final failed in [false, true]) {
     testWidgets(
       'QR switch callback returns to computers; outcome: ${failed ? 'failure' : 'cancel'}',
@@ -948,6 +962,8 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+
+          await pumpRasterized(tester);
 
           // Landed on the pairing flow, unlocked, with no lock prompt left showing.
           expect(find.text('Pair by hand'), findsOneWidget);

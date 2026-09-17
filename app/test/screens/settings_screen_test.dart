@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async' show unawaited;
+import 'dart:convert' show base64Encode;
 
 import 'package:connectivity_plus/connectivity_plus.dart'
     show Connectivity, ConnectivityResult;
@@ -48,10 +49,26 @@ import 'package:material_ui/material_ui.dart'
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/types.dart';
 
 class _MockFlutterSecureStorage extends Mock implements FlutterSecureStorage {}
 
 class _MockConnectivity extends Mock implements Connectivity {}
+
+final class _FailingLockPreferences extends InMemorySharedPreferencesAsync {
+  _FailingLockPreferences({required bool enabled})
+    : super.withData({'app_lock_enabled': enabled});
+
+  @override
+  Future<bool> setBool(
+    String key,
+    bool value,
+    SharedPreferencesOptions options,
+  ) async {
+    if (key == 'app_lock_enabled') throw Exception('setting_write_failed');
+    return super.setBool(key, value, options);
+  }
+}
 
 /// Mirrors `origin_change_test.dart`'s own helper: `RelayConnection`'s constructor starts a
 /// real `ConnectivityWatcher`, whose `onConnectivityChanged` subscription needs a live
@@ -83,6 +100,7 @@ void main() {
     storage = _MockFlutterSecureStorage();
     final backing = <String, String>{
       'relay_origin': 'https://relay.example.com',
+      'device_x25519_private_key': base64Encode(List<int>.filled(32, 7)),
     };
     when(() => storage.read(key: any(named: 'key')))
         .thenAnswer((invocation) async {
@@ -522,4 +540,44 @@ void main() {
       expect(gate.appLockEnabled, isTrue);
     },
   );
+
+  for (final initiallyEnabled in [false, true]) {
+    testWidgets(
+      'a preference failure restores App Lock protection from $initiallyEnabled',
+      (tester) async {
+        SharedPreferencesAsyncPlatform.instance = _FailingLockPreferences(
+          enabled: initiallyEnabled,
+        );
+        await appSettings.dispose();
+        appSettings = AppSettingsService();
+        keystore = KeystoreService(
+          appLockEnabled: initiallyEnabled,
+          storage: storage,
+        );
+        gate = BiometricGate(
+          appLockEnabled: initiallyEnabled,
+          keystore: keystore,
+          setNativeLocked: (_) {},
+        );
+        final seed = base64Encode(List<int>.filled(32, 7));
+        await storage.write(key: 'device_x25519_private_key', value: seed);
+        await pumpScreen(tester);
+        await tester.dragUntilVisible(
+          find.text('App Lock'),
+          find.byType(CustomScrollView),
+          const Offset(0, -200),
+        );
+        await tester.ensureVisible(find.text('App Lock'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('App Lock'));
+        await tester.pumpAndSettle();
+
+        expect(keystore.appLockEnabled, initiallyEnabled);
+        expect(gate.appLockEnabled, initiallyEnabled);
+        expect(appSettings.current.appLockEnabled, initiallyEnabled);
+        expect(await storage.read(key: 'device_x25519_private_key'), seed);
+      },
+    );
+  }
 }

@@ -20,8 +20,10 @@ import 'package:cupertino_ui/cupertino_ui.dart'
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show AppBar;
-import 'package:flutter/widgets.dart' show CustomScrollView, SliverPadding;
+import 'package:flutter/widgets.dart'
+    show CustomScrollView, SizedBox, SliverPadding;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/models/codes.dart';
 import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/device_list.dart';
@@ -113,6 +115,7 @@ class _Harness {
 Future<_Harness> _pumpScreen(
   WidgetTester tester, {
   void Function()? onRemovedThisPhone,
+  Future<Result<void>> Function()? reauthenticate,
 }) async {
   final harness = _Harness();
   addTearDown(harness.dispose);
@@ -124,6 +127,8 @@ Future<_Harness> _pumpScreen(
         messages: harness.messages.stream,
         connectionState: harness.connectionState.stream,
         send: harness.send,
+        // Existing fixtures model App Lock off; security cases inject their own gate.
+        reauthenticate: reauthenticate ?? () async => const Ok(null),
         onRemovedThisPhone: onRemovedThisPhone,
       ),
     ),
@@ -136,10 +141,12 @@ Future<_Harness> _pumpLoaded(
   WidgetTester tester,
   List<DeviceListEntry> devices, {
   void Function()? onRemovedThisPhone,
+  Future<Result<void>> Function()? reauthenticate,
 }) async {
   final harness = await _pumpScreen(
     tester,
     onRemovedThisPhone: onRemovedThisPhone,
+    reauthenticate: reauthenticate,
   );
   await harness.deliver(
     tester,
@@ -183,6 +190,114 @@ void main() {
     // none is passed, and `SharedPreferencesAsync` needs a platform to construct.
     SharedPreferencesAsyncPlatform.instance =
         InMemorySharedPreferencesAsync.empty();
+  });
+
+  for (final action in <(String, String)>[
+    ('Remove this phone', 'Remove'),
+    ('Remove other phones', 'Remove other phones'),
+    ('Remove every phone', 'Remove every phone'),
+  ]) {
+    testWidgets(
+      '${action.$1} sends nothing while authentication is pending or cancelled',
+      (tester) async {
+        final authentication = Completer<Result<void>>();
+        var attempts = 0;
+        final harness = await _pumpLoaded(
+          tester,
+          _threePhones(),
+          reauthenticate: () {
+            attempts++;
+            return authentication.future;
+          },
+        );
+        await _pickRemove(tester, action.$1);
+        expect(attempts, 0, reason: 'confirm the action before asking the OS');
+        await tester.tap(find.text(action.$2));
+        await tester.pump();
+        expect(attempts, 1);
+        expect(harness.revokedIds, isEmpty);
+        expect(_removeAction(tester).onPressed, isNull);
+
+        authentication.complete(const Err('authentication cancelled'));
+        await tester.pumpAndSettle();
+        expect(harness.revokedIds, isEmpty);
+        expect(_removeAction(tester).onPressed, isNotNull);
+
+        await _pickRemove(tester, action.$1);
+        await tester.tap(find.text(action.$2));
+        await tester.pumpAndSettle();
+        expect(attempts, 2, reason: 'another removal must authenticate again');
+        expect(harness.revokedIds, isEmpty);
+      },
+    );
+  }
+
+  testWidgets(
+    'a successful fresh authentication permits the confirmed removal',
+    (tester) async {
+      final authentication = Completer<Result<void>>();
+      final harness = await _pumpLoaded(
+        tester,
+        _threePhones(),
+        reauthenticate: () => authentication.future,
+      );
+      await _pickRemove(tester, 'Remove this phone');
+      await tester.tap(find.text('Remove'));
+      await tester.pump();
+      expect(harness.revokedIds, isEmpty);
+
+      authentication.complete(const Ok(null));
+      await tester.pump();
+      expect(harness.revokedIds, ['device-1']);
+      await harness.deliver(
+        tester,
+        const Message.revokeResult(
+          RevokeResult(revoked: ['device-1'], all: false),
+        ),
+      );
+    },
+  );
+
+  testWidgets(
+    'authentication completing after the screen closes sends no removal',
+    (tester) async {
+      final authentication = Completer<Result<void>>();
+      final harness = await _pumpLoaded(
+        tester,
+        _threePhones(),
+        reauthenticate: () => authentication.future,
+      );
+      await _pickRemove(tester, 'Remove this phone');
+      await tester.tap(find.text('Remove'));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      authentication.complete(const Ok(null));
+      await tester.pump();
+      expect(harness.revokedIds, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('a disconnect during authentication prevents removal', (
+    tester,
+  ) async {
+    final authentication = Completer<Result<void>>();
+    final harness = await _pumpLoaded(
+      tester,
+      _threePhones(),
+      reauthenticate: () => authentication.future,
+    );
+    await _pickRemove(tester, 'Remove this phone');
+    await tester.tap(find.text('Remove'));
+    await tester.pump();
+    harness.connectionState.add(const RelayDisconnected());
+    await tester.pump();
+
+    authentication.complete(const Ok(null));
+    await tester.pumpAndSettle();
+    expect(harness.revokedIds, isEmpty);
+    expect(_removeAction(tester).onPressed, isNull);
   });
 
   testWidgets('iOS: renders CupertinoNavigationBar with the phones-on-host title and the Remove '

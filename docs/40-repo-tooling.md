@@ -504,6 +504,7 @@ app/
 │   │   ├── device_list.dart
 │   │   ├── draft_store.dart
 │   │   ├── frame_codec.dart
+│   │   ├── frame_presentation.dart  # WP-13-b (R-90-018)
 │   │   ├── hmac_blake2s.dart
 │   │   ├── host_actions.dart
 │   │   ├── host_list.dart
@@ -561,6 +562,8 @@ app/
 │           ├── chrome_transparency.dart
 │           └── chrome_working_icon_motion.dart
 ├── test/
+│   ├── app_lock_test.dart
+│   ├── frame_presentation_support.dart  # WP-13-b (R-90-018)
 │   ├── routing_stack_test.dart
 │   ├── routing_test.dart
 │   ├── a11y/
@@ -691,6 +694,7 @@ app/
 │   ├── host_dispatch_test.dart
 │   ├── keystore_survival_test.dart
 │   ├── live_review_fixes_test.dart
+│   ├── lock_presentation_test.dart  # WP-13-b (R-90-018)
 │   ├── pairing_flow_test.dart
 │   ├── real_host_ui_test.dart
 │   ├── reconnect_after_restart_test.dart

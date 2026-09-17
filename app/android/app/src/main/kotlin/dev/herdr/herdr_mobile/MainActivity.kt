@@ -20,8 +20,10 @@ import io.flutter.plugin.common.MethodChannel
  * (`app/lib/services/biometric_gate.dart`'s `BiometricGate._locked` starts `true`, per
  * R-31-04-01 and R-13-064) and a flag set only after Dart's first `setLocked` call would leave
  * a real, if brief, gap where an unprotected snapshot could be taken. [biometricGateChannel]
- * then tracks every later lock-state change: a successful unlock clears the flag, and the
- * 120-second background timeout of R-22-017 sets it again.
+ * then tracks every later lock-state change. Losing focus or pausing secures the window
+ * synchronously, before the system can capture the last Flutter frame. A successful unlock
+ * can clear the flag only in the focused foreground, after Flutter has replaced any frame
+ * that was covered for backgrounding.
  *
  * [appSettingsChannel] is a second, unrelated channel added on request for `WP-15-b`
  * (`docs/31-mockups/02-pair-scan.md`'s `Permission denied` row, `docs/22-platform-integration.md`
@@ -29,9 +31,37 @@ import io.flutter.plugin.common.MethodChannel
  * permission, with no interaction with the lock state above.
  */
 class MainActivity : FlutterActivity() {
+    private var locked = true
+    private var resumed = false
+    private var focused = false
+    private var awaitingProtectedFrame = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         super.onCreate(savedInstanceState)
+    }
+
+    override fun onResume() {
+        resumed = true
+        super.onResume()
+        updateFlagSecure()
+    }
+
+    override fun onPause() {
+        resumed = false
+        awaitingProtectedFrame = true
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        super.onPause()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        focused = hasFocus
+        if (!hasFocus) {
+            awaitingProtectedFrame = true
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        super.onWindowFocusChanged(hasFocus)
+        updateFlagSecure()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -41,8 +71,15 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "setLocked" -> {
-                        val locked = call.argument<Boolean>("locked") ?: true
-                        setFlagSecure(locked)
+                        locked = call.argument<Boolean>("locked") ?: true
+                        updateFlagSecure()
+                        result.success(null)
+                    }
+                    "frameReady" -> {
+                        // A late callback while paused cannot expose a cached task image.
+                        // Focus may return after this callback; the flag remains set until then.
+                        if (resumed) awaitingProtectedFrame = false
+                        updateFlagSecure()
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -60,8 +97,8 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    private fun setFlagSecure(locked: Boolean) {
-        if (locked) {
+    private fun updateFlagSecure() {
+        if (locked || !resumed || !focused || awaitingProtectedFrame) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)

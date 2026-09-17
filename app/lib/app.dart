@@ -8,9 +8,11 @@ import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoTextThemeData, CupertinoThemeData;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart'
     show DefaultMaterialLocalizations, DefaultWidgetsLocalizations;
-import 'package:flutter/services.dart' show SystemUiOverlayStyle;
+import 'package:flutter/services.dart' show MethodChannel, SystemUiOverlayStyle;
 import 'package:flutter/widgets.dart'
     show
         AnnotatedRegion,
@@ -19,12 +21,23 @@ import 'package:flutter/widgets.dart'
         BorderSide,
         Brightness,
         BuildContext,
+        Center,
         Color,
+        ColoredBox,
         DefaultTextStyle,
+        ExcludeFocus,
+        ExcludeSemantics,
+        FocusManager,
         Icon,
         MediaQuery,
+        Offstage,
+        Stack,
+        StackFit,
+        SizedBox,
         StreamBuilder,
+        Text,
         TextStyle,
+        TickerMode,
         WidgetState,
         WidgetStateProperty,
         WidgetStatePropertyAll,
@@ -61,12 +74,15 @@ import 'package:material_ui/material_ui.dart'
         ThemeMode,
         Widget;
 
+import 'core/result/result.dart';
 import 'routing.dart';
+import 'screens/lock_screen.dart';
 import 'services/app_settings.dart'
     show AppSettings, AppSettingsService, AppThemeMode;
 import 'services/biometric_gate.dart' show BiometricGate;
+import 'services/frame_presentation.dart' show RasterizedFrame;
 import 'services/notifications.dart';
-import 'services/plain_store.dart' show PlainStore;
+import 'services/plain_store.dart' show PairedHostRecord, PlainStore;
 import 'services/relay.dart'
     show RelayConnected, RelayConnection, RelayConnectionState;
 import 'widgets/theme/app_color.dart';
@@ -97,7 +113,10 @@ class HerdrRemoteApp extends StatelessWidget {
   const HerdrRemoteApp({super.key});
 
   @override
-  Widget build(BuildContext context) => const ProviderScope(child: _AppRoot());
+  Widget build(BuildContext context) => ProviderScope(
+    overrides: [appLockOverlayProvider.overrideWithValue(true)],
+    child: const _AppRoot(),
+  );
 }
 
 /// One `NotificationsService` for whole app session (`WP-19-a`,
@@ -143,32 +162,118 @@ class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver {
   /// The computer of the live session, kept so its last-seen time can be
   /// written when the link closes, when `lastHostInfo` may already be gone.
   String? _connectedHostId;
+  bool _ready = false;
+  bool _loadFailed = false;
+  bool _hasSavedHosts = true;
+  bool _obscured = false;
+  ({String hostId, String paneId})? _pendingNotification;
+  RasterizedFrame? _privacyFrame;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _notifications.onNotificationTapped = (String hostId, String paneId) =>
-        routeNotificationTap(
-          rootNavigatorKey.currentContext!,
-          hostId: hostId,
-          paneId: paneId,
-        );
+    _notifications.onNotificationTapped = (hostId, paneId) {
+      _pendingNotification = (hostId: hostId, paneId: paneId);
+      _deliverPendingNotification();
+    };
     unawaited(_notifications.initialize());
     _connectionSub = _connection.connectionState.listen(_onConnectionState);
+    unawaited(_loadLockPolicy());
+  }
+
+  Future<void> _loadLockPolicy() async {
+    final settings = await _appSettings.load();
+    final hosts = await PlainStore().pairedHosts();
+    if (!mounted) return;
+    if (settings is! Ok<AppSettings> || hosts is! Ok<List<PairedHostRecord>>) {
+      // Never substitute the fresh-install defaults for an unreadable lock policy.
+      setState(() => _loadFailed = true);
+      return;
+    }
+    _hasSavedHosts = hosts.value.isNotEmpty;
+    _gate.addListener(_lockChanged);
+    appRouter.routerDelegate.addListener(_routeChanged);
+    setState(() => _ready = true);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _deliverPendingNotification(),
+    );
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      unawaited(_releaseNativePrivacyCover());
+    }
+  }
+
+  void _lockChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _routeChanged() {
+    _lockChanged();
+    if (!_hasSavedHosts) unawaited(_refreshSavedHosts());
+    if (_pendingNotification != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _deliverPendingNotification(),
+      );
+    }
+  }
+
+  void _deliverPendingNotification() {
+    if (!mounted || !_ready) return;
+    final navigatorContext = rootNavigatorKey.currentContext;
+    final notification = _pendingNotification;
+    if (navigatorContext == null || notification == null) return;
+    _pendingNotification = null;
+    routeNotificationTap(
+      navigatorContext,
+      hostId: notification.hostId,
+      paneId: notification.paneId,
+    );
+  }
+
+  Future<void> _refreshSavedHosts() async {
+    final hosts = await PlainStore().pairedHosts();
+    if (!mounted) return;
+    if (hosts is! Ok<List<PairedHostRecord>> || hosts.value.isNotEmpty) {
+      setState(() => _hasSavedHosts = true);
+    }
   }
 
   @override
   void dispose() {
+    _privacyFrame?.cancel();
+    _notifications.onNotificationTapped = null;
     WidgetsBinding.instance.removeObserver(this);
+    if (_ready) {
+      _gate.removeListener(_lockChanged);
+      appRouter.routerDelegate.removeListener(_routeChanged);
+    }
     unawaited(_connectionSub?.cancel());
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_ready) return;
+    _privacyFrame?.cancel();
     _gate.noteLifecycleChange(state);
     unawaited(_connection.noteLifecycleChange(state));
+    setState(() => _obscured = state != AppLifecycleState.resumed);
+    if (_obscured) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    } else {
+      unawaited(_releaseNativePrivacyCover());
+    }
+  }
+
+  Future<void> _releaseNativePrivacyCover() async {
+    _privacyFrame?.cancel();
+    final frame = _privacyFrame = RasterizedFrame();
+    if (!await frame.ready || !mounted || _obscured) return;
+    if (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android) {
+      await const MethodChannel('dev.herdr.herdr_mobile/biometric_lock')
+          .invokeMethod<void>('frameReady');
+    }
   }
 
   void _onConnectionState(RelayConnectionState state) {
@@ -200,7 +305,14 @@ class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver {
     stream: _appSettings.changes,
     initialData: _appSettings.current,
     builder: (BuildContext context, AsyncSnapshot<AppSettings> snapshot) =>
-        _FixedChromeApp(themeMode: themeModeOf(snapshot.requireData.themeMode)),
+        _FixedChromeApp(
+          themeMode: themeModeOf(snapshot.requireData.themeMode),
+          ready: _ready,
+          loadFailed: _loadFailed,
+          gate: _ready ? _gate : null,
+          obscured: _obscured,
+          hasSavedHosts: _hasSavedHosts,
+        ),
   );
 }
 
@@ -214,9 +326,21 @@ ThemeMode themeModeOf(AppThemeMode mode) => switch (mode) {
 /// Both platforms: the fixed Herdr chrome scheme. No dynamic colour, no wallpaper scheme.
 /// [ResolvedChrome] wraps every route, per R-22-054.
 class _FixedChromeApp extends StatelessWidget {
-  const _FixedChromeApp({required this.themeMode});
+  const _FixedChromeApp({
+    required this.themeMode,
+    required this.ready,
+    required this.loadFailed,
+    required this.gate,
+    required this.obscured,
+    required this.hasSavedHosts,
+  });
 
   final ThemeMode themeMode;
+  final bool ready;
+  final bool loadFailed;
+  final BiometricGate? gate;
+  final bool obscured;
+  final bool hasSavedHosts;
 
   @override
   Widget build(BuildContext context) => MaterialApp.router(
@@ -225,8 +349,56 @@ class _FixedChromeApp extends StatelessWidget {
     localizationsDelegates: sdkMaterialLocalizations,
     theme: appThemeFrom(ChromeScheme.fixed(Brightness.light)),
     darkTheme: appThemeFrom(ChromeScheme.fixed(Brightness.dark)),
-    builder: (BuildContext context, Widget? child) =>
-        ResolvedChrome(child: child!),
+    builder: (BuildContext context, Widget? child) {
+      if (!ready) {
+        return ResolvedChrome(
+          child: ColoredBox(
+            color: AppColor.of(context).bgBase,
+            child: loadFailed
+                ? const Center(
+                    child: Text(
+                      'Unable to load App Lock settings. Reopen the app.',
+                    ),
+                  )
+                : const SizedBox.expand(),
+          ),
+        );
+      }
+      final path = appRouter.routerDelegate.currentConfiguration.uri.path;
+      final onboarding =
+          !hasSavedHosts &&
+          (path == '/' ||
+              path.startsWith('/welcome') ||
+              path.startsWith('/pair/'));
+      final locked = gate!.isLocked && !onboarding;
+      final hidden = locked || (obscured && gate!.appLockEnabled);
+      return ResolvedChrome(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ExcludeFocus(
+              excluding: hidden,
+              child: ExcludeSemantics(
+                excluding: hidden,
+                child: TickerMode(
+                  enabled: !hidden,
+                  child: Offstage(offstage: hidden, child: child!),
+                ),
+              ),
+            ),
+            if (locked) LockScreen(gate: gate!, onUnlocked: completeAppUnlock),
+            if (!locked && hidden)
+              const LockScreenBody(
+                phase: LockScreenPhase.checking,
+                biometric: BiometricPresentation(
+                  glyph: Symbols.lock_rounded,
+                  label: 'Unlock with biometrics',
+                ),
+              ),
+          ],
+        ),
+      );
+    },
   );
 }
 

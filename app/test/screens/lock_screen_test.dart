@@ -13,7 +13,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter/scheduler.dart' show SchedulerPhase;
 import 'package:flutter/services.dart' show MethodChannel, PlatformException;
-import 'package:flutter/widgets.dart' show SizedBox, Text;
+import 'package:flutter/widgets.dart' show AppLifecycleState, SizedBox, Text;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/screens/lock_screen.dart';
@@ -26,6 +26,8 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:material_ui/material_ui.dart' show MaterialApp;
 import 'package:mocktail/mocktail.dart';
 
+import '../frame_presentation_support.dart';
+
 class _MockBiometricGate extends Mock implements BiometricGate {}
 
 void main() {
@@ -33,13 +35,20 @@ void main() {
     const connectivity = MethodChannel(
       'dev.fluttercommunity.plus/connectivity',
     );
+    const presentation = MethodChannel('dev.herdr.herdr_mobile/biometric_lock');
     late _MockBiometricGate gate;
     setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized()
+          .handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       gate = _MockBiometricGate();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(presentation, (_) async => null);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(connectivity, (_) async => ['wifi']);
     });
     tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(presentation, null);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(connectivity, null);
     });
@@ -60,8 +69,82 @@ void main() {
       });
       await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
       await tester.pump();
+      // A built widget tree is not proof that the engine displayed its pixels.
+      expect(visibleAtUnlock, isEmpty);
+      reportRaster(tester, frameNumber: -2); // An older, blank bootstrap frame.
+      await tester.pump();
+      expect(visibleAtUnlock, isEmpty);
+      reportRaster(tester);
+      await tester.pump();
       expect(visibleAtUnlock, [true]);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    testWidgets('Face ID waits for the native launch screen to disappear', (
+      tester,
+    ) async {
+      final displayed = Completer<void>();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(presentation, (call) async {
+            if (call.method == 'waitUntilDisplayed') await displayed.future;
+            return null;
+          });
+      when(() => gate.availableBiometrics())
+          .thenAnswer((_) async => [BiometricType.face]);
+      when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
+      await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+      await tester.pump();
+      reportRaster(tester);
+      await tester.pump();
+      verifyNever(() => gate.unlock());
+      displayed.complete();
+      await tester.pump();
+      verify(() => gate.unlock()).called(1);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('pending display acknowledgment waits until the app resumes', (
+      tester,
+    ) async {
+      final displayed = Completer<void>();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(presentation, (call) async {
+            if (call.method == 'waitUntilDisplayed') await displayed.future;
+            return null;
+          });
+      when(() => gate.availableBiometrics())
+          .thenAnswer((_) async => [BiometricType.face]);
+      when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
+      await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+      await tester.pump();
+      reportRaster(tester);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      displayed.complete();
+      await tester.pump();
+      verifyNever(() => gate.unlock());
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      verify(() => gate.unlock()).called(1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      verifyNever(() => gate.unlock());
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('disposing while a raster is pending cancels authentication', (
+      tester,
+    ) async {
+      when(() => gate.availableBiometrics())
+          .thenAnswer((_) async => [BiometricType.face]);
+      when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
+      await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      reportRaster(tester);
+      await tester.pump();
+      verifyNever(() => gate.unlock());
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
     testWidgets('leaving before the page is ready does not raise Face ID', (
       tester,
     ) async {
@@ -82,6 +165,8 @@ void main() {
         when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
         await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
         await tester.pump();
+        reportRaster(tester);
+        await tester.pump();
         verify(() => gate.unlock()).called(1);
         expect(tester.takeException(), isNull);
       },
@@ -98,9 +183,12 @@ void main() {
         await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
         await tester.tap(find.text('Use device passcode'));
         await tester.pump();
-        expect(find.text('Not recognised. Try again.'), findsOneWidget);
+        verifyNever(() => gate.unlock());
 
         types.complete([BiometricType.face]);
+        await tester.pumpAndSettle();
+        verifyNever(() => gate.unlock());
+        reportRaster(tester);
         await tester.pumpAndSettle();
         verify(() => gate.unlock()).called(1);
         expect(find.text('Not recognised. Try again.'), findsOneWidget);

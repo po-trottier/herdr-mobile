@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/models/frame.dart';
@@ -20,6 +21,7 @@ import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/device_info.dart';
 import 'package:herdr_mobile/models/messages/host_info.dart';
 import 'package:herdr_mobile/models/messages/platform.dart' as wire;
+import 'package:herdr_mobile/models/messages/tree_request.dart';
 import 'package:herdr_mobile/services/biometric_gate.dart';
 import 'package:herdr_mobile/services/connectivity.dart';
 import 'package:herdr_mobile/services/frame_codec.dart';
@@ -79,6 +81,8 @@ Future<BiometricGate> _unlockedGate() async {
         localAuth.authenticate(localizedReason: any(named: 'localizedReason')),
   ).thenAnswer((_) async => true);
   when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+  when(() => keystore.existingDeviceKeyPair())
+      .thenAnswer((_) async => Ok(keyPair));
   final gate = BiometricGate(
     appLockEnabled: true,
     localAuth: localAuth,
@@ -276,6 +280,260 @@ void main() {
       }
     });
   }
+  for (final unlockAgain in [false, true]) {
+    test(
+      'a lock rejects a handshake already in flight, unlocked again: $unlockAgain',
+      () async {
+        final fake = await _FakeRelay.start();
+        final gate = await _unlockedGate();
+        final handshakeStarted = Completer<void>();
+        final finishHandshake = Completer<void>();
+        final relay = RelayConnection(
+          handshaker: (iterator, channel, mode, gate, localStatic) async {
+            handshakeStarted.complete();
+            await finishHandshake.future;
+            return _fakeHandshaker(iterator, channel, mode, gate, localStatic);
+          },
+          connectivityWatcher: _noOpConnectivityWatcher(),
+        );
+        addTearDown(relay.dispose);
+        final result = relay.connect(
+          origin: fake.origin,
+          handle: 'test-handle',
+          mode: ReconnectMode(remoteStaticPublicKey: _fixedRemoteStaticKey),
+          gate: gate,
+          deviceInfo: _testDeviceInfo,
+        );
+        final ws = await fake.connection(0);
+        await _FakeRelay.joinAndGreet(ws, StreamIterator<dynamic>(ws));
+        await handshakeStarted.future;
+        gate.noteLifecycleChange(AppLifecycleState.detached);
+        if (unlockAgain) expect(await gate.unlock(), isA<Ok<void>>());
+        finishHandshake.complete();
+
+        expect(await result, isA<Err<void>>());
+        expect(relay.isConnected, isFalse);
+        expect(gate.isLocked, !unlockAgain);
+      },
+    );
+  }
+
+  test('locking closes a live session and discards its queued send', () async {
+    final fake = await _FakeRelay.start();
+    final gate = await _unlockedGate();
+    final relay = RelayConnection(
+      handshaker: _fakeHandshaker,
+      connectivityWatcher: _noOpConnectivityWatcher(),
+    );
+    addTearDown(relay.dispose);
+    final result = relay.connect(
+      origin: fake.origin,
+      handle: 'test-handle',
+      mode: PairingMode(psk: Uint8List(32)),
+      gate: gate,
+      deviceInfo: _testDeviceInfo,
+    );
+    final ws = await fake.connection(0);
+    final incoming = StreamIterator<dynamic>(ws);
+    await _FakeRelay.joinAndGreet(ws, incoming);
+    expect(await result, isA<Ok<void>>());
+    final frame = await _readDeviceFrame(
+      incoming,
+      NoiseCipher.withKey(_deviceSendKey),
+      Reassembler(),
+    );
+    expect(frame.type, 'device_info');
+    relay.send(const Message.treeRequest(TreeRequest()));
+    gate.noteLifecycleChange(AppLifecycleState.detached);
+
+    expect(relay.isConnected, isFalse);
+    expect(
+      () => relay.send(const Message.treeRequest(TreeRequest())),
+      throwsA(isA<RelayNotConnectedException>()),
+    );
+    expect(await incoming.moveNext(), isFalse);
+  });
+
+  for (final locking in [true, false]) {
+    test(
+      'interruption during real Noise initialization fails safely, locking: $locking',
+      () async {
+        final fake = await _FakeRelay.start();
+        final gate = await _unlockedGate();
+        final relay = RelayConnection(
+          connectivityWatcher: _noOpConnectivityWatcher(),
+        );
+        addTearDown(relay.dispose);
+        final subscription = relay.connectionState.listen((state) {
+          if (state is RelayConnecting &&
+              state.stage == ConnectionStage.handshake) {
+            if (locking) {
+              gate.noteLifecycleChange(AppLifecycleState.detached);
+            } else {
+              unawaited(relay.noteLifecycleChange(AppLifecycleState.paused));
+            }
+          }
+        });
+        addTearDown(subscription.cancel);
+        final result = relay.connect(
+          origin: fake.origin,
+          handle: 'test-handle',
+          mode: ReconnectMode(remoteStaticPublicKey: _fixedRemoteStaticKey),
+          gate: gate,
+          deviceInfo: _testDeviceInfo,
+        );
+        final ws = await fake.connection(0);
+        final incoming = StreamIterator<dynamic>(ws);
+        await incoming.moveNext();
+        ws.add(jsonEncode({'type': 'session_joined', 'role': 'device'}));
+
+        expect(await result, isA<Err<void>>());
+        expect(relay.isConnected, isFalse);
+        expect(await incoming.moveNext(), isFalse);
+        await ws.close();
+      },
+    );
+  }
+
+  test('foreground reconnect waits until the gate is unlocked', () async {
+    final fake = await _FakeRelay.start();
+    final gate = await _unlockedGate();
+    final relay = RelayConnection(
+      handshaker: _fakeHandshaker,
+      connectivityWatcher: _noOpConnectivityWatcher(),
+    );
+    addTearDown(relay.dispose);
+    final result = relay.connect(
+      origin: fake.origin,
+      handle: 'test-handle',
+      mode: ReconnectMode(remoteStaticPublicKey: _fixedRemoteStaticKey),
+      gate: gate,
+      deviceInfo: _testDeviceInfo,
+    );
+    final ws = await fake.connection(0);
+    await _FakeRelay.joinAndGreet(ws, StreamIterator<dynamic>(ws));
+    expect(await result, isA<Ok<void>>());
+    await relay.noteLifecycleChange(AppLifecycleState.paused);
+    gate.noteLifecycleChange(AppLifecycleState.detached);
+    await relay.noteLifecycleChange(AppLifecycleState.resumed);
+    expect(fake.connections, hasLength(1));
+    expect(relay.isConnected, isFalse);
+
+    expect(await gate.unlock(), isA<Ok<void>>());
+    final resumed = await fake
+        .connection(1)
+        .timeout(const Duration(seconds: 3));
+    await _FakeRelay.joinAndGreet(resumed, StreamIterator<dynamic>(resumed));
+    await relay.connectionState.firstWhere((state) => state is RelayConnected);
+    expect(relay.isConnected, isTrue);
+  });
+
+  test('a frame that finishes decoding after lock is not published', () async {
+    final fake = await _FakeRelay.start();
+    final gate = await _unlockedGate();
+    var lockOnDecode = false;
+    final lockedDuringDecode = Completer<void>();
+    final relay = RelayConnection(
+      handshaker: _fakeHandshaker,
+      connectivityWatcher: _noOpConnectivityWatcher(),
+      now: () {
+        // Reassembly reads the clock after asynchronous decryption. Lock at that
+        // boundary, before the decoded payload can be published to UI listeners.
+        if (lockOnDecode) {
+          lockOnDecode = false;
+          gate.noteLifecycleChange(AppLifecycleState.detached);
+          lockedDuringDecode.complete();
+        }
+        return DateTime.utc(2026);
+      },
+    );
+    addTearDown(relay.dispose);
+    final received = <Message>[];
+    final subscription = relay.messages.listen(received.add);
+    addTearDown(subscription.cancel);
+    final result = relay.connect(
+      origin: fake.origin,
+      handle: 'test-handle',
+      mode: PairingMode(psk: Uint8List(32)),
+      gate: gate,
+      deviceInfo: _testDeviceInfo,
+    );
+    final ws = await fake.connection(0);
+    final incoming = StreamIterator<dynamic>(ws);
+    await incoming.moveNext();
+    ws.add(jsonEncode({'type': 'session_joined', 'role': 'device'}));
+    final hostCipher = NoiseCipher.withKey(_deviceReceiveKey);
+    await _sendHostMessage(
+      ws,
+      hostCipher,
+      Message.hostInfo(_hostInfoWithProtocol(frameProtocolVersion)),
+      1,
+    );
+    expect(await result, isA<Ok<void>>());
+    lockOnDecode = true;
+    await _sendHostMessage(
+      ws,
+      hostCipher,
+      const Message.treeRequest(TreeRequest()),
+      2,
+    );
+    await lockedDuringDecode.future;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(received, isEmpty);
+    expect(relay.framesIn, 0);
+    expect(relay.isConnected, isFalse);
+  });
+
+  test(
+    'locking discards a decoded message queued for a paused listener',
+    () async {
+      final fake = await _FakeRelay.start();
+      final gate = await _unlockedGate();
+      final relay = RelayConnection(
+        handshaker: _fakeHandshaker,
+        connectivityWatcher: _noOpConnectivityWatcher(),
+      );
+      addTearDown(relay.dispose);
+      final received = <Message>[];
+      final subscription = relay.messages.listen(received.add)..pause();
+      addTearDown(subscription.cancel);
+      final result = relay.connect(
+        origin: fake.origin,
+        handle: 'test-handle',
+        mode: PairingMode(psk: Uint8List(32)),
+        gate: gate,
+        deviceInfo: _testDeviceInfo,
+      );
+      final ws = await fake.connection(0);
+      final incoming = StreamIterator<dynamic>(ws);
+      await incoming.moveNext();
+      ws.add(jsonEncode({'type': 'session_joined', 'role': 'device'}));
+      final hostCipher = NoiseCipher.withKey(_deviceReceiveKey);
+      await _sendHostMessage(
+        ws,
+        hostCipher,
+        Message.hostInfo(_hostInfoWithProtocol(frameProtocolVersion)),
+        1,
+      );
+      expect(await result, isA<Ok<void>>());
+      await _sendHostMessage(
+        ws,
+        hostCipher,
+        const Message.treeRequest(TreeRequest()),
+        2,
+      );
+      while (relay.framesIn == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      gate.noteLifecycleChange(AppLifecycleState.detached);
+      subscription.resume();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, isEmpty);
+    },
+  );
+
   for (final completeHandshake in [false, true]) {
     test(
       'cancelled pairing switch cannot reconnect: handshake complete $completeHandshake',

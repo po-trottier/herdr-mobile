@@ -42,6 +42,7 @@ import 'package:flutter/widgets.dart'
         MediaQuery,
         Navigator,
         Page,
+        PopScope,
         SizedBox,
         State,
         StatefulWidget,
@@ -304,6 +305,28 @@ final Provider<BiometricGate> biometricGateProvider = Provider<BiometricGate>(
   ),
 );
 
+/// The app root owns the only authentication page above its whole Navigator.
+/// Standalone router consumers keep the route-local page.
+final appLockOverlayProvider = Provider<bool>((ref) => false);
+
+/// Returns from the held lock route only after its real authentication succeeded.
+void completeAppUnlock() {
+  final state = appRouter.routerDelegate.currentConfiguration;
+  if (state.uri.path != '/lock') return;
+  final held = state.uri.queryParameters['from'];
+  final canGoBack = appRouter.canPop();
+  if (canGoBack) appRouter.pop();
+  if (held != null && held.isNotEmpty) {
+    if (canGoBack) {
+      unawaited(appRouter.push(held));
+    } else {
+      appRouter.go(held);
+    }
+  } else if (!canGoBack) {
+    appRouter.go('/hosts');
+  }
+}
+
 /// One `RelayConnection` for whole session, mirrors
 /// [biometricGateProvider]'s pattern. `device_list_screen.dart`'s own doc
 /// comment names this file as supplier of `messages`/`connectionState`/
@@ -424,6 +447,23 @@ final GoRouter appRouter = GoRouter(
       });
     }
     return const Allow();
+  },
+  redirect: (context, state) async {
+    if (state.uri.path == '/' || state.uri.path == '/lock') return null;
+    final container = ProviderScope.containerOf(context, listen: false);
+    final gate = container.read(biometricGateProvider);
+    if (!gate.isLocked) return null;
+    final hosts = await PlainStore().pairedHosts();
+    // First pairing has no existing data to protect. Once a Host exists, every route
+    // (including onboarding and Settings) must pass the same session gate.
+    if (!gate.isLocked ||
+        (hosts is Ok<List<PairedHostRecord>> && hosts.value.isEmpty)) {
+      return null;
+    }
+    return Uri(
+      path: '/lock',
+      queryParameters: {'from': state.uri.toString()},
+    ).toString();
   },
   routes: <RouteBase>[
     StatefulShellRoute.indexedStack(
@@ -789,11 +829,24 @@ final GoRouter appRouter = GoRouter(
               target: target,
               hasNetwork: await _defaultHasNetwork(),
             ),
-            onForget: (PairedHostRecord target) => forgetHost(
-              keystore: keystore,
-              plainStore: plainStore,
-              hostId: target.hostId,
-            ),
+            onForget: (PairedHostRecord target) async {
+              if (gate.isLocked) {
+                return const Err<void>('Unlock before removing a computer');
+              }
+              if (gate.appLockEnabled) {
+                final authentication = await gate
+                    .reauthenticateForDestructiveAction();
+                if (authentication is! Ok<void>) return authentication;
+              }
+              if (gate.isLocked) {
+                return const Err<void>('The app locked before removal');
+              }
+              return forgetHost(
+                keystore: keystore,
+                plainStore: plainStore,
+                hostId: target.hostId,
+              );
+            },
             onSwitched: (String hostId) {
               if (appRouter.state.uri.path == '/hosts') {
                 context.go('/hosts/$hostId/agents');
@@ -915,39 +968,19 @@ final GoRouter appRouter = GoRouter(
           context,
           listen: false,
         ).read(biometricGateProvider);
-        final String? held = state.uri.queryParameters['from'];
+        final rootOwnsLock = ProviderScope.containerOf(
+          context,
+          listen: false,
+        ).read(appLockOverlayProvider);
         return _platformPage(
           key: state.pageKey,
           title: 'Locked',
           fullscreenDialog: true,
-          child: LockScreen(
-            gate: gate,
-            onUnlocked: () {
-              final bool canGoBack = context.canPop();
-              if (canGoBack) {
-                context.pop();
-              }
-              if (held != null && held.isNotEmpty) {
-                if (canGoBack) {
-                  unawaited(context.push(held));
-                } else {
-                  // A notification tap or an R-22-034 deep link reaching `/lock` straight
-                  // from `_resolveStartupRedirect`, with nothing under this cold-started
-                  // lock: `go`, never `push`, or this screen -- now unlocked and never
-                  // popped -- stays a stale page under the held route, and back from it
-                  // lands the person on a dead lock screen instead of R-30-031's "the
-                  // route that opened it".
-                  context.go(held);
-                }
-              } else if (!canGoBack) {
-                // docs/31-mockups/04-lock.md Navigation, "Out, success": "If
-                // neither, /hosts... This screen MUST NOT choose a per-Host
-                // route of its own." A cold start with no held route and
-                // nothing to pop back to lands here, never on a computer this
-                // file picked itself.
-                context.go('/hosts');
-              }
-            },
+          child: PopScope(
+            canPop: !gate.isLocked,
+            child: rootOwnsLock
+                ? const SizedBox.shrink()
+                : LockScreen(gate: gate, onUnlocked: completeAppUnlock),
           ),
         );
       },
@@ -1152,7 +1185,7 @@ Future<String> _resolveStartupRedirect(
   final String landing;
   if (!hasSavedHost) {
     landing = '/welcome';
-  } else if (appSettings.current.appLockEnabled) {
+  } else if (container.read(biometricGateProvider).isLocked) {
     landing = '/lock';
   } else {
     landing = '/hosts';
@@ -1680,6 +1713,15 @@ class _DeviceListRouteState extends State<_DeviceListRoute> {
       return const SizedBox.shrink();
     }
     return DeviceListScreen(
+      reauthenticate: () {
+        final gate = ProviderScope.containerOf(
+          context,
+          listen: false,
+        ).read(biometricGateProvider);
+        return gate.appLockEnabled
+            ? gate.reauthenticateForDestructiveAction()
+            : Future.value(const Ok<void>(null));
+      },
       hostName: widget.hostName,
       localDeviceId: id,
       messages: widget.messages,
@@ -1994,14 +2036,9 @@ Future<void> _turnAppLockOn(BuildContext context) async {
   final Result<void> retoggleResult = await keystore.retoggleProtection(
     appLockEnabled: true,
     hostIds: hostIds,
+    persistAppLock: appSettings.setAppLockEnabled,
   );
   if (retoggleResult is! Ok<void>) {
-    return;
-  }
-  final Result<void> settingResult = await appSettings.setAppLockEnabled(
-    value: true,
-  );
-  if (settingResult is! Ok<void>) {
     return;
   }
   gate.setAppLockEnabled(value: true);

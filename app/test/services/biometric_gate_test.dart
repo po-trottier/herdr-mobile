@@ -24,8 +24,8 @@ import 'package:mocktail/mocktail.dart';
 
 /// Mirrors `biometric_gate.dart`'s own private `_lockChannel`: the channel
 /// `_defaultSetNativeLocked` -- the real default for the `setNativeLocked` constructor
-/// parameter every other test in this file overrides with `nativeLockCalls.add` -- invokes on
-/// Android only.
+/// parameter every other test in this file overrides with `nativeLockCalls.add` -- invokes
+/// for the Android screenshot flag and the iOS privacy shield.
 const MethodChannel _lockChannel = MethodChannel(
   'dev.herdr.herdr_mobile/biometric_lock',
 );
@@ -71,21 +71,23 @@ void main() {
 
   test('concurrent unlocks share one pending keychain challenge', () async {
     final pending = Completer<Result<SimpleKeyPair>>();
-    when(() => keystore.deviceKeyPair()).thenAnswer((_) => pending.future);
+    when(() => keystore.existingDeviceKeyPair())
+        .thenAnswer((_) => pending.future);
     final first = gate.unlock();
     final second = gate.unlock();
     pending.complete(Ok(keyPair));
     expect(await first, isA<Ok<void>>());
     expect(await second, isA<Ok<void>>());
     expect(gate.deviceStaticKey, same(keyPair));
-    verify(() => keystore.deviceKeyPair()).called(1);
+    verify(() => keystore.existingDeviceKeyPair()).called(1);
   });
 
   test(
     'locking during authentication rejects the late keychain result',
     () async {
       final pending = Completer<Result<SimpleKeyPair>>();
-      when(() => keystore.deviceKeyPair()).thenAnswer((_) => pending.future);
+      when(() => keystore.existingDeviceKeyPair())
+          .thenAnswer((_) => pending.future);
       final unlocking = gate.unlock();
       gate.noteLifecycleChange(AppLifecycleState.detached);
       pending.complete(Ok(keyPair));
@@ -98,7 +100,7 @@ void main() {
   group('_defaultSetNativeLocked platform gate (R-31-04-02)', () {
     // These tests build a `BiometricGate` with no `setNativeLocked` override, so the real
     // `_defaultSetNativeLocked` (the constructor parameter's own default) runs, and mock the
-    // native channel it would call on Android directly -- the only testing seam that reaches
+    // native channel directly -- the only testing seam that reaches
     // that private top-level function at all.
     final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -110,37 +112,37 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
 
-    test('iOS: unlock() never invokes the Android-only FLAG_SECURE channel, per this file\'s own '
-        'doc comment on _defaultSetNativeLocked', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      var invoked = false;
-      binding.defaultBinaryMessenger.setMockMethodCallHandler(_lockChannel, (
-        MethodCall call,
-      ) async {
-        invoked = true;
-        return null;
-      });
-      when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
-      final iosGate = BiometricGate(
-        appLockEnabled: true,
-        localAuth: localAuth,
-        keystore: keystore,
-        now: () => clock,
-      );
+    test(
+      'iOS: unlock and lock synchronize the native privacy shield',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        final lockedStates = <bool>[];
+        binding.defaultBinaryMessenger.setMockMethodCallHandler(_lockChannel, (
+          MethodCall call,
+        ) async {
+          lockedStates.add((call.arguments as Map)['locked'] as bool);
+          return null;
+        });
+        when(() => keystore.existingDeviceKeyPair())
+            .thenAnswer((_) async => Ok(keyPair));
+        final iosGate = BiometricGate(
+          appLockEnabled: true,
+          localAuth: localAuth,
+          keystore: keystore,
+          now: () => clock,
+        );
 
-      final result = await iosGate.unlock();
+        final result = await iosGate.unlock();
 
-      expect(result, isA<Ok<void>>());
-      expect(iosGate.isLocked, isFalse);
-      expect(
-        invoked,
-        isFalse,
-        reason:
-            'iOS has no matching native file in this file\'s own `Owns.` line '
-            '(see the doc comment above `_lockChannel`)',
-      );
-      debugDefaultTargetPlatformOverride = null;
-    });
+        expect(result, isA<Ok<void>>());
+        expect(iosGate.isLocked, isFalse);
+        expect(lockedStates, [false]);
+        iosGate.noteLifecycleChange(AppLifecycleState.detached);
+        await Future<void>.delayed(Duration.zero);
+        expect(lockedStates, [false, true]);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
 
     test('syncNativeLockState(appLockEnabled: false) clears the flag independent of any '
         'BiometricGate construction, the fix for the /welcome cold-start gap (R-31-01-09: no '
@@ -188,7 +190,8 @@ void main() {
 
   test('unlock() gates on a real keystore read alone, per R-22-013, and never also calls '
       'local_auth.authenticate() (the double-prompt defect)', () async {
-    when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+    when(() => keystore.existingDeviceKeyPair())
+        .thenAnswer((_) async => Ok(keyPair));
 
     final result = await gate.unlock();
 
@@ -198,7 +201,7 @@ void main() {
     // builds the Noise handshake with must be the key the biometric gate read, never an
     // independently generated one, or the gate is cryptographic theater.
     expect(gate.deviceStaticKey, same(keyPair));
-    verify(() => keystore.deviceKeyPair()).called(1);
+    verify(() => keystore.existingDeviceKeyPair()).called(1);
     expect(nativeLockCalls, [false]);
     verifyNoLocalAuthPromptWasRaised();
   });
@@ -206,7 +209,8 @@ void main() {
   test(
     'unlock() is a no-op with no further keystore read once already unlocked',
     () async {
-      when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+      when(() => keystore.existingDeviceKeyPair())
+          .thenAnswer((_) async => Ok(keyPair));
       await gate.unlock();
 
       final second = await gate.unlock();
@@ -214,14 +218,14 @@ void main() {
       expect(second, isA<Ok<void>>());
       // Exactly the one read from the first unlock: the second call short-circuited, which
       // matters doubly here because a real device re-prompts on every raw keystore read.
-      verify(() => keystore.deviceKeyPair()).called(1);
+      verify(() => keystore.existingDeviceKeyPair()).called(1);
       verifyNoLocalAuthPromptWasRaised();
     },
   );
 
   test('a rejected biometric leaves the app locked and passes BiometricAuthenticationException '
       'through unchanged', () async {
-    when(() => keystore.deviceKeyPair()).thenAnswer(
+    when(() => keystore.existingDeviceKeyPair()).thenAnswer(
       (_) async => const Err<SimpleKeyPair>(
         'read or generate the device key pair',
         cause: BiometricAuthenticationException(
@@ -241,7 +245,7 @@ void main() {
   });
 
   test('a temporary lockout passes through, per the mockup state', () async {
-    when(() => keystore.deviceKeyPair()).thenAnswer(
+    when(() => keystore.existingDeviceKeyPair()).thenAnswer(
       (_) async => const Err<SimpleKeyPair>(
         'read or generate the device key pair',
         cause: BiometricAuthenticationException(
@@ -261,7 +265,7 @@ void main() {
   });
 
   test('no enrolled biometric passes through, per the mockup state', () async {
-    when(() => keystore.deviceKeyPair()).thenAnswer(
+    when(() => keystore.existingDeviceKeyPair()).thenAnswer(
       (_) async => const Err<SimpleKeyPair>(
         'read or generate the device key pair',
         cause: BiometricAuthenticationException(
@@ -280,7 +284,7 @@ void main() {
   });
 
   test('a permanently invalidated key surfaces KeyInvalidatedException unwrapped, per R-22-010', () async {
-    when(() => keystore.deviceKeyPair()).thenAnswer(
+    when(() => keystore.existingDeviceKeyPair()).thenAnswer(
       (_) async => const Err<SimpleKeyPair>(
         'read or generate the device key pair',
         cause: KeyInvalidatedException('KeyPermanentlyInvalidatedException'),
@@ -298,7 +302,8 @@ void main() {
   test(
     'the app locks again after 120 seconds in the background, per R-22-017',
     () async {
-      when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+      when(() => keystore.existingDeviceKeyPair())
+          .thenAnswer((_) async => Ok(keyPair));
       await gate.unlock();
       nativeLockCalls.clear();
 
@@ -318,7 +323,8 @@ void main() {
   test(
     'the app stays unlocked under the 120-second background timeout',
     () async {
-      when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+      when(() => keystore.existingDeviceKeyPair())
+          .thenAnswer((_) async => Ok(keyPair));
       await gate.unlock();
       nativeLockCalls.clear();
 
@@ -335,7 +341,8 @@ void main() {
   test(
     'a detached lifecycle locks at once, defence in depth for a killed process',
     () async {
-      when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+      when(() => keystore.existingDeviceKeyPair())
+          .thenAnswer((_) async => Ok(keyPair));
       await gate.unlock();
       expect(gate.deviceStaticKey, same(keyPair));
 
@@ -351,10 +358,11 @@ void main() {
 
   test('a destructive-action re-auth always re-reads the keystore and never locks the session '
       'on refusal, per R-31-04-11', () async {
-    when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+    when(() => keystore.existingDeviceKeyPair())
+        .thenAnswer((_) async => Ok(keyPair));
     await gate.unlock();
 
-    when(() => keystore.deviceKeyPair()).thenAnswer(
+    when(() => keystore.existingDeviceKeyPair()).thenAnswer(
       (_) async => const Err<SimpleKeyPair>(
         'read or generate the device key pair',
         cause: BiometricAuthenticationException(
@@ -370,7 +378,7 @@ void main() {
     // A refused confirmation denies the one action; it does not send the whole app back to
     // `/lock`.
     expect(gate.isLocked, isFalse);
-    verify(() => keystore.deviceKeyPair())
+    verify(() => keystore.existingDeviceKeyPair())
         .called(2); // the earlier unlock() plus this one.
     verifyNoLocalAuthPromptWasRaised();
   });
@@ -436,7 +444,8 @@ void main() {
 
     test('setAppLockEnabled(true) re-arms the gate using the session\'s own unlock history, with '
         'no special case', () async {
-      when(() => keystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+      when(() => keystore.existingDeviceKeyPair())
+          .thenAnswer((_) async => Ok(keyPair));
       await gate
           .unlock(); // Real unlock history: `_locked` now false internally.
       gate.setAppLockEnabled(value: false);

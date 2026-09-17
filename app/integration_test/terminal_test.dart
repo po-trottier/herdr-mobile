@@ -153,7 +153,8 @@ Future<BiometricGate> _unlockedGate() async {
     () =>
         localAuth.authenticate(localizedReason: any(named: 'localizedReason')),
   ).thenAnswer((_) async => true);
-  when(() => mockKeystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+  when(() => mockKeystore.existingDeviceKeyPair())
+      .thenAnswer((_) async => Ok(keyPair));
   final gate = BiometricGate(
     appLockEnabled: true,
     localAuth: localAuth,

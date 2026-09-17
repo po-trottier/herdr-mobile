@@ -121,7 +121,8 @@ Future<BiometricGate> _unlockedGate() async {
     () =>
         localAuth.authenticate(localizedReason: any(named: 'localizedReason')),
   ).thenAnswer((_) async => true);
-  when(() => mockKeystore.deviceKeyPair()).thenAnswer((_) async => Ok(keyPair));
+  when(() => mockKeystore.existingDeviceKeyPair())
+      .thenAnswer((_) async => Ok(keyPair));
   final gate = BiometricGate(
     appLockEnabled: true,
     localAuth: localAuth,
@@ -293,6 +294,8 @@ void main() {
       await _pumpScreen(
         tester,
         DeviceListScreen(
+          reauthenticate: () async =>
+              const Ok(null), // This fixture has App Lock off.
           hostName: hostName,
           localDeviceId: _deviceId,
           messages: connection.messages,
@@ -319,6 +322,8 @@ void main() {
       await _pumpScreen(
         tester,
         DeviceListScreen(
+          reauthenticate: () async =>
+              const Ok(null), // This fixture has App Lock off.
           hostName: connection.lastHostInfo!.hostName,
           localDeviceId: _deviceId,
           messages: connection.messages,

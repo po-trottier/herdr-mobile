@@ -73,7 +73,11 @@ void main() {
       'unlock and legacy host records use the shared native context',
       () async {
         final service = KeystoreService(appLockEnabled: true);
-        final gate = BiometricGate(appLockEnabled: true, keystore: service);
+        final gate = BiometricGate(
+          appLockEnabled: true,
+          keystore: service,
+          setNativeLocked: (_) {},
+        );
         expect(await gate.unlock(), isA<Ok<void>>());
         expect(await gate.deviceStaticKey!.extractPrivateKeyBytes(), seed);
         final result = await service.hostSecrets('host-1');
@@ -104,6 +108,162 @@ void main() {
 
   const options = KeystoreService.iosOptionsAppLockOnForTesting;
   const offOptions = KeystoreService.iosOptionsAppLockOffForTesting;
+
+  group('protection transaction uses the original Keychain access control', () {
+    const sessionChannel = MethodChannel(
+      'dev.herdr.herdr_mobile/keychain_session',
+    );
+    const storageChannel = MethodChannel(
+      'plugins.it_nomads.com/flutter_secure_storage',
+    );
+    const key = 'device_x25519_private_key';
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    final seed = base64Encode(List<int>.filled(32, 7));
+    late Map<String, ({String value, bool gated})> entries;
+    late bool denyAuthentication;
+    late bool failWrite;
+    late bool failRecoveryDelete;
+
+    setUp(() {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      entries = {key: (value: seed, gated: true)};
+      denyAuthentication = false;
+      failWrite = false;
+      failRecoveryDelete = false;
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(sessionChannel, (
+        call,
+      ) async {
+        if (call.method == 'invalidate') return null;
+        final entry = entries[(call.arguments as Map)['key']];
+        if (entry?.gated == true && denyAuthentication) {
+          throw PlatformException(code: 'read', message: 'Code: -128');
+        }
+        return entry?.value;
+      });
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(storageChannel, (
+        call,
+      ) async {
+        final arguments = call.arguments as Map;
+        final itemKey = arguments['key'] as String;
+        if (call.method == 'delete') {
+          if (failRecoveryDelete && entries[itemKey]?.gated == false) {
+            throw PlatformException(code: 'recovery_delete_failed');
+          }
+          entries.remove(itemKey);
+          return null;
+        }
+        if (call.method == 'write') {
+          final options = arguments['options'] as Map;
+          entries[itemKey] = (
+            value: arguments['value'] as String,
+            gated: options['accessControlFlags'] != null,
+          );
+          if (failWrite) {
+            failWrite = false;
+            throw PlatformException(code: 'write_failed_after_storage');
+          }
+          return null;
+        }
+        throw PlatformException(code: 'unexpected_storage_operation');
+      });
+    });
+    tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        sessionChannel,
+        null,
+      );
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        storageChannel,
+        null,
+      );
+    });
+
+    for (final failure in ['preference', 'key_write']) {
+      test(
+        '$failure failure restores authentication as well as the key bytes',
+        () async {
+          final service = KeystoreService(appLockEnabled: true);
+          failWrite = failure == 'key_write';
+
+          expect(
+            await service.retoggleProtection(
+              appLockEnabled: false,
+              hostIds: [],
+              persistAppLock: ({required bool value}) async =>
+                  failure == 'preference'
+                  ? const Err('preference_write_failed')
+                  : const Ok(null),
+            ),
+            isA<Err<void>>(),
+          );
+          expect(entries[key], (value: seed, gated: true));
+          denyAuthentication = true;
+          final result = await service.existingDeviceKeyPair();
+          expect(result, isA<Err<SimpleKeyPair>>());
+          expect(
+            (result as Err<SimpleKeyPair>).cause,
+            isA<BiometricAuthenticationException>(),
+          );
+        },
+      );
+    }
+
+    test('refusing authentication prevents disabling App Lock', () async {
+      final service = KeystoreService(appLockEnabled: true);
+      denyAuthentication = true;
+
+      expect(
+        await service.retoggleProtection(appLockEnabled: false, hostIds: []),
+        isA<Err<void>>(),
+      );
+      expect(service.appLockEnabled, isTrue);
+      expect(entries[key], (value: seed, gated: true));
+    });
+
+    test('a failed rollback never leaves a persisted on policy with an ungated key', () async {
+      final service = KeystoreService(appLockEnabled: true);
+      var persistedPolicy = true;
+      failWrite = true;
+      failRecoveryDelete = true;
+
+      expect(
+        await service.retoggleProtection(
+          appLockEnabled: false,
+          hostIds: [],
+          persistAppLock: ({required bool value}) async {
+            persistedPolicy = value;
+            return const Ok(null);
+          },
+        ),
+        isA<Err<void>>(),
+      );
+      expect(entries[key], (value: seed, gated: false));
+      expect(persistedPolicy, isFalse);
+      expect(service.appLockEnabled, isFalse);
+      expect(await service.existingDeviceKeyPair(), isA<Err<SimpleKeyPair>>());
+    });
+
+    test('an uncertain on-policy write keeps the protected key until off is confirmed', () async {
+      entries[key] = (value: seed, gated: false);
+      final service = KeystoreService(appLockEnabled: false);
+      var persistedPolicy = false;
+
+      expect(
+        await service.retoggleProtection(
+          appLockEnabled: true,
+          hostIds: [],
+          persistAppLock: ({required bool value}) async {
+            if (value) persistedPolicy = true;
+            return const Err('uncertain_preference_write');
+          },
+        ),
+        isA<Err<void>>(),
+      );
+      expect(persistedPolicy, isTrue);
+      expect(entries[key], (value: seed, gated: true));
+    });
+  });
 
   group('KeystoreService iOS access control, App Lock on', () {
     test(
@@ -512,6 +672,165 @@ void main() {
         );
         expect(result, isA<Err<void>>());
         expect(keystore.appLockEnabled, isFalse);
+      },
+    );
+
+    test(
+      'a failed Host migration never removes the protected device key',
+      () async {
+        final protected = KeystoreService(
+          appLockEnabled: true,
+          storage: storage,
+        );
+        when(() => storage.read(key: 'host_routing_handle_host-1'))
+            .thenThrow(PlatformException(code: 'read_failed'));
+
+        expect(
+          await protected.retoggleProtection(
+            appLockEnabled: false,
+            hostIds: ['host-1'],
+          ),
+          isA<Err<void>>(),
+        );
+        expect(protected.appLockEnabled, isTrue);
+        expect(backing['device_x25519_private_key'], seedBase64);
+        verifyNever(() => storage.delete(key: 'device_x25519_private_key'));
+      },
+    );
+
+    test('a failed device-key write restores the existing identity', () async {
+      var writes = 0;
+      when(
+        () => storage.write(
+          key: 'device_x25519_private_key',
+          value: any(named: 'value'),
+        ),
+      ).thenAnswer((invocation) async {
+        if (writes++ == 0) throw PlatformException(code: 'write_failed');
+        backing['device_x25519_private_key'] =
+            invocation.namedArguments[#value] as String;
+      });
+
+      expect(
+        await keystore.retoggleProtection(appLockEnabled: true, hostIds: []),
+        isA<Err<void>>(),
+      );
+      expect(backing['device_x25519_private_key'], seedBase64);
+      expect(keystore.appLockEnabled, isFalse);
+    });
+
+    test(
+      'disabling App Lock requires the existing protected identity',
+      () async {
+        backing.remove('device_x25519_private_key');
+        final protected = KeystoreService(
+          appLockEnabled: true,
+          storage: storage,
+        );
+
+        expect(
+          await protected.retoggleProtection(
+            appLockEnabled: false,
+            hostIds: ['host-1'],
+          ),
+          isA<Err<void>>(),
+        );
+        expect(protected.appLockEnabled, isTrue);
+        expect(backing.containsKey('device_x25519_private_key'), isFalse);
+      },
+    );
+
+    test('enabling App Lock requires an identity to protect', () async {
+      backing.remove('device_x25519_private_key');
+
+      expect(
+        await keystore.retoggleProtection(appLockEnabled: true, hostIds: []),
+        isA<Err<void>>(),
+      );
+      expect(keystore.appLockEnabled, isFalse);
+      expect(backing.containsKey('device_x25519_private_key'), isFalse);
+    });
+
+    test(
+      'unlocking a missing identity never generates a replacement',
+      () async {
+        backing.remove('device_x25519_private_key');
+
+        final result = await keystore.existingDeviceKeyPair();
+
+        expect(result, isA<Err<SimpleKeyPair>>());
+        expect(
+          (result as Err<SimpleKeyPair>).cause,
+          isA<KeyInvalidatedException>(),
+        );
+        expect(backing.containsKey('device_x25519_private_key'), isFalse);
+      },
+    );
+
+    test(
+      'failed recovery cannot generate or return an unprotected identity',
+      () async {
+        final protected = KeystoreService(
+          appLockEnabled: true,
+          storage: storage,
+        );
+        when(
+          () => storage.write(
+            key: 'device_x25519_private_key',
+            value: any(named: 'value'),
+          ),
+        ).thenThrow(PlatformException(code: 'write_failed'));
+
+        expect(
+          await protected.retoggleProtection(
+            appLockEnabled: false,
+            hostIds: [],
+          ),
+          isA<Err<void>>(),
+        );
+        expect(protected.appLockEnabled, isTrue);
+        expect(backing.containsKey('device_x25519_private_key'), isFalse);
+        expect(await protected.deviceKeyPair(), isA<Err<SimpleKeyPair>>());
+        expect(
+          await protected.existingDeviceKeyPair(),
+          isA<Err<SimpleKeyPair>>(),
+        );
+        final reopened = KeystoreService(
+          appLockEnabled: true,
+          storage: storage,
+        );
+        expect(
+          await reopened.existingDeviceKeyPair(),
+          isA<Err<SimpleKeyPair>>(),
+        );
+        expect(backing.containsKey('device_x25519_private_key'), isFalse);
+      },
+    );
+
+    test(
+      'key reads cannot unlock during a pending protection transaction',
+      () async {
+        final protected = KeystoreService(
+          appLockEnabled: true,
+          storage: storage,
+        );
+        Result<SimpleKeyPair>? existingRead;
+        Result<SimpleKeyPair>? generatingRead;
+
+        await protected.retoggleProtection(
+          appLockEnabled: false,
+          hostIds: [],
+          persistAppLock: ({required bool value}) async {
+            existingRead = await protected.existingDeviceKeyPair();
+            generatingRead = await protected.deviceKeyPair();
+            return const Err('preference_write_failed');
+          },
+        );
+
+        expect(existingRead, isA<Err<SimpleKeyPair>>());
+        expect(generatingRead, isA<Err<SimpleKeyPair>>());
+        expect(backing['device_x25519_private_key'], seedBase64);
+        expect(protected.appLockEnabled, isTrue);
       },
     );
   });

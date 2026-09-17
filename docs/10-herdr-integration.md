@@ -1195,12 +1195,17 @@ mechanism per platform, no alternatives:
 | -------- | --------------------- | ------------------------------------------------------- | --------------------------------------- |
 | Linux    | systemd user unit     | `~/.config/systemd/user/herdr-relay.service`            | `Restart=always`, `RestartSec=5`        |
 | macOS    | launchd user agent    | `~/Library/LaunchAgents/dev.herdr.relay.plist`          | `KeepAlive=true`                        |
-| Windows  | Task Scheduler        | `\Herdr\herdr-relay`, trigger at logon                   | restart every 1 minute, up to 999 times |
+| Windows  | Task Scheduler        | `\Herdr\herdr-relay`, trigger at logon, no execution time limit | restart every 1 minute, up to 999 times |
 
 Windows Task Scheduler is chosen over a Windows Service because a service needs administrator rights
 to
 install, and the bridge must run as the logged-in user to reach that user's pipe. `herdr-scheduled`
 already uses Task Scheduler on Windows, so the install path is proven.
+
+The Windows job MUST set `ExecutionTimeLimit` to zero: Task Scheduler's default stops any task
+after 72 hours, and the restart policy fires only on a failure exit, so a bridge older than three
+days stayed down until the next logon (measured live 2026-09-17). The job runs a hidden PowerShell
+host that executes the binary inline, never the console binary itself, so no window ever appears.
 
 **R-10-050**: The `[[startup]]` hook MUST NOT start the bridge directly. It MUST do exactly two
 things, then exit: ensure the unit, agent, or task exists and is enabled, and ensure the default key

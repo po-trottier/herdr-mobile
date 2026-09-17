@@ -36,7 +36,12 @@ try {
     # denied" for a standard user. Scoped to this user it registers without
     # elevation, and this user is the one whose Herdr the bridge serves.
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    # -ExecutionTimeLimit 0: Task Scheduler's default stops any task after 72 hours, and
+    # the restart policy fires only on a failure exit, so a bridge older than three days
+    # died silently until the next logon (measured live 2026-09-17: PT72H on the registered
+    # task). Zero means no limit.
     $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+        -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
         -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
     # -ErrorAction Stop is explicit on every ScheduledTasks cmdlet below:

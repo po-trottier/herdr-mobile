@@ -4,13 +4,14 @@ $ErrorActionPreference = 'Stop'
 # ensure-service.ps1 - reconciles the \Herdr\herdr-relay Task Scheduler job
 # that supervises the bridge, then exits. It never runs the bridge in the
 # foreground (R-10-050). Restart every 1 minute, up to 999 times, triggered
-# at logon (R-10-049). The action is a hidden PowerShell host running
-# run.ps1, never the console binary itself: a console-subsystem binary that
-# Task Scheduler starts in the interactive session gets its own visible
-# console window (measured live; AGENTS.md, never spawn a console-visible
-# child). run.ps1 executes the binary inline, so it inherits the hidden
-# console. Same mechanism as herdr-scheduled's tasks (R-41-079 fixes the
-# executable path).
+# at logon (R-10-049). The action is `conhost.exe --headless` running a
+# PowerShell host that executes run.ps1, never the console binary itself.
+# Measured live 2026-09-17: with Windows Terminal as the default terminal
+# (the Windows 11 default), `powershell -WindowStyle Hidden` still opens a
+# visible Windows Terminal window, and closing that window kills the bridge.
+# `conhost --headless` allocates a pseudoconsole with no window at all, for
+# any default terminal setting (AGENTS.md, never spawn a console-visible
+# child). run.ps1 executes the binary inline, so it inherits that console.
 
 try {
     . (Join-Path $PSScriptRoot 'common.ps1')
@@ -27,10 +28,11 @@ try {
 try {
     $TaskPath = '\Herdr\'
     $TaskName = 'herdr-relay'
+    $ConhostExe = 'C:\Windows\System32\conhost.exe'
     $PsExe = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
     $RunPs1 = Join-Path $PSScriptRoot 'run.ps1'
-    $action = New-ScheduledTaskAction -Execute $PsExe `
-        -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $RunPs1)
+    $action = New-ScheduledTaskAction -Execute $ConhostExe `
+        -Argument ('--headless {0} -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $PsExe, $RunPs1)
     # -User: an unscoped -AtLogOn trigger means "any user" and needs
     # elevation; measured live, Register-ScheduledTask returns "Access is
     # denied" for a standard user. Scoped to this user it registers without

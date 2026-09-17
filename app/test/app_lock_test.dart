@@ -88,6 +88,10 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(channel, (_) async => ['none']);
     messenger.setMockMethodCallHandler(lockChannel, (_) async => null);
+    messenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (_) async => null,
+    );
   });
   tearDown(() async {
     await relay.dispose();
@@ -95,6 +99,7 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(channel, null);
     messenger.setMockMethodCallHandler(lockChannel, null);
+    messenger.setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
   Future<void> pumpApp(WidgetTester tester) async {

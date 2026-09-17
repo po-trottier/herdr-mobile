@@ -9,7 +9,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' show Tristate;
+import 'dart:ui' show ClipOp, Tristate;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cryptography/cryptography.dart';
@@ -19,6 +19,8 @@ import 'package:flutter/foundation.dart'
     show Brightness, TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show Offset, SizedBox, StatefulBuilder;
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart'
+    show CustomPaint, MediaQuery, Rect, Size, TextScaler;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/models/frame.dart';
@@ -340,6 +342,149 @@ void main() {
       expect(cancelledSwitch, existingHost ? 1 : 0);
     });
   }
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final textScale in [1.0, 2.0]) {
+      for (final phase in QrScanPhase.values) {
+        testWidgets(
+          '${platform.name} landscape ${phase.name} fits at text scale $textScale',
+          (tester) async {
+            tester.view.devicePixelRatio = 1;
+            tester.view.physicalSize = const Size(812, 375);
+            tester.view.padding = const FakeViewPadding(
+              left: 44,
+              right: 44,
+              bottom: 21,
+            );
+            addTearDown(tester.view.reset);
+            var manual = false;
+            var settings = false;
+            var cancelled = false;
+            await tester.pumpWidget(
+              MaterialApp(
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    textScaler: TextScaler.linear(textScale),
+                    disableAnimations: true,
+                  ),
+                  child: child!,
+                ),
+                home: QrScanScreenBody(
+                  phase: phase,
+                  hasConnectedHost: true,
+                  offline: phase != QrScanPhase.pairing,
+                  hint: phase == QrScanPhase.ready
+                      ? const QrHintIssue('That is not a Herdr pairing code.')
+                      : null,
+                  connectingHost: 'relay.example.com',
+                  onManualEntry: () => manual = true,
+                  onOpenSettings: () => settings = true,
+                  onCancel: () => cancelled = true,
+                ),
+              ),
+            );
+            await tester.pump();
+            expect(tester.takeException(), isNull);
+
+            if (phase != QrScanPhase.cameraUnavailable &&
+                phase != QrScanPhase.permissionDenied) {
+              final geometry = _viewfinderGeometry(tester)!;
+              expect(geometry.frame.width, greaterThan(0));
+              expect(geometry.frame.width, geometry.frame.height);
+              expect(
+                geometry.frame.left,
+                greaterThanOrEqualTo(geometry.bounds.left + 24),
+              );
+              expect(
+                geometry.frame.right,
+                lessThanOrEqualTo(geometry.bounds.right - 24),
+              );
+              expect(
+                geometry.frame.top,
+                greaterThanOrEqualTo(geometry.bounds.top + 24),
+              );
+              expect(
+                geometry.frame.bottom,
+                lessThanOrEqualTo(geometry.bounds.bottom - 24),
+              );
+            }
+            if (phase == QrScanPhase.permissionDenied) {
+              final action = find.text('Open Settings');
+              await tester.ensureVisible(action);
+              await tester.pump();
+              await tester.tap(action);
+              expect(settings, isTrue);
+            }
+            final action = find.text(
+              phase == QrScanPhase.pairing ? 'Cancel' : 'Type it in',
+            );
+            await tester.ensureVisible(action);
+            await tester.pump();
+            final rect = tester.getRect(action);
+            expect(rect.left, greaterThanOrEqualTo(44));
+            expect(rect.right, lessThanOrEqualTo(768));
+            expect(rect.bottom, lessThanOrEqualTo(354));
+            await tester.tap(action);
+            expect(phase == QrScanPhase.pairing ? cancelled : manual, isTrue);
+            expect(tester.takeException(), isNull);
+          },
+          variant: TargetPlatformVariant.only(platform),
+        );
+      }
+    }
+  }
+
+  testWidgets(
+    'iOS rotation keeps the scanner and zoom targets inside safe areas',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(375, 812);
+      addTearDown(tester.view.reset);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('dev.herdr.herdr_mobile/camera_zoom'),
+        (_) async => {
+          'minZoom': 1.0,
+          'maxZoom': 8.0,
+          'wideZoom': 1.0,
+          'switchOverFactors': <double>[],
+        },
+      );
+      final camera = _TestCamera();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: QrScanScreenBody(phase: QrScanPhase.ready, controller: camera),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final scannerState = tester.state(find.byType(MobileScanner));
+      tester.view.physicalSize = const Size(812, 375);
+      tester.view.padding = const FakeViewPadding(
+        left: 44,
+        right: 44,
+        bottom: 21,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(MobileScanner)), same(scannerState));
+      expect(tester.takeException(), isNull);
+      final frameRect = _viewfinderGeometry(tester)!.frame;
+      for (final label in ['1x', '2x', '5x']) {
+        final target = tester.getRect(
+          find.ancestor(
+            of: find.text(label),
+            matching: find.byType(CupertinoButton),
+          ),
+        );
+        expect(target.top, greaterThan(frameRect.bottom));
+        expect(target.left, greaterThanOrEqualTo(44));
+        expect(target.bottom, lessThanOrEqualTo(354));
+        expect(target.height, greaterThanOrEqualTo(48));
+        expect(find.text(label).hitTestable(), findsOneWidget);
+      }
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await camera.dispose();
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('camera presets use real factors on ${platform.name}', (
@@ -804,6 +949,39 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+({Rect frame, Rect bounds})? _viewfinderGeometry(WidgetTester tester) {
+  for (final widget in tester.widgetList<CustomPaint>(
+    find.descendant(
+      of: find.byType(QrScanScreenBody),
+      matching: find.byType(CustomPaint),
+    ),
+  )) {
+    final finder = find.byWidget(widget);
+    final canvas = _FrameCanvas();
+    widget.painter?.paint(canvas, tester.getSize(finder));
+    final frame = canvas.frame;
+    if (frame != null) {
+      final bounds = tester.getRect(finder);
+      return (frame: frame.shift(bounds.topLeft), bounds: bounds);
+    }
+  }
+  return null;
+}
+
+class _FrameCanvas extends TestRecordingCanvas {
+  Rect? frame;
+
+  @override
+  void clipRect(
+    Rect rect, {
+    ClipOp clipOp = ClipOp.intersect,
+    bool doAntiAlias = true,
+  }) {
+    if (clipOp == ClipOp.difference) frame = rect;
+    super.clipRect(rect, clipOp: clipOp, doAntiAlias: doAntiAlias);
+  }
 }
 
 class _FailedCamera extends MobileScannerController {

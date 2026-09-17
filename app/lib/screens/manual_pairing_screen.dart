@@ -83,9 +83,14 @@ import 'package:flutter/services.dart'
         TextInputType;
 import 'package:flutter/widgets.dart'
     show
+        BoxConstraints,
+        ConstrainedBox,
         CustomScrollView,
+        GlobalKey,
         KeyEventResult,
         LayoutBuilder,
+        Scrollable,
+        ScrollViewKeyboardDismissBehavior,
         SliverPadding,
         SliverToBoxAdapter,
         WidgetsBinding;
@@ -338,6 +343,26 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
   String? _wordErrorMessage;
   String? _phraseLevelError;
   int? _focusedWordIndex;
+  final _fieldKeys = List.generate(_wordCount + 2, (_) => GlobalKey());
+  Size? _formViewportSize;
+
+  void _revealFocusedFieldAfterResize(Size size) {
+    if (_formViewportSize == size) return;
+    _formViewportSize = size;
+    // Rotation can reduce both the keyboard inset and the form viewport.
+    // EditableText only reveals its caret when that inset grows, so reveal the
+    // whole field after the resized viewport and pinned actions have laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final nodes = [_originFocusNode, _handleFocusNode, ..._wordFocusNodes];
+      final index = nodes.indexWhere((node) => node.hasFocus);
+      if (index < 0) return;
+      final fieldContext = _fieldKeys[index].currentContext;
+      if (fieldContext != null) {
+        unawaited(Scrollable.ensureVisible(fieldContext, alignment: 0.5));
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -876,99 +901,110 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: CustomScrollView(
-                slivers: [
-                  header,
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpace.space4,
-                    ),
-                    sliver: SliverToBoxAdapter(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: _inset,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (_hostInUse) ...[
-                                  _HostInUseBanner(color: color),
-                                  const SizedBox(height: AppSpace.space4),
-                                ],
-                                // Callout 2.
-                                Text(
-                                  'The Relay pane on your computer shows an address, a computer '
-                                  'code and six words.',
-                                  style: AppType.body.copyWith(
-                                    color: color.fgSecondary,
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpace.space2),
-                                // Callout 3, R-31-03-12: reads the clipboard and fills whatever it
-                                // recognises -- a full pairing URI, a bare phrase, or a bare
-                                // computer code.
-                                AppTextButton(
-                                  label: 'Paste from clipboard',
-                                  onPressed: () => unawaited(_onPastePressed()),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: AppSpace.space6),
-                          const AppSectionHeader.upperCase(
-                            label: 'RELAY ADDRESS',
-                          ),
-                          Padding(
-                            padding: _inset,
-                            child: _buildOriginField(color),
-                          ),
-                          const SizedBox(height: AppSpace.space6),
-                          const AppSectionHeader.upperCase(
-                            label: 'COMPUTER CODE',
-                          ),
-                          Padding(
-                            padding: _inset,
-                            child: _buildHandleField(color),
-                          ),
-                          const SizedBox(height: AppSpace.space6),
-                          const AppSectionHeader.upperCase(label: 'PHRASE'),
-                          Padding(
-                            padding: _inset,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _buildWordGrid(color),
-                                if (widget.isConnected) ...[
-                                  const SizedBox(height: AppSpace.space4),
-                                  // Callout 9, R-30-945's exact sentence.
-                                  Text(
-                                    'Pairing disconnects the computer you are using now.',
-                                    style: AppType.caption.copyWith(
-                                      color: color.fgSecondary,
+              child: LayoutBuilder(
+                builder: (context, viewport) {
+                  _revealFocusedFieldAfterResize(viewport.biggest);
+                  return CustomScrollView(
+                    keyboardDismissBehavior: _isIos
+                        ? ScrollViewKeyboardDismissBehavior.onDrag
+                        : ScrollViewKeyboardDismissBehavior.manual,
+                    slivers: [
+                      header,
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpace.space4,
+                        ),
+                        sliver: SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Padding(
+                                padding: _inset,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (_hostInUse) ...[
+                                      _HostInUseBanner(color: color),
+                                      const SizedBox(height: AppSpace.space4),
+                                    ],
+                                    // Callout 2.
+                                    Text(
+                                      'The Relay pane on your computer shows an address, a computer '
+                                      'code and six words.',
+                                      style: AppType.body.copyWith(
+                                        color: color.fgSecondary,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                                if (_offline) ...[
-                                  const SizedBox(height: AppSpace.space4),
-                                  // R-13-022: a phrase lives 600 seconds. The same sentence, in the
-                                  // same `treat.warning`, as `/welcome` and `/pair/scan`.
-                                  const AppStrip(
-                                    child: Treatment.warning(
-                                      label:
-                                          'No network. Pairing needs a connection, and a phrase '
-                                          'lasts ten minutes.',
+                                    const SizedBox(height: AppSpace.space2),
+                                    // Callout 3, R-31-03-12: reads the clipboard and fills whatever it
+                                    // recognises -- a full pairing URI, a bare phrase, or a bare
+                                    // computer code.
+                                    AppTextButton(
+                                      label: 'Paste from clipboard',
+                                      onPressed: () =>
+                                          unawaited(_onPastePressed()),
                                     ),
-                                  ),
-                                ],
-                              ],
-                            ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: AppSpace.space6),
+                              const AppSectionHeader.upperCase(
+                                label: 'RELAY ADDRESS',
+                              ),
+                              Padding(
+                                padding: _inset,
+                                child: _buildOriginField(color),
+                              ),
+                              const SizedBox(height: AppSpace.space6),
+                              const AppSectionHeader.upperCase(
+                                label: 'COMPUTER CODE',
+                              ),
+                              Padding(
+                                padding: _inset,
+                                child: _buildHandleField(color),
+                              ),
+                              const SizedBox(height: AppSpace.space6),
+                              const AppSectionHeader.upperCase(label: 'PHRASE'),
+                              Padding(
+                                padding: _inset,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _buildWordGrid(color),
+                                    if (widget.isConnected) ...[
+                                      const SizedBox(height: AppSpace.space4),
+                                      // Callout 9, R-30-945's exact sentence.
+                                      Text(
+                                        'Pairing disconnects the computer you are using now.',
+                                        style: AppType.caption.copyWith(
+                                          color: color.fgSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                    if (_offline) ...[
+                                      const SizedBox(height: AppSpace.space4),
+                                      // R-13-022: a phrase lives 600 seconds. The same sentence, in the
+                                      // same `treat.warning`, as `/welcome` and `/pair/scan`.
+                                      const AppStrip(
+                                        child: Treatment.warning(
+                                          label:
+                                              'No network. Pairing needs a connection, and a phrase '
+                                              'lasts ten minutes.',
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
             // R-03-128: reserve the footer height outside the scroll view.
@@ -1002,7 +1038,7 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
                     width: AppSpace.space2,
                   ),
                   Flexible(
-                    flex: constraints.maxHeight < 4 * AppSize.field ? 1 : 0,
+                    flex: constraints.maxHeight < 4 * AppSize.field ? 2 : 0,
                     child: AppTextButton(
                       label: 'Scan the QR code instead',
                       onPressed: widget.onScanInstead ?? _noOp,
@@ -1032,22 +1068,32 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
     final ground = SizedBox.expand(
       child: _submitting
           ? SafeArea(
-              child: PairingConnectingPanel(
-                host:
-                    Uri.tryParse(_originController.text)?.authority ?? 'relay',
-                onCancel: () {
-                  if (!_submitting) return;
-                  final cancellation = _cancellation;
-                  cancellation?.cancel();
-                  unawaited(AppHaptic.select());
-                  setState(() {
-                    _submitting = false;
-                    _pairingCancelled = true;
-                  });
-                  if (cancellation?.disconnectedHost ?? false) {
-                    widget.onCancelled?.call();
-                  }
-                },
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: PairingConnectingPanel(
+                      host:
+                          Uri.tryParse(_originController.text)?.authority ??
+                          'relay',
+                      onCancel: () {
+                        if (!_submitting) return;
+                        final cancellation = _cancellation;
+                        cancellation?.cancel();
+                        unawaited(AppHaptic.select());
+                        setState(() {
+                          _submitting = false;
+                          _pairingCancelled = true;
+                        });
+                        if (cancellation?.disconnectedHost ?? false) {
+                          widget.onCancelled?.call();
+                        }
+                      },
+                    ),
+                  ),
+                ),
               ),
             )
           : body,
@@ -1099,6 +1145,7 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
             textField: true,
             label: 'Relay address',
             child: CupertinoTextField(
+              key: _fieldKeys[0],
               controller: _originController,
               focusNode: _originFocusNode,
               enabled: !_submitting,
@@ -1146,6 +1193,7 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
             textField: true,
             label: 'Computer code',
             child: CupertinoTextField(
+              key: _fieldKeys[1],
               controller: _handleController,
               focusNode: _handleFocusNode,
               enabled: !_submitting,
@@ -1242,6 +1290,7 @@ class _ManualPairingScreenState extends State<ManualPairingScreen> {
                 skipTraversal: true,
                 onKeyEvent: (node, event) => _handleWordKey(index, event),
                 child: CupertinoTextField(
+                  key: _fieldKeys[index + 2],
                   controller: _wordControllers[index],
                   focusNode: _wordFocusNodes[index],
                   enabled: !_submitting,

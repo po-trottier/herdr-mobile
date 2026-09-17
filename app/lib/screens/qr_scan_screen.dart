@@ -53,6 +53,7 @@ import 'package:flutter/widgets.dart'
         AnimatedBuilder,
         AnimationController,
         AppLifecycleState,
+        Axis,
         BorderRadius,
         BoxDecoration,
         BuildContext,
@@ -68,16 +69,19 @@ import 'package:flutter/widgets.dart'
         ExcludeSemantics,
         GestureDetector,
         Expanded,
+        Flex,
         LayoutBuilder,
         MainAxisSize,
         MediaQuery,
         Navigator,
+        Orientation,
         Padding,
         PositionedDirectional,
         Radius,
         Row,
         SafeArea,
         Semantics,
+        SingleChildScrollView,
         SingleTickerProviderStateMixin,
         SizedBox,
         Stack,
@@ -309,15 +313,19 @@ class QrScanScreenBody extends StatelessWidget {
     final AppColor color = AppColor.of(context);
     final Widget preview = switch (phase) {
       QrScanPhase.cameraUnavailable => const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: AppSpace.space6),
-          child: Treatment.error(label: _cameraUnavailableLine),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: AppSpace.space6),
+            child: Treatment.error(label: _cameraUnavailableLine),
+          ),
         ),
       ),
       QrScanPhase.permissionDenied => const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: AppSpace.space6),
-          child: Treatment.error(label: _permissionDeniedLine),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: AppSpace.space6),
+            child: Treatment.error(label: _permissionDeniedLine),
+          ),
         ),
       ),
       _ => _Viewfinder(
@@ -327,16 +335,12 @@ class QrScanScreenBody extends StatelessWidget {
       ),
     };
 
-    final Widget body = Column(
-      children: <Widget>[
-        Expanded(child: preview),
-        if (phase == QrScanPhase.pairing && fingerprintText == null)
-          PairingConnectingPanel(
+    final Widget panel = phase == QrScanPhase.pairing && fingerprintText == null
+        ? PairingConnectingPanel(
             host: connectingHost,
             onCancel: onCancel ?? () {},
           )
-        else
-          _BottomBar(
+        : _BottomBar(
             color: color,
             hintText: _hintText,
             hintIsError: hint?.isError ?? false,
@@ -350,8 +354,25 @@ class QrScanScreenBody extends StatelessWidget {
             onOpenSettings: phase == QrScanPhase.permissionDenied
                 ? onOpenSettings
                 : null,
-          ),
-      ],
+          );
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    // Keep the same preview subtree when rotating so the camera remains mounted.
+    final Widget body = SafeArea(
+      top: false,
+      bottom: landscape,
+      left: landscape,
+      right: landscape,
+      child: Flex(
+        direction: landscape ? Axis.horizontal : Axis.vertical,
+        children: <Widget>[
+          Expanded(child: preview),
+          if (landscape)
+            Expanded(child: SingleChildScrollView(child: panel))
+          else
+            panel,
+        ],
+      ),
     );
 
     final Widget title = Text(
@@ -411,8 +432,9 @@ class QrScanScreenBody extends StatelessWidget {
 }
 
 /// The camera preview plus the QR viewport of `docs/32-design-language.md` section 7.21:
-/// a square frame at `min(screen width - 2 * space.6, 280)`, four `border.frame` corner marks
-/// in `color.accent.primary`, and a `color.bg.base` scrim at `opacity.dim` outside the frame.
+/// a square frame bounded by the available width and height, four `border.frame` corner
+/// marks in `color.accent.primary`, and a `color.bg.base` scrim at `opacity.dim` outside
+/// the frame. The zoom targets keep their space below the frame in either orientation.
 ///
 /// The mockup's `Loading, pairing` row: while [pairing] holds, the corner marks fade between
 /// `color.accent.primary` and `color.fg.secondary` over `motion.duration.slow`, on
@@ -555,9 +577,13 @@ class _ViewfinderState extends State<_Viewfinder>
       onScaleEnd: canZoom ? (_) => unawaited(_setZoom(_pinchTarget)) : null,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final double side = constraints.maxWidth > 0
-              ? (constraints.maxWidth - 2 * AppSpace.space6).clamp(0, 280)
-              : 280;
+          final bottomSpace = range == null
+              ? AppSpace.space6
+              : AppSpace.space4 + AppSize.targetMin + AppSpace.space4;
+          final double side = (constraints.maxWidth - 2 * AppSpace.space6)
+              .clamp(0, 280)
+              .clamp(0, (constraints.maxHeight - 2 * bottomSpace).clamp(0, 280))
+              .toDouble();
           return Stack(
             fit: StackFit.expand,
             children: <Widget>[

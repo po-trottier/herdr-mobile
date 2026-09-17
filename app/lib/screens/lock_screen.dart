@@ -25,23 +25,29 @@ import 'package:connectivity_plus/connectivity_plus.dart'
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageScaffold;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
-import 'package:flutter/services.dart' show MethodChannel, PlatformException;
+import 'package:flutter/services.dart'
+    show DeviceOrientation, MethodChannel, PlatformException, SystemChrome;
 import 'package:flutter/widgets.dart'
     show
         BuildContext,
         AppLifecycleState,
         Center,
+        BoxConstraints,
         ColoredBox,
         Column,
+        ConstrainedBox,
         CrossAxisAlignment,
         EdgeInsets,
         Expanded,
         Icon,
         IconData,
+        IntrinsicHeight,
+        LayoutBuilder,
         MainAxisAlignment,
         Padding,
         Row,
         SafeArea,
+        SingleChildScrollView,
         SizedBox,
         State,
         StatefulWidget,
@@ -49,6 +55,7 @@ import 'package:flutter/widgets.dart'
         Text,
         TextAlign,
         VoidCallback,
+        View,
         Widget,
         WidgetsBinding,
         WidgetsBindingObserver;
@@ -189,112 +196,128 @@ class LockScreenBody extends StatelessWidget {
 
     final Widget body = GroundGrid(
       child: SafeArea(
-        child: Column(
-          children: <Widget>[
-            SizedBox(
-              height: _markHeight,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: <Widget>[
-                  BrandMark(height: _markHeight, color: color.fgDisabled),
-                ],
-              ),
-            ),
-            SizedBox(
-              height: AppBorder.hairline,
-              child: ColoredBox(color: color.borderSubtle),
-            ),
-            Expanded(
-              child: Padding(
-                // R-30-230: the one screen edge inset, `space.4`, on every side; this
-                // screen's actions then land where every other screen's do.
-                padding: const EdgeInsets.all(AppSpace.space4),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              // Keep the portrait composition. During the native rotation, or at large
+              // text sizes, the whole page can scroll instead of clipping its actions.
+              child: IntrinsicHeight(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    const Eyebrow(text: 'Locked'),
-                    const SizedBox(height: AppSpace.space2),
-                    Text(
-                      'Herdr Remote',
-                      textAlign: TextAlign.center,
-                      style: AppType.title.copyWith(color: color.fgPrimary),
-                    ),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                    SizedBox(
+                      height: _markHeight,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: <Widget>[
-                          Center(
-                            child: Icon(
-                              biometric.glyph,
-                              size: AppSize.iconHero,
-                              color: color.accentPrimary,
-                              fill: 0,
-                              weight: 400,
-                              grade: 0,
-                              semanticLabel: 'Locked',
-                            ),
-                          ),
-                          const SizedBox(height: AppSpace.space6),
-                          if (_promptIsError)
-                            // R-30-293: `/lock` is the one screen that centres, so the
-                            // wrapped prompt centres its lines too, not only its block.
-                            Center(
-                              child: Treatment.error(
-                                label: prompt,
-                                textAlign: TextAlign.center,
-                              ),
-                            )
-                          else
-                            Text(
-                              prompt,
-                              textAlign: TextAlign.center,
-                              style: AppType.body.copyWith(
-                                color: color.fgPrimary,
-                              ),
-                            ),
-                          const SizedBox(height: AppSpace.space3),
-                          Text(
-                            _reassuranceLine,
-                            textAlign: TextAlign.center,
-                            style: AppType.caption.copyWith(
-                              color: color.fgSecondary,
-                            ),
+                          BrandMark(
+                            height: _markHeight,
+                            color: color.fgDisabled,
                           ),
                         ],
                       ),
                     ),
-                    if (offline) ...<Widget>[
-                      Text(
-                        _offlineStrip,
-                        textAlign: TextAlign.center,
-                        style: AppType.caption.copyWith(
-                          color: color.fgSecondary,
+                    SizedBox(
+                      height: AppBorder.hairline,
+                      child: ColoredBox(color: color.borderSubtle),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        // R-30-230: the one screen edge inset, `space.4`, on every side; this
+                        // screen's actions then land where every other screen's do.
+                        padding: const EdgeInsets.all(AppSpace.space4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            const Eyebrow(text: 'Locked'),
+                            const SizedBox(height: AppSpace.space2),
+                            Text(
+                              'Herdr Remote',
+                              textAlign: TextAlign.center,
+                              style: AppType.title.copyWith(
+                                color: color.fgPrimary,
+                              ),
+                            ),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: <Widget>[
+                                  Center(
+                                    child: Icon(
+                                      biometric.glyph,
+                                      size: AppSize.iconHero,
+                                      color: color.accentPrimary,
+                                      fill: 0,
+                                      weight: 400,
+                                      grade: 0,
+                                      semanticLabel: 'Locked',
+                                    ),
+                                  ),
+                                  const SizedBox(height: AppSpace.space6),
+                                  if (_promptIsError)
+                                    // R-30-293: `/lock` is the one screen that centres, so the
+                                    // wrapped prompt centres its lines too, not only its block.
+                                    Center(
+                                      child: Treatment.error(
+                                        label: prompt,
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    )
+                                  else
+                                    Text(
+                                      prompt,
+                                      textAlign: TextAlign.center,
+                                      style: AppType.body.copyWith(
+                                        color: color.fgPrimary,
+                                      ),
+                                    ),
+                                  const SizedBox(height: AppSpace.space3),
+                                  Text(
+                                    _reassuranceLine,
+                                    textAlign: TextAlign.center,
+                                    style: AppType.caption.copyWith(
+                                      color: color.fgSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (offline) ...<Widget>[
+                              Text(
+                                _offlineStrip,
+                                textAlign: TextAlign.center,
+                                style: AppType.caption.copyWith(
+                                  color: color.fgSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpace.space6),
+                            ],
+                            if (_biometricActionAvailable) ...<Widget>[
+                              AppFilledButton(
+                                label: biometric.label,
+                                onPressed: onPrimaryPressed,
+                              ),
+                              const SizedBox(height: AppSpace.space2),
+                              AppTextButton(
+                                label: 'Use device passcode',
+                                onPressed: onFallbackPressed,
+                              ),
+                            ] else
+                              AppFilledButton(
+                                label: 'Use device passcode',
+                                onPressed: onFallbackPressed,
+                              ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: AppSpace.space6),
-                    ],
-                    if (_biometricActionAvailable) ...<Widget>[
-                      AppFilledButton(
-                        label: biometric.label,
-                        onPressed: onPrimaryPressed,
-                      ),
-                      const SizedBox(height: AppSpace.space2),
-                      AppTextButton(
-                        label: 'Use device passcode',
-                        onPressed: onFallbackPressed,
-                      ),
-                    ] else
-                      AppFilledButton(
-                        label: 'Use device passcode',
-                        onPressed: onFallbackPressed,
-                      ),
+                    ),
                   ],
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -338,6 +361,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   bool _unlockInFlight = false;
   RasterizedFrame? _frame;
   late final Future<bool> _presented;
+  final _portraitLayout = Completer<bool>();
   Completer<void>? _resumed;
 
   static const _nativeLock = MethodChannel(
@@ -354,6 +378,9 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   }
 
   Future<bool> _preparePresentation() async {
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    if (!mounted) return false;
+    if (!await _portraitLayout.future || !mounted) return false;
     try {
       await _loadBiometricPresentation();
     } on PlatformException {
@@ -386,6 +413,9 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
     _resumed?.complete();
     _resumed = null;
     _frame?.cancel();
+    if (!_portraitLayout.isCompleted) _portraitLayout.complete(false);
+    // The restriction belongs only to this screen. Pairing and the terminal rotate.
+    unawaited(SystemChrome.setPreferredOrientations([]));
     super.dispose();
   }
 
@@ -501,13 +531,29 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => LockScreenBody(
-    phase: _phase,
-    biometric: _biometric,
-    offline: _offline,
-    onPrimaryPressed: _phase == LockScreenPhase.checking
-        ? null
-        : _attemptUnlock,
-    onFallbackPressed: _attemptUnlock,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      // The platform call acknowledges a request, not the completed rotation.
+      // Wait for an iPhone's portrait layout before requesting its raster frame.
+      // iPad and Android multi-window mode may ignore orientation requests.
+      final display = View.of(context).display;
+      final wideDisplay =
+          display.size.shortestSide / display.devicePixelRatio >= 600;
+      if (!_portraitLayout.isCompleted &&
+          (defaultTargetPlatform != TargetPlatform.iOS ||
+              wideDisplay ||
+              constraints.maxHeight >= constraints.maxWidth)) {
+        _portraitLayout.complete(true);
+      }
+      return LockScreenBody(
+        phase: _phase,
+        biometric: _biometric,
+        offline: _offline,
+        onPrimaryPressed: _phase == LockScreenPhase.checking
+            ? null
+            : _attemptUnlock,
+        onFallbackPressed: _attemptUnlock,
+      );
+    },
   );
 }

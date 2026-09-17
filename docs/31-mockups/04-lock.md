@@ -189,6 +189,15 @@ wireframe serves an iPhone with Touch ID, with the label from the table above.
   off does not change the Device key, the pinned Host keys or any pairing, per
   `docs/13-security-pairing.md` R-13-073; it changes only whether this screen ever stands between
   a cold start and the agent list.
+- **R-31-04-13** On a phone, the unlock screen MUST request upright portrait orientation before
+  it starts authentication and retain that restriction while it is present. Leaving the screen
+  MUST restore the operating system's default orientations, so pairing and terminal screens
+  can rotate (decided 2026-09-17 by the product owner). During rotation, and on displays where
+  the operating system does not honour the request, the lock content MUST scroll when needed
+  to keep the prompt and passcode action reachable. A rotation MUST NOT start another check.
+  On iPhone-sized iOS displays (shorter physical edge below 600 logical pixels), authentication
+  MUST wait for a portrait layout and its rendered frame. iPad and Android multi-window mode
+  MUST remain usable when the platform ignores orientation locking.
 
 ## Accessibility
 
@@ -213,6 +222,11 @@ None.
 
 ## Sources
 
+- Flutter `SystemChrome.setPreferredOrientations`: an empty list restores the system default;
+  iPad multitasking can prevent orientation locking.
+  <https://api.flutter.dev/flutter/services/SystemChrome/setPreferredOrientations.html>
+- Android multi-window mode ignores orientation requests; authentication must remain available.
+  <https://developer.android.com/develop/ui/views/layout/support-multi-window-mode#disabled_features_in_multi-window_mode>
 - `docs/32-design-language.md` - the type tokens `R-32-202`, the product name rule `R-32-205`, the
   hero icon size `R-32-402`, the icon map `R-32-401`, the type-driven glyph rule `R-32-407`, and the
   contrast table `R-32-150`.

@@ -111,6 +111,10 @@
     single-action sheets of the states table share that anatomy without the grab handle, because
     they refuse the drag and the tap outside (amended 2026-09-08 by the product owner: the two
     sheets on this screen had two paddings, two title sizes and two corner treatments).
+11. In landscape, the preview and the hint/actions panel sit beside each other inside the safe
+    area. The panel scrolls when its text and actions need more height. The square frame fits the
+    preview's available width and height, with room for zoom controls below it. Portrait keeps the
+    bottom bar. `docs/32-design-language.md` section 7.21 owns the dimensions.
 
 ## What the QR carries
 
@@ -257,6 +261,12 @@ The four values the app takes from it:
   display.
   Relay and protocol failures MUST keep their existing sentences from the pairing error text table
   in `docs/30-ux-spec.md`.
+- **R-31-02-16** This screen MUST support landscape. The preview and the hint/actions panel MUST
+  share the available width equally and remain inside the side and bottom safe areas. The panel
+  MUST scroll when needed, including while pairing and at accessibility text sizes. Camera failure
+  and permission messages MUST also scroll when needed. The frame and every zoom target MUST fit
+  inside the preview without overlap. Rotating MUST keep the scanner mounted and preserve the
+  current camera state. Portrait MUST keep the preview above the bottom bar.
 
 ## Accessibility
 

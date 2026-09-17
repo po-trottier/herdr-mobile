@@ -231,6 +231,15 @@ The bottom actions use the panel of `R-31-02-14`. The form stays visible but rea
   the app bar MUST scroll with the content, so the focused field stays fully visible, per
   `R-30-519`. On a viewport that holds both, nothing changes. The app bar MUST NOT be removed,
   collapsed or hidden by any other means, and the back control MUST return with one scroll.
+  Rotation and a change to the keyboard inset MUST keep the whole focused field visible above
+  the pinned actions. Every entered value and the current field focus MUST survive rotation.
+  The compact action row uses the allocation in `docs/32-design-language.md` section 7.11.
+- **R-31-03-16** On iOS, a finger drag on the form MUST dismiss the keyboard and release field
+  focus, so the person can scroll back to the navigation bar. A scroll that the screen performs
+  to reveal a field MUST preserve focus. Both paths MUST preserve every entered value.
+- **R-31-03-17** The connecting panel MUST scroll when it exceeds the available height, including
+  while the keyboard closes after `Pair`. `Cancel` MUST remain reachable at the maximum text
+  scale of `R-30-701` and MUST keep the cancellation behaviour of `R-31-02-14`.
 
 ## Retired rules
 

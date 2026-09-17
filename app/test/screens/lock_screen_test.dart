@@ -10,10 +10,13 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/scheduler.dart' show SchedulerPhase;
-import 'package:flutter/services.dart' show MethodChannel, PlatformException;
-import 'package:flutter/widgets.dart' show AppLifecycleState, SizedBox, Text;
+import 'package:flutter/services.dart'
+    show MethodChannel, PlatformException, SystemChannels;
+import 'package:flutter/widgets.dart'
+    show AppLifecycleState, Size, SizedBox, Text;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/screens/lock_screen.dart';
@@ -42,16 +45,141 @@ void main() {
           .handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       gate = _MockBiometricGate();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (_) async => null);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(presentation, (_) async => null);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(connectivity, (_) async => ['wifi']);
     });
     tearDown(() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(presentation, null);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(connectivity, null);
     });
+    testWidgets(
+      'lock requests portrait before authentication and restores rotation on exit',
+      (tester) async {
+        final requests = <List<dynamic>>[];
+        final portraitApplied = Completer<void>();
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method == 'SystemChrome.setPreferredOrientations') {
+              requests.add(call.arguments as List<dynamic>);
+              if (requests.length == 1) await portraitApplied.future;
+            }
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        when(() => gate.availableBiometrics())
+            .thenAnswer((_) async => [BiometricType.face]);
+        when(() => gate.unlock())
+            .thenAnswer((_) async => const Err<void>('Cancelled'));
+        await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+        await tester.pumpAndSettle();
+        expect(requests, [
+          ['DeviceOrientation.portraitUp'],
+        ]);
+        reportRaster(tester);
+        await tester.pumpAndSettle();
+        verifyNever(() => gate.unlock());
+        portraitApplied.complete();
+        await tester.pumpAndSettle();
+        reportRaster(tester);
+        await tester.pumpAndSettle();
+        verify(() => gate.unlock()).called(1);
+        expect(requests, hasLength(1)); // A rejected attempt remains portrait.
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+        expect(requests, [
+          ['DeviceOrientation.portraitUp'],
+          <String>[],
+        ]);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
+    testWidgets(
+      'iPhone waits for portrait layout; Android multi-window can unlock without rotating',
+      (tester) async {
+        tester.view.physicalSize = const Size(852, 393);
+        tester.view.devicePixelRatio = 1;
+        tester.view.display.size = const Size(852, 393);
+        tester.view.display.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        addTearDown(tester.view.display.reset);
+        when(() => gate.availableBiometrics())
+            .thenAnswer((_) async => [BiometricType.face]);
+        when(() => gate.unlock())
+            .thenAnswer((_) async => const Err<void>('Cancelled'));
+        await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
+        await tester.pumpAndSettle();
+        reportRaster(tester);
+        await tester.pumpAndSettle();
+        if (defaultTargetPlatform == TargetPlatform.iOS) {
+          verifyNever(() => gate.unlock());
+        } else {
+          verify(() => gate.unlock()).called(1);
+        }
+        tester.view.physicalSize = const Size(393, 852);
+        await tester.pumpAndSettle();
+        reportRaster(tester);
+        await tester.pumpAndSettle();
+        if (defaultTargetPlatform == TargetPlatform.iOS) {
+          verify(() => gate.unlock()).called(1);
+        } else {
+          verifyNever(() => gate.unlock());
+        }
+        expect(tester.takeException(), isNull);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.iOS,
+        TargetPlatform.android,
+      }),
+    );
+
+    testWidgets(
+      'lock remains usable while rotating from a short landscape viewport',
+      (tester) async {
+        tester.view.physicalSize = const Size(852, 393);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(
+          left: 59,
+          right: 59,
+          bottom: 21,
+        );
+        tester.view.viewPadding = tester.view.padding;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: LockScreenBody(
+              phase: LockScreenPhase.rejected,
+              biometric: BiometricPresentation(
+                glyph: Symbols.lock_rounded,
+                label: 'Unlock with Face ID',
+              ),
+              offline: true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.text('Use device passcode'));
+        await tester.pumpAndSettle();
+        expect(find.text('Use device passcode').hitTestable(), findsOneWidget);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
     testWidgets('Face ID begins with the lock icon and unlock text visible', (
       tester,
     ) async {
@@ -68,14 +196,14 @@ void main() {
         return const Ok<void>(null);
       });
       await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
-      await tester.pump();
+      await tester.pumpAndSettle();
       // A built widget tree is not proof that the engine displayed its pixels.
       expect(visibleAtUnlock, isEmpty);
       reportRaster(tester, frameNumber: -2); // An older, blank bootstrap frame.
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(visibleAtUnlock, isEmpty);
       reportRaster(tester);
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(visibleAtUnlock, [true]);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
     testWidgets('Face ID waits for the native launch screen to disappear', (
@@ -91,12 +219,12 @@ void main() {
           .thenAnswer((_) async => [BiometricType.face]);
       when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
       await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
-      await tester.pump();
+      await tester.pumpAndSettle();
       reportRaster(tester);
-      await tester.pump();
+      await tester.pumpAndSettle();
       verifyNever(() => gate.unlock());
       displayed.complete();
-      await tester.pump();
+      await tester.pumpAndSettle();
       verify(() => gate.unlock()).called(1);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
@@ -113,20 +241,20 @@ void main() {
           .thenAnswer((_) async => [BiometricType.face]);
       when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
       await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
-      await tester.pump();
+      await tester.pumpAndSettle();
       reportRaster(tester);
-      await tester.pump();
+      await tester.pumpAndSettle();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       displayed.complete();
-      await tester.pump();
+      await tester.pumpAndSettle();
       verifyNever(() => gate.unlock());
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pump();
+      await tester.pumpAndSettle();
       verify(() => gate.unlock()).called(1);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pump();
+      await tester.pumpAndSettle();
       verifyNever(() => gate.unlock());
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
@@ -137,10 +265,10 @@ void main() {
           .thenAnswer((_) async => [BiometricType.face]);
       when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
       await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
-      await tester.pump();
+      await tester.pumpAndSettle();
       await tester.pumpWidget(const SizedBox());
       reportRaster(tester);
-      await tester.pump();
+      await tester.pumpAndSettle();
       verifyNever(() => gate.unlock());
       expect(tester.takeException(), isNull);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
@@ -154,7 +282,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
       await tester.pumpWidget(const SizedBox());
       types.complete([BiometricType.face]);
-      await tester.pump();
+      await tester.pumpAndSettle();
       verifyNever(() => gate.unlock());
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
     testWidgets(
@@ -164,9 +292,9 @@ void main() {
             .thenThrow(PlatformException(code: 'unavailable'));
         when(() => gate.unlock()).thenAnswer((_) async => const Ok<void>(null));
         await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
-        await tester.pump();
+        await tester.pumpAndSettle();
         reportRaster(tester);
-        await tester.pump();
+        await tester.pumpAndSettle();
         verify(() => gate.unlock()).called(1);
         expect(tester.takeException(), isNull);
       },
@@ -182,7 +310,7 @@ void main() {
         ).thenAnswer((_) async => const Err<void>('Authentication cancelled'));
         await tester.pumpWidget(MaterialApp(home: LockScreen(gate: gate)));
         await tester.tap(find.text('Use device passcode'));
-        await tester.pump();
+        await tester.pumpAndSettle();
         verifyNever(() => gate.unlock());
 
         types.complete([BiometricType.face]);

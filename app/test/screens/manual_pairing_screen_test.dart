@@ -17,7 +17,11 @@ import 'dart:typed_data' show Uint8List;
 import 'dart:ui' show Rect, Size;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoAlertDialog, CupertinoNavigationBar, CupertinoTextField;
+    show
+        CupertinoAlertDialog,
+        CupertinoNavigationBar,
+        CupertinoNavigationBarBackButton,
+        CupertinoTextField;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show AppBar;
@@ -31,6 +35,7 @@ import 'package:flutter/widgets.dart'
         MediaQuery,
         MediaQueryData,
         Offset,
+        SingleChildScrollView,
         Size,
         SizedBox;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -602,6 +607,133 @@ void main() {
   );
 
   group('Autocomplete strip (R-30-904, R-32-532, R-30-519)', () {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets(
+        'iOS rotation keeps the focused final word above landscape actions at ${scale}x text',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(393, 852);
+          tester.view.padding = const FakeViewPadding(top: 59);
+          tester.view.viewPadding = const FakeViewPadding(top: 59, bottom: 34);
+          tester.view.viewInsets = const FakeViewPadding(bottom: 336);
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(tester.view.reset);
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          await tester.pumpWidget(
+            MaterialApp(home: ManualPairingScreen(effWords: words)),
+          );
+          await tester.pumpAndSettle();
+          await _fillValidPhrase(tester);
+          await tester.pumpAndSettle();
+
+          tester.view.physicalSize = const Size(852, 393);
+          tester.view.padding = const FakeViewPadding(left: 59, right: 59);
+          tester.view.viewPadding = const FakeViewPadding(
+            left: 59,
+            right: 59,
+            bottom: 21,
+          );
+          tester.view.viewInsets = const FakeViewPadding(bottom: 216);
+          await tester.pumpAndSettle();
+
+          expect(tester.takeException(), isNull);
+          final fields = find.byType(CupertinoTextField);
+          final focused = tester.widget<CupertinoTextField>(fields.last);
+          expect(focused.focusNode!.hasFocus, isTrue);
+          expect(focused.controller!.text, _phraseWords.last);
+          final fieldRect = tester.getRect(fields.last);
+          final viewport = tester.getRect(find.byType(CustomScrollView));
+          expect(fieldRect.top, greaterThanOrEqualTo(viewport.top));
+          expect(fieldRect.bottom, lessThanOrEqualTo(viewport.bottom));
+          expect(fieldRect.height, greaterThanOrEqualTo(48));
+          expect(fieldRect.left, greaterThanOrEqualTo(59));
+          expect(fieldRect.right, lessThanOrEqualTo(852 - 59));
+          final pair = find.byType(AppFilledButton);
+          expect(pair.hitTestable(), findsOneWidget);
+          expect(tester.widget<AppFilledButton>(pair).onPressed, isNotNull);
+          expect(tester.getRect(pair).bottom, lessThanOrEqualTo(393 - 216));
+          expect(
+            find.text('Scan the QR code instead').hitTestable(),
+            findsOneWidget,
+          );
+
+          tester.view.physicalSize = const Size(393, 852);
+          tester.view.padding = const FakeViewPadding(top: 59);
+          tester.view.viewPadding = const FakeViewPadding(top: 59, bottom: 34);
+          tester.view.viewInsets = const FakeViewPadding(bottom: 336);
+          await tester.pumpAndSettle();
+          final portraitField = tester.getRect(fields.last);
+          final portraitViewport = tester.getRect(
+            find.byType(CustomScrollView),
+          );
+          expect(portraitField.top, greaterThanOrEqualTo(portraitViewport.top));
+          expect(
+            portraitField.bottom,
+            lessThanOrEqualTo(portraitViewport.bottom),
+          );
+          expect(focused.focusNode!.hasFocus, isTrue);
+          expect(
+            tester
+                .widgetList<CupertinoTextField>(fields)
+                .map((field) => field.controller!.text),
+            ['https://relay.example.com', _validHandle, ..._phraseWords],
+          );
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+      );
+    }
+
+    testWidgets(
+      'iOS dragging the landscape form dismisses the keyboard to reach Back',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(852, 393);
+        tester.view.padding = const FakeViewPadding(left: 59, right: 59);
+        tester.view.viewPadding = const FakeViewPadding(
+          left: 59,
+          right: 59,
+          bottom: 21,
+        );
+        tester.view.viewInsets = const FakeViewPadding(bottom: 216);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            initialRoute: '/pair',
+            routes: {
+              '/': (_) => const SizedBox(),
+              '/pair': (_) => ManualPairingScreen(effWords: words),
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _fillValidPhrase(tester);
+        await tester.pumpAndSettle();
+        final lastWord = tester.widget<CupertinoTextField>(
+          find.byType(CupertinoTextField).last,
+        );
+        expect(lastWord.focusNode!.hasFocus, isTrue);
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, 2000));
+        await tester.pumpAndSettle();
+        expect(lastWord.focusNode!.hasFocus, isFalse);
+        expect(lastWord.controller!.text, _phraseWords.last);
+
+        tester.view.viewInsets = const FakeViewPadding();
+        tester.view.padding = const FakeViewPadding(
+          left: 59,
+          right: 59,
+          bottom: 21,
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Pair by hand').hitTestable(), findsOneWidget);
+        final back = find.byType(CupertinoNavigationBarBackButton);
+        expect(back.hitTestable(), findsOneWidget);
+        await tester.tap(back);
+        await tester.pumpAndSettle();
+        expect(find.byType(ManualPairingScreen), findsNothing);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
     /// Pumps the screen at a phone size with a simulated 300 px keyboard inset, per
     Future<void> pumpWithKeyboard(WidgetTester tester) async {
       tester.view.physicalSize = const Size(375, 667);
@@ -815,6 +947,62 @@ void main() {
     expect(find.text('Try again'), findsNothing);
     expect(find.text('Pair'), findsOneWidget);
   });
+
+  testWidgets(
+    'iOS landscape pairing keeps Cancel reachable while the keyboard closes',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(852, 393);
+      tester.view.padding = const FakeViewPadding(left: 59, right: 59);
+      tester.view.viewPadding = const FakeViewPadding(
+        left: 59,
+        right: 59,
+        bottom: 21,
+      );
+      tester.view.viewInsets = const FakeViewPadding(bottom: 216);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final pending = Completer<ManualPairingResult>();
+      PairingCancellation? cancellation;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ManualPairingScreen(
+            effWords: words,
+            onPair: (input, token) {
+              cancellation = token;
+              return pending.future;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _fillValidPhrase(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pair'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final cancel = find.text('Cancel');
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -400),
+      );
+      // Finish the iOS scroll spring without waiting on the activity indicator.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(cancel.hitTestable(), findsOneWidget);
+      expect(tester.getRect(cancel).bottom, lessThanOrEqualTo(393 - 216));
+      await tester.tap(cancel);
+      await tester.pumpAndSettle();
+      expect(cancellation!.isCancelled, isTrue);
+      pending.complete(
+        const ManualPairingFailed(ManualPairingFailureCode.linkFailed),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Pair'), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 
   group('Post-attempt failures (mockup 03 states table)', () {
     testWidgets('a link failure keeps the typed words, shows the safe transport cause and '

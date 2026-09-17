@@ -21,6 +21,7 @@ import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/device_info.dart';
 import 'package:herdr_mobile/models/messages/host_info.dart';
 import 'package:herdr_mobile/models/messages/platform.dart' as wire;
+import 'package:herdr_mobile/models/messages/send_input.dart';
 import 'package:herdr_mobile/models/messages/tree_request.dart';
 import 'package:herdr_mobile/services/biometric_gate.dart';
 import 'package:herdr_mobile/services/connectivity.dart';
@@ -231,6 +232,50 @@ final class _FakeRelay {
 }
 
 void main() {
+  test('rapid input preserves every encrypted payload and sequence', () async {
+    final fake = await _FakeRelay.start();
+    final gate = await _unlockedGate();
+    final relay = RelayConnection(
+      handshaker: _fakeHandshaker,
+      connectivityWatcher: _noOpConnectivityWatcher(),
+    );
+    addTearDown(relay.dispose);
+    final connected = relay.connect(
+      origin: fake.origin,
+      handle: 'h1',
+      mode: PairingMode(psk: Uint8List(32)),
+      gate: gate,
+      deviceInfo: _testDeviceInfo,
+    );
+    final ws = await fake.connection(0);
+    final iterator = StreamIterator<dynamic>(ws);
+    await _FakeRelay.joinAndGreet(ws, iterator);
+    expect(await connected, isA<Ok<void>>());
+    final cipher = NoiseCipher.withKey(_deviceSendKey);
+    final reassembler = Reassembler();
+    final initial = await _readDeviceFrame(iterator, cipher, reassembler);
+    final sample = 'Fast typing keeps  every space, letter, é, 中, and 🧑‍💻. '
+        .runes
+        .toList();
+    final inputs = List.generate(
+      600,
+      (i) => String.fromCharCode(sample[i % sample.length]),
+    );
+    // Back-to-back dispatch without awaiting encryption or acknowledgements.
+    for (var i = 0; i < inputs.length; i++) {
+      relay.send(
+        Message.sendInput(SendInput(paneId: 'w1:p1', text: inputs[i])),
+        corr: 'burst-$i',
+      );
+    }
+    for (var i = 0; i < inputs.length; i++) {
+      final frame = await _readDeviceFrame(iterator, cipher, reassembler);
+      expect(frame.seq, initial.seq + i + 1);
+      expect(frame.corr, 'burst-$i');
+      expect(frame.payload['text'], inputs[i]);
+    }
+  });
+
   for (final token in <String?>[null, 'initial']) {
     test('push registration follows session_joined: token $token', () async {
       final fake = await _FakeRelay.start();

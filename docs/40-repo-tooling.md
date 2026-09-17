@@ -365,6 +365,7 @@ crates/
 │       ├── posix/
 │       │   └── test-ensure-service.sh
 │       └── windows/
+│           ├── probe-input-fidelity.ps1  # WP-7, explicit live Windows diagnostic
 │           ├── test-ensure-service.ps1
 │           └── test-plugin-root.ps1
 └── herdr-relay-hub/

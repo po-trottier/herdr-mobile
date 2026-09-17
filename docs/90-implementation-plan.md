@@ -2503,7 +2503,10 @@ correct encoding, and nothing else can.
 
 **Parallel-safe with.** Phase 8, Phase 12.
 
-**Owns.** `crates/herdr-relay/tests/input_map.rs`, `crates/herdr-relay/tests/reject_unknown.rs`.
+**Owns.** `crates/herdr-relay/tests/input_map.rs`, `crates/herdr-relay/tests/reject_unknown.rs`,
+`crates/herdr-relay/tests/windows/probe-input-fidelity.ps1` (R-90-018). The live diagnostic
+creates one isolated OMP pane, compares synthetic input at normal and burst rates, and closes
+only the pane it created. It reports counts and comparisons, never terminal content.
 
 `crates/herdr-relay/src/watch/requests.rs` already holds one direct Device request in, one direct
 wire reply out (`tree_request`, `watch_pane`, `unwatch_pane`, `scroll_request`, from Phase 6).

@@ -207,6 +207,54 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
     testWidgets(
+      'rapid native edits preserve the complete field on ${platform.name}',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final focus = FocusNode();
+        addTearDown(focus.dispose);
+        var received = '';
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Composer(
+                focusNode: focus,
+                onText: (text) => received += text,
+                onDelete: (count) => received = received.characters
+                    .take(received.characters.length - count)
+                    .join(),
+                onSubmit: () {},
+              ),
+            ),
+          ),
+        );
+        await tester.showKeyboard(find.byType(EditableText));
+        const text =
+            'Fast typing keeps  every space, repeated letter, é, 中, and 🧑‍💻.';
+        var typed = '';
+        for (final char in text.characters) {
+          typed += char;
+          tester.testTextInput.updateEditingValue(
+            TextEditingValue(
+              text: typed,
+              selection: TextSelection.collapsed(offset: typed.length),
+            ),
+          );
+        }
+        await tester.pump();
+        expect(received, text);
+        expect(
+          tester
+              .widget<EditableText>(find.byType(EditableText))
+              .controller
+              .text,
+          text,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+    testWidgets(
       'native edits, replacement, selection and submit on ${platform.name}',
       (WidgetTester tester) async {
         debugDefaultTargetPlatformOverride = platform;

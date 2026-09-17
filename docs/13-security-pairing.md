@@ -351,8 +351,9 @@ R-13-073: The App Lock setting (`docs/03-product-decisions.md` R-03-090) selects
 level of the storage R-13-063 fixes, not a different storage location and not a different key.
 App Lock on uses the operating-system biometric or passcode gate of R-22-013. App Lock off
 stores the identical values with no authentication requirement, per
-`docs/22-platform-integration.md` R-22-082. Turning the setting on or off re-stores the same
-secrets under the new protection level. It MUST NOT generate a new keypair, MUST NOT revoke any
+`docs/22-platform-integration.md` R-22-082. Turning the setting on or off re-stores the private
+key under the new protection level, and moves any Host record a build before 2026-09-16 wrote
+gated into the ungated store (R-13-063). It MUST NOT generate a new keypair, MUST NOT revoke any
 pairing, and MUST NOT require re-pairing. The toggle lives on
 `docs/31-mockups/15-appearance.md` R-31-15-18.
 
@@ -475,16 +476,20 @@ setting:
 - The relay origin. This is app-wide, not per computer (R-30-922).
 
 These values form one record per paired computer, and the Device MUST keep one such record for
-every computer it has saved (R-03-043). Whether that record additionally requires an
-operating-system authentication challenge to read is controlled by the App Lock setting, per
-R-13-073 and `docs/22-platform-integration.md` R-22-013 and R-22-082.
+every computer it has saved (R-03-043). Only the Curve25519 private key carries the
+operating-system authentication challenge of R-22-013 when App Lock is on. The Host records
+(pinned key, routing handle, relay origin) sit in the same keychain or keystore class with no
+challenge, whatever the App Lock setting: the challenge is per item read, iOS gives the pinned
+storage plugin no way to reuse one authentication across reads, and gating every item raised one
+Face ID sheet per item, six on one cold start (amended 2026-09-16 by the product owner; until then
+the whole record was gated). Without the private key the Host records open nothing.
 
-R-13-064: When App Lock is enabled (R-03-090), the Device MUST gate access to these secrets
-behind biometric authentication (fingerprint or face) or the device passcode, and the user MUST
-authenticate at least once per app session before the Noise session is established, per
+R-13-064: When App Lock is enabled (R-03-090), the Device MUST gate access to the Curve25519
+private key behind biometric authentication (fingerprint or face) or the device passcode, and the
+user MUST authenticate exactly once per app session, before the Noise session is established, per
 `docs/31-mockups/04-lock.md`. The background lock timeout is 120 seconds (R-22-017). When App
-Lock is disabled, the app reads these secrets with no operating-system authentication challenge,
-and no session gate exists: `/lock` never appears, per `docs/31-mockups/04-lock.md` R-31-04-12.
+Lock is disabled, the app reads the key with no operating-system authentication challenge, and
+no session gate exists: `/lock` never appears, per `docs/31-mockups/04-lock.md` R-31-04-12.
 
 R-13-065: The Device MUST store in plain application storage (not the keystore or keychain):
 

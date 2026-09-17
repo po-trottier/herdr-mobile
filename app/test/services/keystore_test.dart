@@ -439,4 +439,92 @@ void main() {
       },
     );
   });
+
+  group('one OS challenge per session (R-13-064, 2026-09-16)', () {
+    late _MockFlutterSecureStorage gated;
+    late _MockFlutterSecureStorage plain;
+    late Map<String, String> gatedBacking;
+    late Map<String, String> plainBacking;
+
+    void wire(_MockFlutterSecureStorage storage, Map<String, String> backing) {
+      when(() => storage.read(key: any(named: 'key'))).thenAnswer(
+        (invocation) async =>
+            backing[invocation.namedArguments[#key] as String],
+      );
+      when(
+        () => storage.write(
+          key: any(named: 'key'),
+          value: any(named: 'value'),
+        ),
+      ).thenAnswer((invocation) async {
+        backing[invocation.namedArguments[#key] as String] =
+            invocation.namedArguments[#value] as String;
+      });
+      when(() => storage.delete(key: any(named: 'key')))
+          .thenAnswer((invocation) async {
+            backing.remove(invocation.namedArguments[#key] as String);
+          });
+    }
+
+    setUp(() {
+      gated = _MockFlutterSecureStorage();
+      plain = _MockFlutterSecureStorage();
+      gatedBacking = <String, String>{};
+      plainBacking = <String, String>{};
+      wire(gated, gatedBacking);
+      wire(plain, plainBacking);
+    });
+
+    test('only the device key lives behind the challenge; a Host record is read with none', () async {
+      final keystore = KeystoreService(
+        appLockEnabled: true,
+        storage: gated,
+        plainStorage: plain,
+      );
+      expect(await keystore.deviceKeyPair(), isA<Ok<SimpleKeyPair>>());
+      expect(
+        await keystore.storeHostSecrets(
+          'host-1',
+          HostSecrets(
+            hostStaticPublicKey: List<int>.filled(32, 7),
+            routingHandle: 'handle',
+            relayOrigin: Uri.parse('https://relay.example.com'),
+          ),
+        ),
+        isA<Ok<void>>(),
+      );
+      expect(await keystore.hostSecrets('host-1'), isA<Ok<HostSecrets?>>());
+      expect(await keystore.hostRelayOrigin('host-1'), isA<Ok<Uri?>>());
+
+      expect(gatedBacking.keys, ['device_x25519_private_key']);
+      expect(plainBacking.keys, isNot(contains('device_x25519_private_key')));
+      expect(plainBacking, hasLength(3));
+      // The gated store answered exactly one read: the key. Every Host read went plain.
+      verify(() => gated.read(key: 'device_x25519_private_key')).called(1);
+      verifyNever(
+        () => gated.read(
+          key: any(named: 'key', that: startsWith('host_')),
+        ),
+      );
+    });
+
+    test('toggling App Lock moves a Host record an earlier build wrote gated into the plain store', () async {
+      gatedBacking['device_x25519_private_key'] = 'seed';
+      gatedBacking['host_routing_handle_host-1'] = 'handle';
+      final keystore = KeystoreService(
+        appLockEnabled: true,
+        storage: gated,
+        plainStorage: plain,
+      );
+      expect(
+        await keystore.retoggleProtection(
+          appLockEnabled: false,
+          hostIds: ['host-1'],
+        ),
+        isA<Ok<void>>(),
+      );
+      expect(plainBacking['host_routing_handle_host-1'], 'handle');
+      expect(gatedBacking.containsKey('host_routing_handle_host-1'), isFalse);
+    });
+  });
 }

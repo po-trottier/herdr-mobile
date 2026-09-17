@@ -126,30 +126,44 @@ final class HostSecrets {
 ///
 /// `flutter_secure_storage` 10.3.1 is pinned (`docs/20-mobile-framework.md` section 6; not
 /// 11.0.0, which raises the plugin's own Android `compileSdk` past the newest stable
-/// platform). Every read and write goes through one `FlutterSecureStorage` instance
-/// configured once, in the constructor, so every caller gets the same access control with no
-/// chance of an unprotected call slipping in.
+/// platform). Two `FlutterSecureStorage` instances, configured once in the constructor:
+/// [_gated] holds the one item R-22-013 gates, the Device private key, under the App Lock
+/// access control; [_plain] holds every Host record (pinned key, routing handle, relay
+/// origin, R-13-063) in the same keychain class with no authentication challenge. The OS
+/// challenge is per item read, and iOS gives the plugin no way to reuse one `LAContext`
+/// across reads, so gating every item raised one Face ID sheet per item: six on a cold
+/// start that read the key and one Host's three records (2026-09-16, the product owner).
+/// Without the private key the Host records open nothing, so the key alone is the gate,
+/// and a session sees exactly one prompt (R-13-064).
 class KeystoreService {
   /// [appLockEnabled] is required, with no default, so every call site states the current
   /// App Lock setting (`docs/03-product-decisions.md` R-03-090) explicitly — a silent
   /// fallback to the old mandatory-biometric behaviour, or a silent fallback to no
   /// protection at all, would both be a real regression a default could hide.
-  KeystoreService({required bool appLockEnabled, FlutterSecureStorage? storage})
-    : _appLockEnabled = appLockEnabled,
-      _storageOverride = storage,
-      _storage =
-          storage ??
-          FlutterSecureStorage(
-            iOptions: appLockEnabled
-                ? _iosOptionsAppLockOn
-                : _iosOptionsAppLockOff,
-            aOptions: appLockEnabled
-                ? _androidOptionsAppLockOn
-                : _androidOptionsAppLockOff,
-          );
+  KeystoreService({
+    required bool appLockEnabled,
+    FlutterSecureStorage? storage,
+    @visibleForTesting FlutterSecureStorage? plainStorage,
+  }) : _appLockEnabled = appLockEnabled,
+       _storageOverride = storage,
+       _gated = storage ?? _storageFor(appLockEnabled: appLockEnabled),
+       _plain = plainStorage ?? storage ?? _storageFor(appLockEnabled: false);
+
+  static FlutterSecureStorage _storageFor({required bool appLockEnabled}) =>
+      FlutterSecureStorage(
+        iOptions: appLockEnabled ? _iosOptionsAppLockOn : _iosOptionsAppLockOff,
+        aOptions: appLockEnabled
+            ? _androidOptionsAppLockOn
+            : _androidOptionsAppLockOff,
+      );
 
   bool _appLockEnabled;
-  FlutterSecureStorage _storage;
+
+  /// The Device private key's store, under the current App Lock protection level.
+  FlutterSecureStorage _gated;
+
+  /// Every Host record's store: same keychain class, never an authentication challenge.
+  final FlutterSecureStorage _plain;
 
   /// The constructor's own `storage` override, if a caller supplied one -- kept so
   /// [retoggleProtection] can reuse the identical test double as its own "new" storage rather
@@ -274,16 +288,13 @@ class KeystoreService {
   /// keypair; this method never rotates an existing key (R-13-046).
   Future<Result<SimpleKeyPair>> deviceKeyPair() async {
     try {
-      final storedSeed = await _storage.read(key: _privateKeyStorageKey);
+      final storedSeed = await _gated.read(key: _privateKeyStorageKey);
       if (storedSeed != null) {
         return Ok(await X25519().newKeyPairFromSeed(base64Decode(storedSeed)));
       }
       final keyPair = await X25519().newKeyPair();
       final seed = await keyPair.extractPrivateKeyBytes();
-      await _storage.write(
-        key: _privateKeyStorageKey,
-        value: base64Encode(seed),
-      );
+      await _gated.write(key: _privateKeyStorageKey, value: base64Encode(seed));
       return Ok(keyPair);
     } on PlatformException catch (e) {
       return Err('read or generate the device key pair', cause: _classify(e));
@@ -300,16 +311,16 @@ class KeystoreService {
     HostSecrets secrets,
   ) async {
     try {
-      await _storage.write(
+      await _plain.write(
         key: _hostPublicKeyStorageKey(hostId),
         value: base64Encode(secrets.hostStaticPublicKey),
       );
-      await _storage.write(
+      await _plain.write(
         key: _hostRoutingHandleStorageKey(hostId),
         value: secrets.routingHandle,
       );
       if (secrets.relayOrigin != null) {
-        await _storage.write(
+        await _plain.write(
           key: _hostRelayOriginStorageKey(hostId),
           value: secrets.relayOrigin.toString(),
         );
@@ -323,18 +334,16 @@ class KeystoreService {
   /// Reads the secrets stored for [hostId], or `Ok(null)` when none are stored.
   Future<Result<HostSecrets?>> hostSecrets(String hostId) async {
     try {
-      final publicKeyBase64 = await _storage.read(
+      final publicKeyBase64 = await _plain.read(
         key: _hostPublicKeyStorageKey(hostId),
       );
-      final routingHandle = await _storage.read(
+      final routingHandle = await _plain.read(
         key: _hostRoutingHandleStorageKey(hostId),
       );
       if (publicKeyBase64 == null || routingHandle == null) {
         return const Ok(null);
       }
-      final origin = await _storage.read(
-        key: _hostRelayOriginStorageKey(hostId),
-      );
+      final origin = await _plain.read(key: _hostRelayOriginStorageKey(hostId));
       return Ok(
         HostSecrets(
           hostStaticPublicKey: base64Decode(publicKeyBase64),
@@ -354,9 +363,9 @@ class KeystoreService {
   /// matching `PairedHostRecord` from `plain_store.dart`.
   Future<Result<void>> deleteHostSecrets(String hostId) async {
     try {
-      await _storage.delete(key: _hostPublicKeyStorageKey(hostId));
-      await _storage.delete(key: _hostRoutingHandleStorageKey(hostId));
-      await _storage.delete(key: _hostRelayOriginStorageKey(hostId));
+      await _plain.delete(key: _hostPublicKeyStorageKey(hostId));
+      await _plain.delete(key: _hostRoutingHandleStorageKey(hostId));
+      await _plain.delete(key: _hostRelayOriginStorageKey(hostId));
       return const Ok(null);
     } on PlatformException catch (e) {
       return Err('delete host secrets for $hostId', cause: _classify(e));
@@ -366,7 +375,7 @@ class KeystoreService {
   /// Stores one computer's origin. The caller validates it (R-03-033, R-03-126).
   Future<Result<void>> storeHostRelayOrigin(String hostId, Uri origin) async {
     try {
-      await _storage.write(
+      await _plain.write(
         key: _hostRelayOriginStorageKey(hostId),
         value: origin.toString(),
       );
@@ -384,9 +393,7 @@ class KeystoreService {
   /// text field is a use of key material that no rule asks for.
   Future<Result<Uri?>> hostRelayOrigin(String hostId) async {
     try {
-      final stored = await _storage.read(
-        key: _hostRelayOriginStorageKey(hostId),
-      );
+      final stored = await _plain.read(key: _hostRelayOriginStorageKey(hostId));
       if (stored == null) return const Ok(null);
       final parsed = Uri.tryParse(stored);
       return Ok(parsed);
@@ -401,18 +408,22 @@ class KeystoreService {
   /// `deleteHostSecrets` per affected computer and leave the Device keypair untouched.
   Future<Result<void>> clearAll() async {
     try {
-      await _storage.deleteAll();
+      // One keychain service and one preferences file back both instances, so this clears
+      // the gated key too, with no authentication challenge (a delete never prompts).
+      await _plain.deleteAll();
       return const Ok(null);
     } on PlatformException catch (e) {
       return Err('clear the keystore', cause: _classify(e));
     }
   }
 
-  /// `R-22-083`/`R-13-073`: toggling App Lock re-stores every secret this service owns --
-  /// the device keypair and [hostIds]' pinned public keys, routing handles, and relay
-  /// origins (R-13-063) -- under the new protection level. This
-  /// method never calls key generation and never touches a paired computer's non-secret
-  /// `PairedHostRecord`; it MUST NOT be used for anything but a protection-level change.
+  /// `R-22-083`/`R-13-073`: toggling App Lock re-stores the Device private key under the new
+  /// protection level. It also rewrites [hostIds]' pinned public keys, routing handles and
+  /// relay origins into [_plain]: a build before 2026-09-16 wrote them gated, and a gated
+  /// record costs one prompt per read for as long as it stays gated, so the toggle is the
+  /// heal path for an existing install. This method never calls key generation and never
+  /// touches a paired computer's non-secret `PairedHostRecord`; it MUST NOT be used for
+  /// anything but a protection-level change.
   ///
   /// **Read-delete-write per key, not R-22-083's literal read-write-delete order.** The pinned
   /// `flutter_secure_storage` 10.3.1 Android implementation
@@ -450,37 +461,42 @@ class KeystoreService {
     if (appLockEnabled == _appLockEnabled) {
       return const Ok(null);
     }
-    final newStorage =
-        _storageOverride ??
-        FlutterSecureStorage(
-          iOptions: appLockEnabled
-              ? _iosOptionsAppLockOn
-              : _iosOptionsAppLockOff,
-          aOptions: appLockEnabled
-              ? _androidOptionsAppLockOn
-              : _androidOptionsAppLockOff,
-        );
+    final newGated =
+        _storageOverride ?? _storageFor(appLockEnabled: appLockEnabled);
     try {
-      final keys = <String>[
-        _privateKeyStorageKey,
-        for (final hostId in hostIds) _hostPublicKeyStorageKey(hostId),
-        for (final hostId in hostIds) _hostRoutingHandleStorageKey(hostId),
-        for (final hostId in hostIds) _hostRelayOriginStorageKey(hostId),
-      ];
-      for (final key in keys) {
-        final value = await _storage.read(key: key);
-        if (value == null) {
-          continue; // Nothing stored under this key yet; nothing to migrate.
+      await _move(_privateKeyStorageKey, from: _gated, to: newGated);
+      for (final hostId in hostIds) {
+        for (final key in [
+          _hostPublicKeyStorageKey(hostId),
+          _hostRoutingHandleStorageKey(hostId),
+          _hostRelayOriginStorageKey(hostId),
+        ]) {
+          await _move(key, from: _gated, to: _plain);
         }
-        await _storage.delete(key: key);
-        await newStorage.write(key: key, value: value);
       }
-      _storage = newStorage;
+      _gated = newGated;
       _appLockEnabled = appLockEnabled;
       return const Ok(null);
     } on PlatformException catch (e) {
       return Err('retoggle App Lock protection', cause: _classify(e));
     }
+  }
+
+  /// Read-delete-write of one key (see [retoggleProtection]). The read goes through [from],
+  /// so it finds an item written under [from]'s options; a Host record an earlier build wrote
+  /// gated is found through the gated store and lands in [_plain], and one already plain is
+  /// left where it is.
+  Future<void> _move(
+    String key, {
+    required FlutterSecureStorage from,
+    required FlutterSecureStorage to,
+  }) async {
+    final value = await from.read(key: key);
+    if (value == null) {
+      return; // Nothing stored under this key yet; nothing to migrate.
+    }
+    await from.delete(key: key);
+    await to.write(key: key, value: value);
   }
 
   /// Recognises a permanently invalidated key from the platform's raw error text and wraps

@@ -253,7 +253,7 @@ and no glyph.
 | Jump-to-bottom pill | `FilledButton.tonalIcon` | `CupertinoButton.tinted`; both stay opaque, per `R-33-060` |
 | Strip action | `ListTile` | `CupertinoListTile`; `ChromeStripAction` owns the destination tap |
 | Section header disclosure | `ListTile` with `IconButton` | `CupertinoListTile` with `CupertinoButton`; the count keeps its trailing inset |
-| Workspace inline expansion | `ExpansionTile`, with its own disclosure glyph and rotation | `CupertinoExpansionTile`, through `ChromeListRow.expand`, with its own disclosure glyph; `R-20-044` bundles this native font. `R-32-401` governs glyphs the app places, not glyphs a native control owns |
+| Workspace inline expansion | `ExpansionTile`, with its own disclosure glyph and rotation | `CupertinoListTile` with Flutter's `Expansible`, through `ChromeListRow.expand`; the rotating native glyph uses the expander colour and gap of `docs/32-design-language.md` section 7.23 |
 | Notification swipe action | `TextButton` or `FilledButton.tonal` | Plain `CupertinoButton`; the existing swipe reveal stays |
 | In-sheet back control | `BackButton` with an explicit return callback | `CupertinoNavigationBarBackButton` with an explicit return callback |
 
@@ -416,8 +416,13 @@ and no glyph.
      section 7.4. It MUST push that level. This app-supplied indicator MUST NOT use
      `CupertinoListTileChevron`, per `R-32-401`. A row that opens a sheet MUST replace the
      chevron with a labelled control, such as `Edit` or a current value.
-     A row that expands inline MUST use `CupertinoExpansionTile`. Its native arrow states that
-     content opens in place, per `R-33-022`.
+     A row that expands inline MUST use `CupertinoListTile` with Flutter's `Expansible` through
+     `ChromeListRow.expand`. Its native arrow MUST rotate down when expanded, retain the
+     platform's localized expand/collapse hints, and use the expander values of
+     `docs/32-design-language.md` section 7.23 for colour and spacing. The pinned
+     `CupertinoExpansionTile` hard-codes
+     blue and exposes no arrow styling, so it cannot apply those values (corrected 2026-09-17
+     after the product owner reported the blue arrow and missing gap).
   3. On Android a trailing chevron carries no such promise, so the Material row MUST carry the
      current value or a labelled control instead. A Material choice MUST open a single-choice screen
      or a dialog, per `R-33-073`.
@@ -718,6 +723,10 @@ Herdr fixed palette, and `docs/32-design-language.md` owns that change.
 - `CupertinoListSection`, `CupertinoListTile` and `CupertinoExpansionTile`, the iOS list widgets
   of `R-33-072` and `R-33-073`:
   `https://pub.dev/documentation/cupertino_ui/latest/cupertino_ui/CupertinoListSection-class.html`
+- `CupertinoExpansionTile` exposes no arrow styling; `Expansible` provides the expansion
+  controller, header builder and body animation used by `R-33-073`:
+  <https://pub.dev/documentation/cupertino_ui/1.0.1/cupertino_ui/CupertinoExpansionTile-class.html>
+  and <https://api.flutter.dev/flutter/widgets/Expansible-class.html>.
 - Android settings patterns, which send a single choice to a screen or a dialog:
   `https://developer.android.com/design/ui/mobile/guides/patterns/settings`
 - Always use `Cancel` to title a button that cancels an alert's action, place the default button at

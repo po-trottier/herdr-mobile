@@ -1,7 +1,8 @@
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoListTile, CupertinoExpansionTile, CupertinoSwitch;
+    show CupertinoListTile, CupertinoSwitch;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
+import 'package:herdr_mobile/widgets/theme/app_space.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_activity_indicator.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_list_row.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
@@ -13,6 +14,63 @@ Future<void> _pump(WidgetTester tester, Widget row) async {
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'iOS expansion uses themed ink and separates its count ($brightness)',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(brightness: brightness),
+              home: const Scaffold(
+                body: ChromeListRow.expand(
+                  title: 'Workspace',
+                  trailing: Text('4 panes'),
+                  child: Text('Pane content'),
+                ),
+              ),
+            ),
+          );
+          for (final expanded in [false, true, false]) {
+            await tester.pumpAndSettle();
+            final arrow = find.descendant(
+              of: find.byType(CupertinoListTile),
+              matching: find.byType(Icon),
+            );
+            expect(arrow, findsOneWidget);
+            expect(
+              tester.widget<Icon>(arrow).color,
+              AppColor.of(tester.element(arrow)).fgSecondary,
+            );
+            expect(
+              tester.getTopLeft(arrow).dx -
+                  tester.getTopRight(find.text('4 panes')).dx,
+              greaterThanOrEqualTo(AppSpace.space3),
+            );
+            expect(
+              find.text('Pane content').hitTestable(),
+              expanded ? findsOneWidget : findsNothing,
+            );
+            expect(
+              tester.getSemantics(find.text('Workspace')),
+              isSemantics(
+                hasExpandedState: true,
+                isExpanded: expanded,
+                hasTapAction: true,
+              ),
+            );
+            await tester.tap(find.text('Workspace'));
+          }
+          await tester.pumpAndSettle();
+        } finally {
+          semantics.dispose();
+        }
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+  }
+
   for (final TargetPlatform platform in <TargetPlatform>[
     TargetPlatform.android,
     TargetPlatform.iOS,
@@ -132,7 +190,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(
-        find.byType(ios ? CupertinoExpansionTile : ExpansionTile),
+        find.byType(ios ? CupertinoListTile : ExpansionTile),
         findsOneWidget,
       );
       expect(find.text('Pane content').hitTestable(), findsOneWidget);

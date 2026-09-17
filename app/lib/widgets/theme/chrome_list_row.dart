@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart'
 
 import '../app_list_row.dart';
 import 'app_color.dart';
+import 'app_motion.dart';
 import 'app_size.dart';
 import 'app_space.dart';
 import 'app_type.dart';
@@ -468,10 +469,57 @@ class _IosExpansionState extends State<_IosExpansion> {
               row._trailing,
             ],
           );
-    final Widget tile = CupertinoExpansionTile(
-      title: title,
+    final AppColor color = AppColor.of(context);
+    // cupertino_ui 1.0.1 hard-codes activeBlue in CupertinoExpansionTile and
+    // exposes no arrow styling. Reuse its platform row and Flutter's expansion
+    // primitive so the indicator can follow the app's colour and spacing tokens.
+    final Widget tile = Expansible(
       controller: _controller,
-      child: row._child!,
+      animationStyle: AnimationStyle(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : AppMotion.durationBase,
+        curve: AppMotion.curveMove,
+      ),
+      headerBuilder: (context, animation) {
+        final localizations = CupertinoLocalizations.of(context);
+        return Semantics(
+          expanded: _controller.isExpanded,
+          onTapHint: _controller.isExpanded
+              ? localizations.expansionTileExpandedTapHint
+              : localizations.expansionTileCollapsedTapHint,
+          child: CupertinoListTile(
+            title: title,
+            backgroundColorActivated: CupertinoColors.transparent,
+            trailing: Padding(
+              padding: const EdgeInsetsDirectional.only(start: AppSpace.space3),
+              child: RotationTransition(
+                turns: animation.drive(Tween<double>(begin: 0, end: 0.25)),
+                child: SizedBox.square(
+                  dimension: CupertinoTheme.of(context)
+                      .textTheme
+                      .textStyle
+                      .fontSize,
+                  child: Center(
+                    // Preserve CupertinoExpansionTile's native arrow metrics.
+                    child: Icon(
+                      CupertinoIcons.right_chevron,
+                      color: color.fgSecondary,
+                      size: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            onTap: () => _controller.isExpanded
+                ? _controller.collapse()
+                : _controller.expand(),
+          ),
+        );
+      },
+      bodyBuilder: (context, animation) =>
+          FadeTransition(opacity: animation, child: row._child!),
     );
     return row.backgroundColor == null
         ? tile

@@ -20,7 +20,6 @@ import 'dart:ui' show TextBaseline, Tristate;
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoButton,
-        CupertinoExpansionTile,
         CupertinoListTile,
         CupertinoPageScaffold,
         CupertinoSearchTextField,
@@ -38,6 +37,7 @@ import 'package:flutter/widgets.dart'
         CustomScrollView,
         DecoratedBox,
         Element,
+        Expansible,
         GestureDetector,
         Icon,
         IconData,
@@ -1058,9 +1058,7 @@ void main() {
         await _pumpWorkspaceAxis(tester, harness, _oneAgentSnapshot());
         expect(
           find.byType(
-            platform == TargetPlatform.iOS
-                ? CupertinoExpansionTile
-                : ExpansionTile,
+            platform == TargetPlatform.iOS ? Expansible : ExpansionTile,
           ),
           findsOneWidget,
         );

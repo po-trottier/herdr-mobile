@@ -40,6 +40,13 @@ tokio = { workspace = true, features = ["signal"] }
 # the real deployment's publicly-issued Let's Encrypt certificate
 # (`docs/14-relay-deployment.md` R-14-022) rather than a bundled root list.
 tokio-tungstenite = { version = "=0.30.0", features = ["rustls-tls-native-roots"] }
+# rustls needs exactly one `CryptoProvider` feature or it panics at the first
+# `wss://` dial ("Could not automatically determine the process-level
+# CryptoProvider"); tokio-tungstenite's feature above selects none. `ring` is
+# already in this tree through `snow`, so it adds no crate. The dev-dependency
+# below MUST stay `default-features = false`: rustls' default enables
+# `aws-lc-rs`, and two providers panic the same way in test builds.
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 futures-util = "=0.3.34"
 flate2 = { workspace = true }
 
@@ -50,9 +57,9 @@ flate2 = { workspace = true }
 # production dependency footprint. Versions pinned to what
 # `rustls-tls-native-roots` above already resolves in this workspace, so
 # this adds no second copy of any of the three.
-rcgen = "0.14.9"
-rustls = "=0.23.43"
-tokio-rustls = "=0.26.4"
+rcgen = { version = "0.14.9", default-features = false, features = ["ring", "pem"] }
+rustls = { version = "=0.23.43", default-features = false }
+tokio-rustls = { version = "=0.26.4", default-features = false }
 rustls-pki-types = "=1.15.1"
 # Requested by WP-10-c for crates/herdr-relay/tests/popup_once.rs (R-31-16-02): a
 # pure-Rust QR decoder, run directly over the popup's own rendered half-block

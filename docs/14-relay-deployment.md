@@ -104,23 +104,28 @@ Set `max-size=10m` and `max-file=3` to bound disk use.
 
 ## Optional push providers
 
-**R-14-016** The operator MAY enable either provider with these environment variables.
-Unset credentials disable that provider. R-12-075 owns the disabled startup message.
+**R-14-016** The operator MAY enable either provider through the project's `.env`. The compose
+file forwards these values to the relay; an empty or absent value leaves that provider off, and
+R-12-075 owns the disabled startup message. The two credential files sit in one directory on the
+host under fixed names (`apns.p8`, `firebase-service-account.json`), so the `.env` carries no path.
 
-| Variable | Default | Purpose |
+| Variable in `.env` | Default | Purpose |
 | --- | --- | --- |
-| `HERDR_RELAY_APNS_KEY_FILE` | Unset | Container path to the APNs .p8 key |
-| `HERDR_RELAY_APNS_KEY_ID` | Unset | Apple key ID |
+| `HERDR_RELAY_APNS_KEY_ID` | Unset | Apple key ID of the `.p8` key. Setting it enables APNs |
 | `HERDR_RELAY_APNS_TEAM_ID` | Unset | Apple Developer team ID |
-| `HERDR_RELAY_APNS_BUNDLE_ID` | Unset | App bundle ID and APNs topic |
-| `HERDR_RELAY_APNS_SANDBOX` | `false` | `true` selects `api.sandbox.push.apple.com` |
-| `HERDR_RELAY_FCM_SERVICE_ACCOUNT_FILE` | Unset | Container path to Firebase service-account JSON |
+| `HERDR_RELAY_APNS_BUNDLE_ID` | Unset | App bundle ID and APNs topic: `dev.herdr.remote` |
+| `HERDR_RELAY_APNS_SANDBOX` | `false` | `true` selects `api.sandbox.push.apple.com` (a development build) |
+| `HERDR_RELAY_FCM_ENABLED` | Unset | Any value enables FCM from `firebase-service-account.json` |
+| `RELAY_SECRETS_DIR` | `./secrets` | Host directory mounted read-only at `/run/secrets` |
+
+Inside the container these become the relay's own variables (R-12-072): `HERDR_RELAY_APNS_KEY_FILE`
+= `/run/secrets/apns.p8` when the key ID is set, `HERDR_RELAY_FCM_SERVICE_ACCOUNT_FILE` =
+`/run/secrets/firebase-service-account.json` when FCM is enabled, and the three Apple values as is.
 
 **R-14-017** The operator MUST keep provider credentials outside the repository and container image.
-Use the optional comments in `deploy/relay/compose.yaml` for environment values and read-only mounts.
-Enable only the variables and mount for each configured provider.
-Set each file source to an existing credential file that the container user can read.
-A Compose `.env` value reaches the relay only when `relay.environment` references it.
+`deploy/relay/secrets/` is excluded by `.gitignore` except for its `README.md`; a GitOps sync never
+creates the credential files, the operator copies them onto the host. The relay reads each file
+once at startup, so a new file needs a redeploy.
 
 **R-14-018** The operator MUST obtain provider credentials from the provider account that owns the app.
 For APNs, open Apple Developer Certificates, Identifiers & Profiles, then Keys.

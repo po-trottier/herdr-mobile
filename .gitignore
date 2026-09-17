@@ -51,3 +51,7 @@ app/test/**/failures/
 
 # Operator-supplied Firebase configuration.
 /app/android/app/google-services.json
+
+# Relay push credentials (R-14-017). The README stays.
+/deploy/relay/secrets/*
+!/deploy/relay/secrets/README.md

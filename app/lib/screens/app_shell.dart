@@ -34,6 +34,7 @@ import 'package:cupertino_ui/cupertino_ui.dart'
         CupertinoThemeData,
         Expanded,
         MainAxisSize,
+        MediaQuery,
         SafeArea,
         StatelessWidget,
         StreamBuilder,
@@ -182,8 +183,12 @@ class AppShell extends StatelessWidget {
   /// `agent_list_screen.dart` draws it.
   Widget _androidShell(BuildContext context, int index, int unread) => Scaffold(
     body: navigationShell,
+    // The bar pads the bottom system inset itself and paints its own surface
+    // through it; an outer bottom SafeArea left a page-coloured band under
+    // the bar (seen on iPhone, 2026-09-16).
     bottomNavigationBar: SafeArea(
       top: false,
+      bottom: false,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
@@ -228,9 +233,18 @@ class AppShell extends StatelessWidget {
       backgroundColor: color.bgBase,
       child: SafeArea(
         top: false,
+        bottom: false,
         child: Column(
           children: <Widget>[
-            Expanded(child: navigationShell),
+            // The bar below consumes the bottom inset; the body must not pad
+            // for it too, as Material's Scaffold arranges on Android.
+            Expanded(
+              child: MediaQuery.removePadding(
+                context: context,
+                removeBottom: true,
+                child: navigationShell,
+              ),
+            ),
             _strip(),
             CupertinoTheme(
               data: theme.copyWith(

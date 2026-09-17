@@ -18,6 +18,7 @@
 library;
 
 import 'dart:async' show StreamController;
+import 'dart:ui' show Rect, Size;
 
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoTabBar;
 import 'package:flutter/foundation.dart'
@@ -41,6 +42,7 @@ import 'package:herdr_mobile/services/relay.dart';
 import 'package:herdr_mobile/widgets/app_strip.dart' show AppStrip;
 import 'package:herdr_mobile/widgets/status_bar.dart' show BarState, StatusBar;
 import 'package:herdr_mobile/widgets/theme/app_color.dart' show AppColor;
+import 'package:herdr_mobile/widgets/theme/app_size.dart' show AppSize;
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:herdr_mobile/widgets/theme/chrome_scheme.dart'
     show ChromeScheme;
@@ -283,6 +285,37 @@ void main() {
     expect(find.text('Notifications body'), findsOneWidget);
     debugDefaultTargetPlatformOverride = null;
   });
+
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.iOS,
+    TargetPlatform.android,
+  ]) {
+    testWidgets(
+      '$platform: the tab bar reaches the screen bottom through the home-indicator inset; '
+      'no page-coloured band below it (2026-09-16)',
+      (WidgetTester tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.padding = const FakeViewPadding(bottom: 34);
+        tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp.router(routerConfig: _buildTestRouter()),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder bar = platform == TargetPlatform.iOS
+            ? find.byType(CupertinoTabBar)
+            : find.byType(NavigationBar);
+        final Rect rect = tester.getRect(bar);
+        expect(rect.bottom, 844, reason: 'the bar owns the bottom inset');
+        // The bar is taller than its nominal height by exactly the inset.
+        expect(rect.height, AppSize.bottomNav + 34);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
 
   testWidgets(
     'draws no FloatingActionButton on any destination -- the create control is the '

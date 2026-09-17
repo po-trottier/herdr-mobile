@@ -466,7 +466,9 @@ row sit under the pane until it closes.
     the view and opens the pane, and closing the view shows the whole tree again. The view's fill,
     edge and type come from `searchViewTheme` in `app/lib/app.dart`. On iOS the search is a
     `CupertinoSearchTextField` in the navigation bar area: directly under the bar at the platform's
-    own inset, `space.4` from each edge and `space.2` above the segmented control, drawn on the
+    own inset, `space.4` from each edge, `space.2` below the bar and `space.2` above the segmented
+    control (the gap above was missing until 2026-09-16, when the product owner saw the field flush
+    under the bar), drawn on the
     `Workspace` axis and absent on `Priority`, which lists agents only; typing narrows the blocks in
     place, per `R-31-06-30`, and the field's own clear control shows them all again. Both carry the
     `Search panes` glyph of `R-32-401`; the wireframes write it `q`. Neither carries a shadow: a

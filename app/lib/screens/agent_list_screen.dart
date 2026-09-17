@@ -612,6 +612,7 @@ class _AgentListScreenState extends State<AgentListScreen>
               padding: const EdgeInsetsDirectional.only(
                 start: AppSpace.space4,
                 end: AppSpace.space4,
+                top: AppSpace.space2,
                 bottom: AppSpace.space2,
               ),
               child: CupertinoSearchTextField(

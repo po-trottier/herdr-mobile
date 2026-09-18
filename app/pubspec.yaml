@@ -12,7 +12,7 @@ dependencies:
 
   # Design systems. R-20-042: standalone packages, not the frozen in-SDK
   # material.dart and cupertino.dart libraries.
-  material_ui: 1.1.0
+  material_ui: 1.3.0
   cupertino_ui: 1.0.1
   # Cupertino glyph font: the platform back button, search field and expansion tile draw it. R-20-044.
   cupertino_icons: 1.0.9

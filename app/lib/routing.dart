@@ -853,8 +853,13 @@ final GoRouter appRouter = GoRouter(
               }
             },
             onPairAnother: () => unawaited(context.push('/pair/scan')),
+            // The Computers page lives on the root `Navigator`, outside the tab
+            // shell. A push to the Settings branch's `/hosts/:hostId/diagnostics`
+            // would switch the shell to the Settings tab first (measured live
+            // 2026-09-18), so this page pushes the root-level twin below and the
+            // details stack on top of Computers; pop returns here.
             onOpenDiagnostics: (String hostId) =>
-                unawaited(context.push('/hosts/$hostId/diagnostics')),
+                unawaited(context.push('/hosts/$hostId/connection')),
             attemptOnLoad: _takeColdStartAttempt(),
           ),
         );
@@ -862,6 +867,18 @@ final GoRouter appRouter = GoRouter(
       routes: <RouteBase>[
         _pairManualDeepLinkRoute(name: 'hosts-pair-manual-deeplink'),
       ],
+    ),
+    // The same connection details as the Settings branch's `diagnostics`, on the
+    // root `Navigator` for the Computers page (see `onOpenDiagnostics` above).
+    GoRoute(
+      path: '/hosts/:hostId/connection',
+      name: 'connection',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (BuildContext context, GoRouterState state) => _platformPage(
+        key: state.pageKey,
+        title: 'Diagnostics',
+        child: _DiagnosticsRoute(hostId: state.pathParameters['hostId']!),
+      ),
     ),
     // R-11-134, R-41-110: the notification-tap route, and the ordinary route
     // for opening a pane from the agent list or the notification log. `parentNavigatorKey`
@@ -1598,7 +1615,7 @@ class _DiagnosticsRouteState extends State<_DiagnosticsRoute> {
       framesOut: conn.isConnected ? conn.framesOut : null,
       bytesInOnWire: conn.isConnected ? conn.bytesInOnWire : null,
       bytesInUnpacked: conn.isConnected ? conn.bytesInUnpacked : null,
-      roundTrip: conn.lastRoundTrip,
+      roundTrip: conn.isConnected ? conn.lastRoundTrip : null,
       gridColumns: render?.columns,
       gridRows: render?.rows,
       longestLineDrawn: render?.longestLineDrawn,

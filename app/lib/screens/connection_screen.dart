@@ -52,6 +52,9 @@ import 'package:flutter/widgets.dart'
         CrossAxisAlignment,
         EdgeInsets,
         Expanded,
+        Flexible,
+        MainAxisAlignment,
+        TextAlign,
         IntrinsicHeight,
         CustomScrollView,
         Padding,
@@ -1026,22 +1029,28 @@ class _ValueRow extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                Expanded(
+                Flexible(
                   child: Text(
                     label,
                     style: AppType.body.copyWith(color: color.fgSecondary),
                   ),
                 ),
                 const SizedBox(width: AppSpace.space3),
-                treat == _Treat.plain
-                    ? Text(
-                        shown,
-                        style: AppType.monoCode.copyWith(
-                          color: color.fgPrimary,
-                        ),
-                      )
-                    : _StateWord(shown, treat),
+                // A long value (a Herdr preview version is 40 characters) keeps the
+                // label whole: the value wraps on its own lines, right-aligned.
+                Flexible(
+                  child: treat == _Treat.plain
+                      ? Text(
+                          shown,
+                          textAlign: TextAlign.end,
+                          style: AppType.monoCode.copyWith(
+                            color: color.fgPrimary,
+                          ),
+                        )
+                      : _StateWord(shown, treat),
+                ),
               ],
             ),
             if (extraLine != null) ...<Widget>[

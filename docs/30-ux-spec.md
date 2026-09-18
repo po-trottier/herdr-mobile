@@ -51,7 +51,7 @@ the hosted relay, **Device** is the phone.
 | 10 | Pane action sheet | modal on `/hosts/:hostId/panes/:paneId` | Open plugin actions, split right or down, close the pane, read the last lines aloud; amended 2026-09-14 per `R-03-134` | Terminal overflow or long press on an agent row | Plugin actions, new pane after split, or caller | `31-mockups/10-pane-actions.md` |
 | 11 | Agent prompt composer, retired 2026-09-09 per `R-03-101` | none; was `/hosts/:hostId/agents/:agentId/prompt` | none; a person types to the agent in the pane, per `R-03-054` | none | none | `31-mockups/11-prompt-composer.md`, kept as the record of its rule ids |
 | 12 | Notification settings | `/settings/notifications` | Choose what earns a local notification and when | `/settings` | `/settings` | `31-mockups/12-notifications.md` |
-| 13 | Connection status and diagnostics | `/hosts/:hostId/diagnostics` | Show which leg is broken and prove compression works | `/settings`, any offline strip | The caller | `31-mockups/13-connection.md` |
+| 13 | Connection status and diagnostics | `/hosts/:hostId/diagnostics`, or `/hosts/:hostId/connection` from `/hosts` | Show which leg is broken and prove compression works | `/settings`, any offline strip | The caller | `31-mockups/13-connection.md` |
 | 14 | Paired Device management | `/hosts/:hostId/devices` | List phones, open one, remove one, remove every one | `/settings` | `/hosts` after a revoke, `/welcome` when none is left, else `/settings` | `31-mockups/14-devices.md` |
 | 15 | Settings: appearance, haptics, this phone's name, relay address | `/settings` | Set theme, terminal text size, haptics, this phone's name and the relay address | Bottom navigation | Notifications, devices, diagnostics, about | `31-mockups/15-appearance.md` |
 | 16 | Host plugin popup pane | not a route, Herdr popup pane entrypoint `relay` | Show the QR and the six words, list phones, pair, remove all, stop | `herdr plugin pane open`, or a `config.toml` key | `q` or `esc` | `31-mockups/16-host-popup.md` |
@@ -939,8 +939,12 @@ app the operating system has stopped. `docs/22-platform-integration.md` owns the
     attempts.
 - **R-30-805** An offline state MUST keep the last known data visible and MUST timestamp it, for
   example `Showing what we last saw at 14:02`. It MUST NOT blank the screen.
-- **R-30-806** Every offline indicator MUST be tappable and MUST route to
-  `/hosts/:hostId/diagnostics`.
+- **R-30-806** Every offline indicator MUST be tappable and MUST route to the connection
+  screen. From a bottom destination that is `/hosts/:hostId/diagnostics` on the Settings branch.
+  From `/hosts`, which sits outside the tab shell, it is the root-level twin
+  `/hosts/:hostId/connection`: the same screen, pushed on top of the computer list so that back
+  returns to the list, never to Settings (amended 2026-09-18: the strip on `/hosts` used to switch
+  the shell to the Settings tab).
 - **R-30-807** An offline state MUST leave every local action enabled: scrolling, copying,
   reading the last screen, and every setting. It MUST disable only what needs the network.
 - **R-30-808** The app MUST distinguish three link failures in words, never in one generic

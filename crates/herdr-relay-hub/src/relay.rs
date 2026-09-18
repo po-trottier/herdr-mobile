@@ -49,6 +49,9 @@ pub async fn run_peer(
     let mut frames_forwarded: u64 = 0;
     let mut bytes_forwarded: u64 = 0;
     let started = Instant::now();
+    // The close frame this peer sent, if any; an application code in it reaches
+    // the surviving peer verbatim (R-12-038).
+    let mut peer_close: Option<CloseFrame> = None;
     loop {
         tokio::select! {
             // Cancel-safe: SplitStream::next() drops cleanly with no partial-read state.
@@ -99,7 +102,11 @@ pub async fn run_peer(
                     }
                 }
                 Some(Ok(Message::Ping(_))) => {}
-                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                Some(Ok(Message::Close(frame))) => {
+                    peer_close = frame;
+                    break;
+                }
+                None | Some(Err(_)) => break,
             },
             // Cancel-safe: tokio::sync::mpsc::Receiver::recv() drops cleanly.
             Some(outgoing) = inbound.recv() => {
@@ -140,7 +147,7 @@ pub async fn run_peer(
             duration_ms,
         ),
     }
-    state.sessions.disconnect(handle, role, my_tx);
+    state.sessions.disconnect(handle, role, my_tx, peer_close);
 }
 
 /// Looks up the other side's outbound queue and enqueues the frame, or drops it

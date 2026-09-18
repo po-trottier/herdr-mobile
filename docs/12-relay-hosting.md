@@ -274,11 +274,18 @@ Device joins, and the case where a frame arrives while the peer's loss is still 
 live connection by socket identity, not by handle alone, before running any teardown logic. A
 rejected connection that closes must not tear down the room it was rejected from.
 
-**R-12-038** When either peer's WebSocket ends, the relay MUST close the surviving peer at once
-with close code `going_away` (`1001`) and a reason that names the peer that is gone (`the Host is
-gone` or `the Device is gone`). This rule applies in both directions. The relay MUST NOT close the
-survivor with `normal` (`1000`), because the survivor did not initiate the shutdown. The relay MUST
-discard the handle registration at once, in the same step.
+**R-12-038** When either peer's WebSocket ends, the relay MUST close the surviving peer at once.
+When the peer that left sent a close frame with an application code (`4000` to `4999`), the relay
+MUST forward that frame to the survivor verbatim, code and reason (amended 2026-09-18): a Host
+that refuses a second Device with `4006` `host_in_use` after the Noise handshake (one active
+Device per Host, `R-10-069`) speaks for itself, and each Device holds its own handle, so the
+relay cannot detect that case on its own. Measured live with two paired phones: the second phone
+heard only `1001` and showed a broken link instead of `host_in_use`. In every other case the
+relay MUST close the survivor with close code `going_away` (`1001`) and a reason that names the
+peer that is gone (`the Host is gone` or `the Device is gone`). This rule applies in both
+directions. The relay MUST NOT close the survivor with `normal` (`1000`), because the survivor
+did not initiate the shutdown. The relay MUST discard the handle registration at once, in the
+same step.
 
 **R-12-039** A relay restart or crash MUST drop every live handle registration. The relay MUST
 NOT attempt to persist or recover the handle map. Peers reconnect with the same handle and the

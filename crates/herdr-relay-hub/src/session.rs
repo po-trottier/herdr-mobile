@@ -222,7 +222,20 @@ impl SessionMap {
     /// The caller MUST have already dropped its own `mpsc::Receiver` before
     /// calling this, so `mine.is_closed()` is already `true` and a concurrent
     /// [`Self::register`] can tell this connection is gone.
-    pub fn disconnect(&self, handle: Handle, role: Role, mine: OutboundTx) {
+    ///
+    /// `peer_close` is the close frame the leaving peer sent, if any. When it
+    /// carries an application code (R-12-038 amended 2026-09-18) the survivor
+    /// receives that frame verbatim: a Host that refuses a Device with `4006`
+    /// after the Noise handshake (one active Device per Host, R-10-069) speaks
+    /// for itself, and the Device must hear that code, not `1001`. Every other
+    /// close becomes `going_away`.
+    pub fn disconnect(
+        &self,
+        handle: Handle,
+        role: Role,
+        mine: OutboundTx,
+        peer_close: Option<CloseFrame>,
+    ) {
         let peer_to_close = {
             let mut rooms = self.lock();
             let owns_slot = rooms.get(&handle).is_some_and(|room| {
@@ -246,7 +259,12 @@ impl SessionMap {
             }
         };
         if let Some(peer_tx) = peer_to_close {
-            close_peer(peer_tx, role);
+            match peer_close.filter(|frame| (4000..=4999).contains(&frame.code)) {
+                Some(frame) => {
+                    let _ = peer_tx.try_send(Message::Close(Some(frame)));
+                }
+                None => close_peer(peer_tx, role),
+            }
         }
         // R-12-041: the handle registration is gone, in either direction.
         crate::routes::logging::handle_expired(

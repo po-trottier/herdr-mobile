@@ -309,4 +309,63 @@ void main() {
     expect(disconnected.closeCode, 1001);
     expect(disconnected.closeReason, 'going away');
   }, timeout: const Timeout(Duration(seconds: 30)));
+
+  test('a 4006 close after the handshake, before host_info, is host_in_use, not a broken '
+      'link (R-11-121, R-30-940; measured live 2026-09-18 with two paired phones)', () async {
+    final connections = <WebSocket>[];
+    final server = await HttpServer.bind('127.0.0.1', 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      connections.add(await WebSocketTransformer.upgrade(request));
+    });
+
+    final gate = await _unlockedGate();
+    final origin = (parseRelayOrigin(
+      'http://127.0.0.1:${server.port}',
+    ) as Ok<RelayOrigin>).value;
+
+    final relay = RelayConnection(
+      handshaker: _fakeHandshaker,
+      connectivityWatcher: _noOpConnectivityWatcher(),
+    );
+    addTearDown(relay.dispose);
+
+    final states = <RelayConnectionState>[];
+    final statesSub = relay.connectionState.listen(states.add);
+    addTearDown(statesSub.cancel);
+
+    final connectResult = relay.connect(
+      origin: origin,
+      handle: 'h1',
+      mode: PairingMode(psk: Uint8List(32)),
+      gate: gate,
+      deviceInfo: _testDeviceInfo,
+    );
+
+    while (connections.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    final ws = connections[0];
+    final iterator = StreamIterator<dynamic>(ws);
+    await iterator.moveNext(); // device_register
+    ws.add(jsonEncode({'type': 'session_joined', 'role': 'device'}));
+    // The Host completes the handshake, then finds another Device active
+    // (R-10-069) and closes with host_in_use instead of sending host_info.
+    await ws.close(4006, 'host_in_use');
+
+    final result = await connectResult;
+    expect(result, isA<Err<void>>());
+    final cause = (result as Err<void>).cause;
+    expect(cause, isA<RelayRegistrationException>());
+    expect(
+      (cause as RelayRegistrationException).code,
+      RelayRegistrationErrorCode.hostInUse,
+    );
+    expect(cause.message, 'host_in_use');
+    expect(
+      states.whereType<RelayRegistrationError>().single.code,
+      RelayRegistrationErrorCode.hostInUse,
+    );
+    expect(states.whereType<RelayDisconnected>(), isEmpty);
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

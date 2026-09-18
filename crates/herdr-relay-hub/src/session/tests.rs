@@ -136,7 +136,7 @@ fn a_host_reconnect_after_a_loss_registers_fresh() {
         .register(handle(), Role::Host, IP, &limiter, UNLIMITED, false)
         .expect("Host registers");
     drop(first_rx); // simulates the connection task exiting, as relay.rs does
-    sessions.disconnect(handle(), Role::Host, first_tx);
+    sessions.disconnect(handle(), Role::Host, first_tx, None);
 
     let (.., is_new) = sessions
         .register(handle(), Role::Host, IP, &limiter, UNLIMITED, false)
@@ -159,7 +159,7 @@ fn host_loss_closes_the_device_at_once_and_discards_the_room() {
         .expect("Device registers");
 
     drop(host_rx); // simulates the connection task exiting, as relay.rs does
-    sessions.disconnect(handle(), Role::Host, host_tx);
+    sessions.disconnect(handle(), Role::Host, host_tx, None);
 
     let close = device_rx
         .try_recv()
@@ -188,6 +188,78 @@ fn host_loss_closes_the_device_at_once_and_discards_the_room() {
     );
 }
 
+/// R-12-038 (amended 2026-09-18): a Host that closes with an application code
+/// (`4006 host_in_use` after the Noise handshake, R-10-069) speaks for itself:
+/// the Device receives that code and reason, not `going_away`. Measured live
+/// with two paired phones: the second phone saw only `1001 the Host is gone`.
+#[test]
+fn a_host_application_close_code_reaches_the_device_verbatim() {
+    use axum::extract::ws::{CloseFrame, Message, Utf8Bytes};
+    let sessions = SessionMap::new();
+    let limiter = unlimited();
+    let (host_tx, host_rx, _) = sessions
+        .register(handle(), Role::Host, IP, &limiter, UNLIMITED, false)
+        .expect("Host registers");
+    let (_device_tx, mut device_rx, _) = sessions
+        .register(handle(), Role::Device, IP, &limiter, UNLIMITED, false)
+        .expect("Device registers");
+    drop(host_rx);
+    sessions.disconnect(
+        handle(),
+        Role::Host,
+        host_tx,
+        Some(CloseFrame {
+            code: 4006,
+            reason: Utf8Bytes::from_static("host_in_use"),
+        }),
+    );
+    match device_rx
+        .try_recv()
+        .expect("the Device must receive a close")
+    {
+        Message::Close(Some(frame)) => {
+            assert_eq!(frame.code, 4006);
+            assert_eq!(frame.reason.as_str(), "host_in_use");
+        }
+        other => panic!("expected a Close(4006) message, got {other:?}"),
+    }
+}
+
+/// A plain `1000` from the Host is not an application refusal: the Device still
+/// hears `going_away`, because it did not initiate the shutdown (R-12-038).
+#[test]
+fn a_host_normal_close_still_becomes_going_away_for_the_device() {
+    use axum::extract::ws::{CloseFrame, Message, Utf8Bytes};
+    let sessions = SessionMap::new();
+    let limiter = unlimited();
+    let (host_tx, host_rx, _) = sessions
+        .register(handle(), Role::Host, IP, &limiter, UNLIMITED, false)
+        .expect("Host registers");
+    let (_device_tx, mut device_rx, _) = sessions
+        .register(handle(), Role::Device, IP, &limiter, UNLIMITED, false)
+        .expect("Device registers");
+    drop(host_rx);
+    sessions.disconnect(
+        handle(),
+        Role::Host,
+        host_tx,
+        Some(CloseFrame {
+            code: 1000,
+            reason: Utf8Bytes::from_static(""),
+        }),
+    );
+    match device_rx
+        .try_recv()
+        .expect("the Device must receive a close")
+    {
+        Message::Close(Some(frame)) => {
+            assert_eq!(frame.code, 1001);
+            assert_eq!(frame.reason.as_str(), "the Host is gone");
+        }
+        other => panic!("expected a Close(1001) message, got {other:?}"),
+    }
+}
+
 /// R-11-125, R-12-009, R-12-038: Device loss is symmetric. The Host receives a
 /// `going_away` close that names the Device and the whole room is discarded.
 #[test]
@@ -202,7 +274,7 @@ fn device_loss_closes_the_host_at_once_and_discards_the_room() {
         .expect("Device registers");
 
     drop(device_rx); // simulates the connection task exiting, as relay.rs does
-    sessions.disconnect(handle(), Role::Device, device_tx);
+    sessions.disconnect(handle(), Role::Device, device_tx, None);
 
     let close = host_rx
         .try_recv()
@@ -261,7 +333,7 @@ fn a_stale_disconnect_from_a_reclaimed_slot_is_ignored() {
     }
 
     // Only now does the first connection's teardown arrive.
-    sessions.disconnect(handle(), Role::Host, first_tx);
+    sessions.disconnect(handle(), Role::Host, first_tx, None);
     assert!(
         !second_tx.is_closed(),
         "the stale disconnect must not touch the new room (R-12-037)"
@@ -330,7 +402,7 @@ async fn pairing_window_restarts_on_a_fresh_host_registration() {
         .expect("Host registers");
     tokio::time::advance(super::PAIRING_WINDOW - std::time::Duration::from_secs(1)).await;
     drop(host_rx);
-    sessions.disconnect(handle(), Role::Host, host_tx);
+    sessions.disconnect(handle(), Role::Host, host_tx, None);
     let (_second_tx, _second_rx, _) = sessions
         .register(handle(), Role::Host, IP, &limiter, UNLIMITED, true)
         .expect("Host re-registers after the loss");

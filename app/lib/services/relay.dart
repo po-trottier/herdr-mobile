@@ -848,6 +848,7 @@ final class RelayConnection {
         session,
         reassembler,
         'host_info',
+        channel: channel,
       );
       checkAttempt();
       if (firstFrame.type != 'host_info') {
@@ -1485,15 +1486,32 @@ final class RelayConnection {
     StreamIterator<dynamic> iterator,
     NoiseSession session,
     Reassembler reassembler,
-    String what,
-  ) async {
+    String what, {
+    WebSocketChannel? channel,
+  }) async {
     while (true) {
       final Uint8List ciphertext;
       switch (await _awaitNextFragment(iterator, reassembler, _now)) {
         case _StreamClosed():
+          // R-11-121, close code 4006: the Host completed the handshake, then
+          // found another Device active (R-10-069) and closed. That is
+          // `host_in_use`, the R-30-940 state, not a broken link. Measured
+          // live 2026-09-18 with two paired phones.
+          if (channel?.closeCode == 4006) {
+            throw RelayRegistrationException(
+              RelayRegistrationErrorCode.hostInUse,
+              channel!.closeReason?.isNotEmpty ?? false
+                  ? channel.closeReason!
+                  : 'host_in_use: another phone is connected to this computer',
+            );
+          }
+          final int? code = channel?.closeCode;
           throw RelayConnectException(
             RelayConnectFailure.webSocketFailed,
-            'the relay closed the connection before sending $what',
+            code == null
+                ? 'the relay closed the connection before sending $what'
+                : 'the relay closed the connection before sending $what '
+                      '(close code $code${(channel!.closeReason?.isNotEmpty ?? false) ? ', ${channel.closeReason}' : ''})',
           );
         case _FragmentTimedOut():
           throw RelayConnectException(

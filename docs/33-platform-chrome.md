@@ -203,6 +203,11 @@ there is no wallpaper-derived scheme. The pipeline is:
 
 ## 5. Native controls
 
+- **R-33-077** The pane pin action of `R-30-970` MUST use a Material `TextButton` on Android and a
+  `CupertinoButton` on iOS.
+  The existing reveal pane MUST contain these native controls. `R-32-708` owns their icon and label
+  anatomy.
+
 "Native controls" means the control a person already knows on that platform. Taken seriously, this
 made the **create** control differ in kind until 2026-09-09, because a floating action button was a
 Material idiom with no iOS equivalent; `R-03-109` first put the control in the app bar on both

@@ -615,6 +615,16 @@ easiest thing to trigger by accident in a pocket.
   expose the selected text as a string, and it MUST report its own visible column and row count.
   `docs/21-terminal-rendering.md` owns which API delivers each one.
 
+## Pane pins
+
+- **R-30-970** Every pane row MUST reveal `Pin` or `Unpin` after a left swipe, according to its
+  current pin state.
+  The action MUST change the preference only after a tap, without a confirmation dialog.
+  The list MUST place pinned rows first, per `R-03-139`. Pin actions MUST NOT change agent status or
+  attention.
+  `R-31-06-36` through `R-31-06-38` own section contents, order, and persistence.
+  `R-32-708` owns action anatomy, and `R-33-077` owns the native controls.
+
 ## Agent status presentation
 
 Herdr reports five states. Two of them, `blocked` and `done`, are the reason a person picks up

@@ -769,6 +769,12 @@ owning document.
 | Host list drawing, connection-state glyphs, saved-computer display | `docs/30-ux-spec.md`, `docs/31-mockups/05-host-list.md` |
 | App-store metadata, release tracks, signing, versioning | `docs/23-public-release.md` |
 
+## Pinned panes
+
+**R-03-139**: Pane pins MUST be a local preference on each phone, separate for each Host.
+Pinned panes MUST lead both agent-list views. `R-30-970` owns the interaction, and
+`R-31-06-36` through `R-31-06-38` own the list presentation.
+
 ## Open questions
 
 No genuine external dependency remains open at the product-policy layer. Every topic this document

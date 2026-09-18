@@ -2003,8 +2003,9 @@ space is a row inside it.
   starts at the tab glyph, each after the `space.3` group gap, and the guide rule hangs a tab's
   rows off its glyph. Rows under one tab touch. The band, the type step, the glyph, the indent and
   the guide rule already say which tier a row is, so no further line is permitted.
-- **R-32-597** A shell row MUST NOT borrow an agent state: no state bar, status word or revealed
-  action. Its leading slot holds the `A pane` glyph of `R-32-401` where an agent row holds its
+- **R-32-597** A shell row MUST NOT borrow an agent state: no state bar or status word. Pin actions
+  follow `R-32-708`. Its leading slot holds the `A pane` glyph of `R-32-401` where an agent row
+  holds its
   state bar. Its display name and optional `title` MUST share one baseline, separated by
   `space.2`, so it keeps the same 48-high step as an agent row (amended 2026-09-10 per
   `R-03-115`). The `unknown` glyph MUST NOT stand in for "no agent", because `R-30-404`
@@ -2050,6 +2051,19 @@ is `app/lib/widgets/key_label.dart`.
   template with each span replaced by its spoken name, and an announcement of the sentence uses that
   same plain form. The map of `R-32-401` lists `A key named in a sentence` as `none`: the key is
   text, never an icon, and it keeps the case the person types, so `Enter` and `esc` stay as written.
+
+### 7.34 Pinned rows
+
+- **R-32-708** A pinned row MUST show a pin glyph at `size.icon.sm` in `color.fg.secondary`.
+  Use `Symbols.keep_rounded` for the row glyph and the `Pin` action.
+  Use `Symbols.keep_off_rounded` for the `Unpin` action.
+  Each action MUST contain its icon and label in the native button of `R-33-077`, with the
+  non-destructive anatomy of section 7.25.
+  `Pin` or `Unpin` MUST precede `Mark as seen` when both actions apply.
+  Each action MUST expose the named semantics required by `R-32-515`.
+  The `Workspace` `PINNED` card MUST use flat rows without hierarchy indentation.
+  Pane content MUST start at the header inset, `space.4`.
+  An agent state bar MUST sit at the card edge. An agent row MUST NOT reserve an empty leading slot.
 
 ## 8. Motion
 

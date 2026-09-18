@@ -198,9 +198,8 @@ and segmented control keep the same position on both axes (amended 2026-09-16 pe
 
 ## Wireframe, the revealed swipe action
 
-A left swipe on the `gemini` row reveals the trailing action pane. The action carries an icon and
-the words `Mark as seen`, never the icon alone. The action waits: it clears the marker when the
-person taps it, not when the person swipes.
+A left swipe on the `gemini` row reveals `Pin` and `Mark as seen`.
+Each action carries an icon and a label. Only a tap executes an action, per `R-31-06-20`.
 
 ```text
 +--------------------------------------+
@@ -211,8 +210,8 @@ person taps it, not when the person swipes.
 | !  codex                     blocked |
 |    ... > api-server > pane 11 1m 12s |
 +--------------------------------------+
-| +  gemini            |     (vv)      |
-|    scratch > note    | Mark as seen  |
+| +  gemini      | (pin) |    (vv)      |
+|    scratch     |  Pin  | Mark as seen |
 +--------------------------------------+
 |  Agents    Notifications    Settings |
 +--------------------------------------+
@@ -404,18 +403,9 @@ row sit under the pane until it closes.
 16. A collapsed space. The header keeps its count and its attention badge, per `R-32-566` and
     `R-31-06-16`. The collapsed-space wireframe draws that case: `lightspeed-kit` is closed, and its
     `(!) 1` still reports the blocked agent inside it.
-17. The revealed action pane, the component of `docs/32-design-language.md` section 7.25. A left
-    swipe reveals it at the trailing edge. It holds one action, `Mark as seen`, with the icon
-    `R-32-401` names for it and the words under the icon, per `R-32-577`. The wireframe writes the
-    icon `(vv)`. The pane fill is `color.bg.raised` and the ink is `color.fg.primary`: the action is
-    not destructive, so it carries no confirmation, no attention bar and no red fill, which
-    `R-32-126` forbids in version one. The word is `type.caption` under the icon at
-    `size.icon.md`, a `border.hairline` in `color.border.strong` marks the pane's leading edge,
-    and the pane is as wide as the word plus `space.3` each side, per `R-32-576` (amended
-    2026-09-08 by the product owner: the pane was a fixed 0.32 of the row). The row keeps the
-    platform gesture inset of `R-30-295a`, so a swipe never fights the Android back gesture or
-    the iOS interactive pop. Only an agent row that needs attention carries the reveal; a shell
-    row never does, per `R-32-597`.
+17. The revealed action pane follows `R-31-06-20` and `R-32-708`.
+    The wireframe uses `(pin)` for the pin glyph. A pinned row shows `Unpin` instead of `Pin`.
+    The pane keeps the platform gesture inset of `R-30-295a`.
 18. The create button, `[ + ]`. The create control of `R-31-06-22`: Material's floating action
     button of `docs/32-design-language.md` `R-32-588` on both platforms, the `add` glyph of
     `R-32-401`, spoken `New`, `space.4` from the trailing edge and from the bottom of the body,
@@ -628,12 +618,10 @@ row sit under the pane until it closes.
   row or an expander on a tab row. Only the space header collapses, per `R-30-413`. The split
   geometry of the desktop does not help a person on a phone (amended 2026-09-04 by the product
   owner: the four tiers of `R-31-06-27` are the hierarchy, not a split).
-- **R-31-06-20** A left swipe on an agent row MUST reveal the `Mark as seen` action and MUST NOT
-  clear the marker by itself. The revealed action stays until the person taps it, taps elsewhere or
-  scrolls, and the tap clears the marker at once with no dialog, because the action is not
-  destructive. The pane is the component of `docs/32-design-language.md` section 7.25, the mechanism
-  is `R-30-296` through `R-30-299`, `R-32-581` forbids the dismiss-on-swipe widget, and `R-30-504`
-  owns the affordance itself.
+- **R-31-06-20** Every pane row MUST carry the reveal-then-tap actions of `R-30-970`.
+  An agent that needs attention MUST also offer `Mark as seen`, per `R-30-504`.
+  A swipe MUST NOT execute either action. The pane MUST close after a tap elsewhere or a scroll.
+  The mechanism remains `R-30-296` through `R-30-299`, with action anatomy in `R-32-708`.
 - **R-31-06-21** This screen MUST NOT ask for the notification permission, and MUST NOT offer a step
   that enables alerts. The app asks once at first run, per `R-30-509` and
   `docs/31-mockups/01-welcome.md`. The alerts off marker of callout 12 is the only alert affordance
@@ -841,6 +829,20 @@ row sit under the pane until it closes.
   actions` control left this order on 2026-09-09, per `R-03-055`). A collapsed space MUST take its
   rows out of the traversal order. An open action pane MUST place its actions directly after the
   row that owns them.
+
+- **R-31-06-36** `Priority` MUST start with a `PINNED` section when it contains pinned agents.
+  Pinned shells MUST appear only in `Workspace`. Each pinned agent MUST appear only once, outside
+  the normal status sections.
+  The normal sections MUST keep their existing order.
+- **R-31-06-37** `Workspace` MUST start with a non-collapsible `PINNED` card when the current search
+  includes pinned panes.
+  The card MUST contain agents and shells, each on one line with its workspace as secondary text.
+  Pinned panes MUST NOT repeat in the normal workspace or tab groups. Normal groups MUST keep their
+  existing order and search rules.
+- **R-31-06-38** Both pinned lists MUST use pin order, oldest first. A new pin MUST follow all
+  existing pins.
+  Pin IDs and their order MUST persist per Host in the same way as the preferences in `R-31-06-12`.
+  A tree snapshot MUST remove pins for absent panes. The swipe pane MUST follow `R-31-06-20` and `R-32-708`.
 
 ## Open questions
 

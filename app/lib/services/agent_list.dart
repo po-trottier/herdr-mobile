@@ -127,10 +127,12 @@ final class ShellRow extends PaneRow {
   const ShellRow({
     required super.paneId,
     required super.workspaceId,
+    required this.workspaceName,
     required super.tabId,
     required super.paneDisplayName,
     required super.title,
   });
+  final String workspaceName;
 }
 
 /// One `Priority`-grouping section: `NEEDS YOU`, `WORKING`, `IDLE` or `UNKNOWN`. Already sorted
@@ -237,6 +239,8 @@ final class AgentListView {
     required this.workspaceCount,
     required this.attentionCount,
     required this.collapsed,
+    this.pinnedPaneIds = const <String>{},
+    this.pinnedRows = const <PaneRow>[],
   });
 
   final AgentListAxis axis;
@@ -261,6 +265,12 @@ final class AgentListView {
 
   /// Which [SpaceGroup.key]s are collapsed right now (`Workspace` grouping only).
   final Set<String> collapsed;
+
+  /// Pinned pane IDs in pin order, with the newest pin last.
+  final Set<String> pinnedPaneIds;
+
+  /// Pinned panes that match the workspace search, in pin order.
+  final List<PaneRow> pinnedRows;
 
   /// True once a `tree_snapshot` has arrived and it named zero agents and zero workspaces
   /// (R-90-011's `Empty` state), whatever [search] holds. Distinguishing "no agents yet" from
@@ -299,7 +309,7 @@ class AgentListService {
       _attention = items;
       _emit();
     });
-    unawaited(_loadPersisted());
+    unawaited(_persistedLoaded);
   }
 
   final AgentListMessageSender _send;
@@ -326,6 +336,8 @@ class AgentListService {
 
   /// Collapsed [SpaceGroup.key]s.
   final Set<String> _collapsed = <String>{};
+  final Set<String> _pinned = <String>{};
+  late final Future<void> _persistedLoaded = _loadPersisted();
 
   /// The `Workspace` axis search text, trimmed (R-31-06-30). Session-scoped on purpose: a
   /// search names what the person is looking for right now, so it is never persisted.
@@ -351,7 +363,7 @@ class AgentListService {
 
   String get _axisStorageKey => 'agent_list_axis_$_hostId';
   String get _collapsedStorageKey => 'agent_list_collapsed_$_hostId';
-
+  String get _pinnedStorageKey => 'agent_list_pinned_$_hostId';
   Future<void> _loadPersisted() async {
     final String? axisValue = await _preferences.getString(_axisStorageKey);
     if (axisValue == 'workspace') _axis = AgentListAxis.workspace;
@@ -367,7 +379,39 @@ class AgentListService {
         ..clear()
         ..addAll(ids.cast<String>());
     }
+    final String? pinnedJson = await _preferences.getString(_pinnedStorageKey);
+    if (pinnedJson != null) {
+      final List<dynamic> ids = jsonDecode(pinnedJson) as List<dynamic>;
+      _pinned
+        ..clear()
+        ..addAll(ids.cast<String>());
+      if (hasLoaded) await _prunePins();
+    }
     _emit();
+  }
+
+  bool isPinned(String paneId) => _pinned.contains(paneId);
+
+  /// Toggles a pane pin and persists the pin order for this host.
+  Future<void> togglePinned(String paneId) async {
+    await _persistedLoaded;
+    if (!_pinned.add(paneId)) _pinned.remove(paneId);
+    _emit();
+    await _preferences.setString(
+      _pinnedStorageKey,
+      jsonEncode(_pinned.toList()),
+    );
+  }
+
+  Future<void> _prunePins() async {
+    final int previousCount = _pinned.length;
+    _pinned.removeWhere((String id) => !_panes.containsKey(id));
+    if (_pinned.length != previousCount) {
+      await _preferences.setString(
+        _pinnedStorageKey,
+        jsonEncode(_pinned.toList()),
+      );
+    }
   }
 
   /// R-31-06-12: defaults to [AgentListAxis.priority], per R-30-406.
@@ -474,6 +518,7 @@ class AgentListService {
     for (final PaneSummary pane in snapshot.panes) {
       _panes[pane.paneId] = pane;
     }
+    unawaited(_prunePins());
     _statusAt
       ..clear()
       ..addEntries(
@@ -557,6 +602,7 @@ class AgentListService {
           ShellRow(
             paneId: pane.paneId,
             workspaceId: pane.workspaceId,
+            workspaceName: _workspaces[pane.workspaceId]?.name ?? '',
             tabId: pane.tabId,
             paneDisplayName: _paneDisplayName(pane.paneId, pane.label),
             title: pane.title,
@@ -574,13 +620,49 @@ class AgentListService {
       }
     }
 
+    final List<PaneRow> rows = <PaneRow>[
+      ...attentionRows,
+      ...liveRows,
+      ...shellRows,
+    ];
+    final Map<String, PaneRow> pinnedById = <String, PaneRow>{
+      for (final PaneRow row in rows)
+        if (_pinned.contains(row.paneId)) row.paneId: row,
+    };
+    final List<PaneRow> pinned = <PaneRow>[
+      for (final String id in _pinned)
+        if (pinnedById[id] case final PaneRow row) row,
+    ];
+    final List<AgentRow> pinnedAgents = pinned.whereType<AgentRow>().toList();
+    final Set<String>? searchMatches = _search.isEmpty
+        ? null
+        : <String>{
+            for (final SpaceGroup space in _narrow(_buildSpaces(rows), _search))
+              for (final WorktreeGroup worktree in space.worktrees)
+                for (final TabGroup tab in worktree.tabs)
+                  for (final PaneRow row in tab.rows) row.paneId,
+          };
     return AgentListView(
       axis: _axis,
-      prioritySections: _buildPrioritySections(attentionRows, liveRows),
+      prioritySections: <PrioritySection>[
+        if (pinnedAgents.isNotEmpty)
+          PrioritySection(title: 'PINNED', rows: pinnedAgents),
+        ..._buildPrioritySections(
+          attentionRows.where((row) => !_pinned.contains(row.paneId)).toList(),
+          liveRows.where((row) => !_pinned.contains(row.paneId)).toList(),
+        ),
+      ],
       spaces: _narrow(
-        _buildSpaces(<PaneRow>[...attentionRows, ...liveRows, ...shellRows]),
+        _buildSpaces(
+          rows.where((row) => !_pinned.contains(row.paneId)).toList(),
+        ),
         _search,
       ),
+      pinnedPaneIds: Set<String>.unmodifiable(_pinned),
+      pinnedRows: <PaneRow>[
+        for (final PaneRow row in pinned)
+          if (searchMatches == null || searchMatches.contains(row.paneId)) row,
+      ],
       search: _search,
       workspaceCount: _workspaces.length,
       attentionCount: attentionRows.where((row) => row.needsAttention).length,

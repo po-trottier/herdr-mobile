@@ -42,14 +42,9 @@
 /// (R-03-100), and the unread state as weight and wash: `type.body.strong` on the agent kind
 /// and the `color.accent.soft` fill (R-03-058, R-31-06-33). No second bar, no dot.
 ///
-/// **Reveal-then-tap.** The `Mark as seen` action (R-30-504, R-31-06-20) follows the pattern
-/// `WP-18-a` (`host_list_screen.dart`) settled for `Forget`: one `SlidableAutoCloseBehavior`
-/// ancestor, `Slidable.groupTag` shared by every row, `dragDismissible: false`, and an outer
-/// `Semantics.customSemanticsActions` entry naming the action (R-32-580, R-30-298). It differs
-/// from `Forget` in one way this file's own [_PaneRowTile] reflects: it is not destructive, so
-/// the action panel carries the reveal only on a row that already needs attention — a row with no
-/// marker to clear gets no dead affordance, per this screen's own reading of R-31-06-20 alongside
-/// `agent_status.dart`'s documented no-op `markSeen` on an unmarked pane.
+/// **Reveal-then-tap.** All panes offer Pin or Unpin, then Mark as seen when applicable.
+/// One Slidable group closes other reveals. Full swipes never execute an action.
+/// Custom semantics expose the same actions (R-31-06-36..38, R-32-708, R-33-077).
 ///
 /// **Known gaps, disclosed.** Two mockup states are not built here because neither is named by
 /// this package's sixteen checkboxes (`docs/90-implementation-plan.md` §5.2 `WP-18-b`): the
@@ -65,6 +60,7 @@ import 'dart:math' as math;
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         BuildContext,
+        CupertinoButton,
         CupertinoPageScaffold,
         CupertinoSearchTextField,
         CupertinoSlidingSegmentedControl,
@@ -83,6 +79,7 @@ import 'package:flutter/widgets.dart'
         BorderSide,
         BoxConstraints,
         BoxDecoration,
+        Builder,
         Center,
         ClipRRect,
         Color,
@@ -93,11 +90,12 @@ import 'package:flutter/widgets.dart'
         CrossAxisAlignment,
         CustomScrollView,
         DecoratedBox,
-        DefaultTextStyle,
         Directionality,
         EdgeInsets,
         Expanded,
         Icon,
+        IconData,
+        Flexible,
         IgnorePointer,
         InheritedNotifier,
         Key,
@@ -147,12 +145,7 @@ import 'package:flutter/widgets.dart'
         Widget,
         WidgetSpan;
 import 'package:flutter_slidable/flutter_slidable.dart'
-    show
-        ActionPane,
-        CustomSlidableAction,
-        ScrollMotion,
-        Slidable,
-        SlidableAutoCloseBehavior;
+    show ActionPane, ScrollMotion, Slidable, SlidableAutoCloseBehavior;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
@@ -165,6 +158,7 @@ import 'package:material_ui/material_ui.dart'
         TabBar,
         TabBarView,
         TabController,
+        TextButton,
         kTabScrollDuration;
 
 import '../core/result/result.dart' show Err, Ok, Result;
@@ -528,6 +522,8 @@ class _AgentListScreenState extends State<AgentListScreen>
 
   void _markSeen(String paneId) => widget.onMarkSeen(paneId); // R-30-504.
 
+  void _togglePinned(String paneId) => unawaited(_service.togglePinned(paneId));
+
   void _onPointerDown(PointerDownEvent event) => _holdUpdates = true;
 
   void _onPointerUp(PointerEvent event) {
@@ -740,6 +736,7 @@ class _AgentListScreenState extends State<AgentListScreen>
               initial: _view,
               onOpenPane: _openPaneFromSearch,
               onMarkSeen: _markSeen,
+              onTogglePinned: _togglePinned,
               onToggleSpace: _onToggleSpace,
             ),
           ),
@@ -814,9 +811,11 @@ class _AgentListScreenState extends State<AgentListScreen>
         ? _emptyBody(noun: 'agents')
         : _PriorityList(
             sections: view.prioritySections,
+            pinnedPaneIds: view.pinnedPaneIds,
             color: color,
             onOpenPane: _openPane,
             onMarkSeen: _markSeen,
+            onTogglePinned: _togglePinned,
           ),
   );
 
@@ -834,11 +833,14 @@ class _AgentListScreenState extends State<AgentListScreen>
                   )
                 : null,
             spaces: view.spaces,
+            pinnedPaneIds: view.pinnedPaneIds,
+            pinnedRows: view.pinnedRows,
             search: view.search,
             collapsed: view.collapsed,
             color: color,
             onOpenPane: _openPane,
             onMarkSeen: _markSeen,
+            onTogglePinned: _togglePinned,
             onToggleSpace: _onToggleSpace,
           ),
   );
@@ -1198,14 +1200,18 @@ class _PriorityList extends StatelessWidget {
   const _PriorityList({
     required this.sections,
     required this.color,
+    required this.pinnedPaneIds,
     required this.onOpenPane,
     required this.onMarkSeen,
+    required this.onTogglePinned,
   });
 
   final List<PrioritySection> sections;
   final AppColor color;
+  final Set<String> pinnedPaneIds;
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
+  final void Function(String paneId) onTogglePinned;
 
   @override
   Widget build(BuildContext context) => SlidableAutoCloseBehavior(
@@ -1237,6 +1243,10 @@ class _PriorityList extends StatelessWidget {
                       showDivider: index < section.rows.length - 1,
                       onOpenPane: onOpenPane,
                       onMarkSeen: onMarkSeen,
+                      onTogglePinned: onTogglePinned,
+                      pinned: pinnedPaneIds.contains(
+                        section.rows[index].paneId,
+                      ),
                     ),
                     childCount: section.rows.length,
                   ),
@@ -1263,23 +1273,29 @@ class _SpaceList extends StatelessWidget {
   const _SpaceList({
     this.searchField,
     required this.spaces,
+    required this.pinnedRows,
     required this.search,
     required this.collapsed,
     required this.color,
+    required this.pinnedPaneIds,
     required this.onOpenPane,
     required this.onMarkSeen,
+    required this.onTogglePinned,
     required this.onToggleSpace,
   });
 
   final Widget? searchField;
   final List<SpaceGroup> spaces;
+  final List<PaneRow> pinnedRows;
 
   /// The trimmed search text the [spaces] are already narrowed to; `''` when none.
   final String search;
   final Set<String> collapsed;
   final AppColor color;
+  final Set<String> pinnedPaneIds;
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
+  final void Function(String paneId) onTogglePinned;
   final void Function(String spaceKey) onToggleSpace;
 
   @override
@@ -1296,13 +1312,63 @@ class _SpaceList extends StatelessWidget {
             ),
             sliver: SliverToBoxAdapter(child: searchField),
           ),
+        if (pinnedRows.isNotEmpty)
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpace.space4,
+              searchField == null ? AppSpace.space3 : 0,
+              AppSpace.space4,
+              AppSpace.space6,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: color.bgRaised,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(
+                      color: color.borderSubtle,
+                      width: AppBorder.hairline,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      ColoredBox(
+                        color: color.bgHigh,
+                        child: const AppSectionHeader.upperCase(
+                          label: 'PINNED',
+                        ),
+                      ),
+                      for (final PaneRow row in pinnedRows)
+                        _PaneRowTile(
+                          row: row,
+                          axis: AgentListAxis.workspace,
+                          color: color,
+                          showDivider: false,
+                          pinned: true,
+                          showWorkspace: true,
+                          slotWidth: AppSize.iconSm,
+                          onOpenPane: onOpenPane,
+                          onMarkSeen: onMarkSeen,
+                          onTogglePinned: onTogglePinned,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         SliverPadding(
           padding: EdgeInsets.only(
             left: AppSpace.space4,
             right: AppSpace.space4,
-            top: searchField == null ? AppSpace.space3 : 0,
+            top: searchField == null && pinnedRows.isEmpty
+                ? AppSpace.space3
+                : 0,
           ),
-          sliver: spaces.isEmpty
+          sliver: spaces.isEmpty && pinnedRows.isEmpty
               // R-31-06-30: reached only while a search matches nothing (the empty tree never
               // builds this list), so the line names the search, not the computer.
               ? SliverToBoxAdapter(
@@ -1333,6 +1399,8 @@ class _SpaceList extends StatelessWidget {
                         color: color,
                         onOpenPane: onOpenPane,
                         onMarkSeen: onMarkSeen,
+                        onTogglePinned: onTogglePinned,
+                        pinnedPaneIds: pinnedPaneIds,
                         onToggle: () => onToggleSpace(space.key),
                       ),
                     );
@@ -1359,6 +1427,7 @@ class _SearchResults extends StatelessWidget {
     required this.initial,
     required this.onOpenPane,
     required this.onMarkSeen,
+    required this.onTogglePinned,
     required this.onToggleSpace,
   });
 
@@ -1366,6 +1435,7 @@ class _SearchResults extends StatelessWidget {
   final AgentListView? initial;
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
+  final void Function(String paneId) onTogglePinned;
   final void Function(String spaceKey) onToggleSpace;
 
   @override
@@ -1377,11 +1447,14 @@ class _SearchResults extends StatelessWidget {
       if (view == null) return const SizedBox.shrink();
       return _SpaceList(
         spaces: view.spaces,
+        pinnedPaneIds: view.pinnedPaneIds,
+        pinnedRows: view.pinnedRows,
         search: view.search,
         collapsed: view.collapsed,
         color: AppColor.of(context),
         onOpenPane: onOpenPane,
         onMarkSeen: onMarkSeen,
+        onTogglePinned: onTogglePinned,
         onToggleSpace: onToggleSpace,
       );
     },
@@ -1430,16 +1503,20 @@ class _SpaceBlock extends StatelessWidget {
     required this.space,
     required this.expanded,
     required this.color,
+    required this.pinnedPaneIds,
     required this.onOpenPane,
     required this.onMarkSeen,
+    required this.onTogglePinned,
     required this.onToggle,
   });
 
   final SpaceGroup space;
   final bool expanded;
   final AppColor color;
+  final Set<String> pinnedPaneIds;
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
+  final void Function(String paneId) onTogglePinned;
   final VoidCallback onToggle;
 
   @override
@@ -1498,6 +1575,8 @@ class _SpaceBlock extends StatelessWidget {
                     color: color,
                     onOpenPane: onOpenPane,
                     onMarkSeen: onMarkSeen,
+                    onTogglePinned: onTogglePinned,
+                    pinnedPaneIds: pinnedPaneIds,
                   ),
                 ],
               ],
@@ -1572,14 +1651,18 @@ class _TabGroup extends StatelessWidget {
   const _TabGroup({
     required this.tab,
     required this.color,
+    required this.pinnedPaneIds,
     required this.onOpenPane,
     required this.onMarkSeen,
+    required this.onTogglePinned,
   });
 
   final TabGroup tab;
   final AppColor color;
+  final Set<String> pinnedPaneIds;
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
+  final void Function(String paneId) onTogglePinned;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1626,6 +1709,8 @@ class _TabGroup extends StatelessWidget {
                   slotWidth: AppSize.iconSm,
                   onOpenPane: onOpenPane,
                   onMarkSeen: onMarkSeen,
+                  onTogglePinned: onTogglePinned,
+                  pinned: pinnedPaneIds.contains(row.paneId),
                 ),
             ],
           ),
@@ -1685,9 +1770,7 @@ class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
       oldDelegate.height != height || oldDelegate.child != child;
 }
 
-/// One pane row. An [AgentRow] draws as [_AgentRowContent] plus, only when it needs attention,
-/// the `Mark as seen` reveal (R-31-06-20): a row with no marker to clear gets no dead
-/// affordance. A [ShellRow] draws as [_ShellRowContent]: no status, no marker, no reveal.
+/// Every pane offers Pin or Unpin (R-31-06-36..38, R-32-708, R-33-077).
 class _PaneRowTile extends StatelessWidget {
   const _PaneRowTile({
     required this.row,
@@ -1696,11 +1779,16 @@ class _PaneRowTile extends StatelessWidget {
     required this.showDivider,
     required this.onOpenPane,
     required this.onMarkSeen,
+    required this.onTogglePinned,
+    required this.pinned,
+    this.showWorkspace = false,
     this.leadingInset = AppSpace.space4,
     this.slotWidth = _prioritySlotWidth,
   });
 
   final PaneRow row;
+  final bool pinned;
+  final bool showWorkspace;
   final AgentListAxis axis;
   final AppColor color;
 
@@ -1721,101 +1809,142 @@ class _PaneRowTile extends StatelessWidget {
   final double slotWidth;
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
+  final void Function(String paneId) onTogglePinned;
 
   @override
   Widget build(BuildContext context) {
     final PaneRow row = this.row;
-    switch (row) {
-      case ShellRow():
-        return _ShellRowContent(
-          row: row,
-          color: color,
-          leadingInset: leadingInset,
-          slotWidth: slotWidth,
-          onTap: () => onOpenPane(row.paneId),
-        );
-      case AgentRow():
-        final Widget content = _AgentRowContent(
-          row: row,
-          axis: axis,
-          color: color,
-          showDivider: showDivider,
-          leadingInset: leadingInset,
-          slotWidth: slotWidth,
-          onTap: () => onOpenPane(row.paneId),
-        );
-        if (!row.needsAttention) return content;
-
-        // The revealed pane takes the anatomy of R-32-576: as wide as its one action, the
-        // label at `type.caption` plus `space.3` each side, floored at `size.target.min` and
-        // never past half the row ([_actionExtentRatio]); `done_all` at `size.icon.md` above
-        // the words, gap `space.1`, both in `color.fg.primary` on `color.bg.raised`; and a
-        // `border.hairline` in `color.border.strong` at the pane's leading edge. Corrected
-        // 2026-09-08: the pane was a fixed 0.32 of the row and the package's own `SlidableAction`
-        // drew a 24 icon and a `labelLarge` label with no leading edge.
-        return Semantics(
-          customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
-            const CustomSemanticsAction(label: _markSeenLabel): () =>
-                onMarkSeen(row.paneId),
-          },
-          child: LayoutBuilder(
-            builder: (BuildContext context, BoxConstraints constraints) =>
-                Slidable(
-                  key: ValueKey<String>(row.paneId),
-                  groupTag: _slidableGroupTag,
-                  endActionPane: ActionPane(
-                    motion: const ScrollMotion(),
-                    dragDismissible: false,
-                    extentRatio: _actionExtentRatio(
-                      context,
-                      _markSeenLabel,
-                      constraints.maxWidth,
+    final String pinLabel = pinned ? 'Unpin' : 'Pin';
+    final bool canMarkSeen = row is AgentRow && row.needsAttention;
+    final Widget content = switch (row) {
+      ShellRow() => _ShellRowContent(
+        row: row,
+        color: color,
+        leadingInset: leadingInset,
+        slotWidth: slotWidth,
+        pinned: pinned,
+        showWorkspace: showWorkspace,
+        onTap: () => onOpenPane(row.paneId),
+      ),
+      AgentRow() => _AgentRowContent(
+        row: row,
+        axis: axis,
+        color: color,
+        showDivider: showDivider,
+        leadingInset: leadingInset,
+        slotWidth: slotWidth,
+        pinned: pinned,
+        showWorkspace: showWorkspace,
+        onTap: () => onOpenPane(row.paneId),
+      ),
+    };
+    return Semantics(
+      customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
+        CustomSemanticsAction(label: pinLabel): () =>
+            onTogglePinned(row.paneId),
+        if (canMarkSeen)
+          const CustomSemanticsAction(label: _markSeenLabel): () =>
+              onMarkSeen(row.paneId),
+      },
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) => Slidable(
+          key: ValueKey<String>(row.paneId),
+          groupTag: _slidableGroupTag,
+          endActionPane: ActionPane(
+            motion: const ScrollMotion(),
+            dragDismissible: false,
+            extentRatio:
+                math.max(
+                  _actionExtentRatio(context, pinLabel, constraints.maxWidth),
+                  canMarkSeen
+                      ? _actionExtentRatio(
+                          context,
+                          _markSeenLabel,
+                          constraints.maxWidth,
+                        )
+                      : 0.0,
+                ) *
+                (canMarkSeen ? 2 : 1),
+            children: <Widget>[
+              for (final (String label, IconData icon, VoidCallback action)
+                  in <(String, IconData, VoidCallback)>[
+                    (
+                      pinLabel,
+                      pinned ? Symbols.keep_off_rounded : Symbols.keep_rounded,
+                      () => onTogglePinned(row.paneId),
                     ),
-                    children: <Widget>[
-                      CustomSlidableAction(
-                        onPressed: (_) => onMarkSeen(row.paneId),
-                        backgroundColor: color.bgRaised,
-                        foregroundColor: color.fgPrimary,
-                        child: SizedBox.expand(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: <Widget>[
-                              SizedBox(
-                                width: AppBorder.hairline,
-                                child: ColoredBox(color: color.borderStrong),
-                              ),
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: <Widget>[
-                                    Icon(
-                                      Symbols.done_all_rounded,
-                                      size: AppSize.iconMd,
-                                      color: color.fgPrimary,
-                                    ),
-                                    const SizedBox(height: AppSpace.space1),
-                                    DefaultTextStyle(
-                                      style: AppType.caption.copyWith(
-                                        color: color.fgPrimary,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      child: const Text(_markSeenLabel),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
+                    if (canMarkSeen)
+                      (
+                        _markSeenLabel,
+                        Symbols.done_all_rounded,
+                        () => onMarkSeen(row.paneId),
+                      ),
+                  ])
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: color.bgRaised,
+                      border: Border(
+                        left: BorderSide(
+                          color: color.borderStrong,
+                          width: AppBorder.hairline,
                         ),
                       ),
-                    ],
+                    ),
+                    child: Builder(
+                      builder: (BuildContext context) {
+                        void activate() {
+                          unawaited(Slidable.of(context)?.close());
+                          action();
+                        }
+
+                        final Widget labelWidget = Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            Icon(
+                              icon,
+                              size: AppSize.iconMd,
+                              color: color.fgPrimary,
+                            ),
+                            const SizedBox(height: AppSpace.space1),
+                            Text(
+                              label,
+                              style: AppType.caption.copyWith(
+                                color: color.fgPrimary,
+                                inherit: false,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        );
+                        return _isIos
+                            ? CupertinoButton(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpace.space3,
+                                ),
+                                onPressed: activate,
+                                child: labelWidget,
+                              )
+                            : TextButton(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpace.space3,
+                                  ),
+                                ),
+                                onPressed: activate,
+                                child: labelWidget,
+                              );
+                      },
+                    ),
                   ),
-                  child: content,
                 ),
+            ],
           ),
-        );
-    }
+          child: content,
+        ),
+      ),
+    );
   }
 }
 
@@ -1859,10 +1988,17 @@ class _RowBox extends StatelessWidget {
 /// Priority puts the status beside the tab title and the age beside the breadcrumb.
 /// Workspace puts the kind, pane, status, and age on one line.
 class _RowLine extends StatelessWidget {
-  const _RowLine({required this.leading, this.trailing});
+  const _RowLine({
+    required this.leading,
+    this.trailing,
+    this.pinned = false,
+    this.workspace,
+  });
 
   final Widget leading;
   final Widget? trailing;
+  final bool pinned;
+  final String? workspace;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -1870,9 +2006,30 @@ class _RowLine extends StatelessWidget {
     textBaseline: TextBaseline.alphabetic,
     children: <Widget>[
       Expanded(child: leading),
+      if (pinned) ...<Widget>[
+        const SizedBox(width: AppSpace.space2),
+        Icon(
+          Symbols.keep_rounded,
+          size: AppSize.iconSm,
+          color: AppColor.of(context).fgSecondary,
+        ),
+      ],
       if (trailing != null) ...<Widget>[
         const SizedBox(width: AppSpace.space3),
         trailing!,
+      ],
+      if (workspace != null) ...<Widget>[
+        const SizedBox(width: AppSpace.space2),
+        Flexible(
+          child: Text(
+            workspace!,
+            style: AppType.caption.copyWith(
+              color: AppColor.of(context).fgSecondary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     ],
   );
@@ -1889,6 +2046,8 @@ class _ShellRowContent extends StatelessWidget {
     required this.color,
     required this.leadingInset,
     required this.slotWidth,
+    required this.pinned,
+    required this.showWorkspace,
     required this.onTap,
   });
 
@@ -1896,6 +2055,8 @@ class _ShellRowContent extends StatelessWidget {
   final AppColor color;
   final double leadingInset;
   final double slotWidth;
+  final bool pinned;
+  final bool showWorkspace;
   final VoidCallback onTap;
 
   @override
@@ -1903,6 +2064,7 @@ class _ShellRowContent extends StatelessWidget {
     primary: <String>[
       row.paneDisplayName,
       if (row.title.isNotEmpty) row.title,
+      if (showWorkspace) row.workspaceName,
     ].join(', '),
     onTap: onTap,
     showDivider: false,
@@ -1945,6 +2107,25 @@ class _ShellRowContent extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          if (pinned) ...<Widget>[
+            const SizedBox(width: AppSpace.space2),
+            Icon(
+              Symbols.keep_rounded,
+              size: AppSize.iconSm,
+              color: color.fgSecondary,
+            ),
+          ],
+          if (showWorkspace) ...<Widget>[
+            const SizedBox(width: AppSpace.space2),
+            Flexible(
+              child: Text(
+                row.workspaceName,
+                style: AppType.caption.copyWith(color: color.fgSecondary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ],
       ),
     ),
@@ -1965,6 +2146,8 @@ class _AgentRowContent extends StatelessWidget {
     required this.showDivider,
     required this.leadingInset,
     required this.slotWidth,
+    required this.pinned,
+    required this.showWorkspace,
     this.onTap,
   });
 
@@ -1979,6 +2162,8 @@ class _AgentRowContent extends StatelessWidget {
 
   /// The leading slot's width; an agent row leaves it empty ([_PaneRowTile.slotWidth]).
   final double slotWidth;
+  final bool pinned;
+  final bool showWorkspace;
   final VoidCallback? onTap;
 
   @override
@@ -2008,6 +2193,7 @@ class _AgentRowContent extends StatelessWidget {
       statusLabel,
       segments.join(', '),
       if (axis == AgentListAxis.priority) row.agentKind,
+      if (showWorkspace) row.workspaceName,
       ?age,
     ].join(', ');
     final Widget lines = Column(
@@ -2017,11 +2203,15 @@ class _AgentRowContent extends StatelessWidget {
           leadingInset: leadingInset,
           child: Row(
             children: <Widget>[
-              SizedBox(width: slotWidth),
-              const SizedBox(width: _slotGap),
+              if (!showWorkspace) ...<Widget>[
+                SizedBox(width: slotWidth),
+                const SizedBox(width: _slotGap),
+              ],
               Expanded(
                 child: axis == AgentListAxis.workspace
                     ? _RowLine(
+                        pinned: pinned,
+                        workspace: showWorkspace ? row.workspaceName : null,
                         leading: Row(
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
@@ -2071,6 +2261,7 @@ class _AgentRowContent extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           _RowLine(
+                            pinned: pinned,
                             leading: Text(
                               title,
                               style:
@@ -2128,7 +2319,9 @@ class _AgentRowContent extends StatelessWidget {
         children: <Widget>[
           lines,
           PositionedDirectional(
-            start: axis == AgentListAxis.workspace ? _agentBarInset : 0,
+            start: axis == AgentListAxis.workspace && !showWorkspace
+                ? _agentBarInset
+                : 0,
             top: 0,
             bottom: 0,
             child: StatusBar(state: _barStateFor(row.status)),
@@ -2153,7 +2346,7 @@ double _actionExtentRatio(BuildContext context, String label, double rowWidth) {
     maxLines: 1,
   )..layout();
   final double width = math.max(
-    painter.width + AppSpace.space3 * 2,
+    (painter.width + AppSpace.space3 * 2 + AppBorder.hairline).ceilToDouble(),
     AppSize.targetMin,
   );
   painter.dispose();

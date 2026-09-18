@@ -46,6 +46,8 @@ import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart'
     show ChromeIconAction;
 import 'package:material_ui/material_ui.dart'
     show FloatingActionButton, SearchBar, TabBar;
+import 'package:shared_preferences/shared_preferences.dart'
+    show SharedPreferencesAsync;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
@@ -374,6 +376,43 @@ Finder _action(String label) => find.byWidgetPredicate(
 
 void main() {
   setUpAll(loadAppFonts);
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  ]) {
+    for (final (themeName, brightness) in _themes) {
+      for (final axis in <String>['priority', 'workspace']) {
+        final platformName = platform == TargetPlatform.iOS ? 'ios' : 'android';
+        testWidgets('$axis pinned ($platformName $themeName)', (tester) async {
+          debugDefaultTargetPlatformOverride = platform;
+          addTearDown(() => debugDefaultTargetPlatformOverride = null);
+          await SharedPreferencesAsync().setString(
+            'agent_list_pinned_host-1',
+            axis == 'priority' ? '["w1:p4","w3:p11"]' : '["w1:p4","w1:p2"]',
+          );
+          final fixture = _AgentListFixture();
+          final harness = _Harness(currentAttention: fixture.attention);
+          addTearDown(harness.dispose);
+          await _pumpScreen(tester, brightness, harness.build());
+          await tester.pumpAndSettle();
+          harness.messages.add(fixture.snapshot);
+          await tester.pumpAndSettle();
+          if (axis == 'workspace') {
+            await tester.tap(find.text('Workspace'));
+            await tester.pumpAndSettle();
+          }
+          expect(find.text('PINNED'), findsOneWidget);
+          await expectLater(
+            find.byType(AgentListScreen),
+            matchesGoldenFile(
+              'goldens/agent_list_${axis}_pinned_${platformName}_$themeName.png',
+            ),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        });
+      }
+    }
+  }
 
   setUp(() {
     SharedPreferencesAsyncPlatform.instance =

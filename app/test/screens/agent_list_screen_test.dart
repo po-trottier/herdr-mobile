@@ -15,7 +15,7 @@
 library;
 
 import 'dart:async';
-import 'dart:ui' show TextBaseline, Tristate;
+import 'dart:ui' show SemanticsAction, TextBaseline, Tristate;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
@@ -26,7 +26,8 @@ import 'package:cupertino_ui/cupertino_ui.dart'
         CupertinoSlidingSegmentedControl;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
-import 'package:flutter/rendering.dart' show BoxConstraints, RenderBox;
+import 'package:flutter/rendering.dart'
+    show BoxConstraints, RenderBox, RenderParagraph;
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart'
     show
@@ -47,6 +48,7 @@ import 'package:flutter/widgets.dart'
         Offset,
         Opacity,
         Rect,
+        RichText,
         Scrollable,
         Semantics,
         Size,
@@ -70,7 +72,8 @@ import 'package:herdr_mobile/models/messages/tab_summary.dart';
 import 'package:herdr_mobile/models/messages/tree_snapshot.dart';
 import 'package:herdr_mobile/models/messages/workspace_summary.dart';
 import 'package:herdr_mobile/screens/agent_list_screen.dart';
-import 'package:herdr_mobile/services/agent_list.dart' show AgentListAxis;
+import 'package:herdr_mobile/services/agent_list.dart'
+    show AgentListAxis, AgentListService;
 import 'package:herdr_mobile/services/agent_status.dart' show AttentionItem;
 import 'package:herdr_mobile/services/relay.dart'
     show RelayConnected, RelayConnectionState, RelayDisconnected;
@@ -496,7 +499,198 @@ Finder _endPaddingBox() => find.descendant(
   matching: find.byType(SizedBox),
 );
 
+Future<void> _performPinAction(
+  WidgetTester tester,
+  String paneLabel,
+  String action,
+) async {
+  final node = tester.getSemantics(find.bySemanticsLabel(RegExp(paneLabel)));
+  final ids = node.getSemanticsData().customSemanticsActionIds!;
+  final id = ids.singleWhere(
+    (id) => CustomSemanticsAction.getAction(id)?.label == action,
+  );
+  node.owner!.performAction(node.id, SemanticsAction.customAction, id);
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  ]) {
+    testWidgets(
+      '$platform: revealed Unpin and Mark as seen labels fit at default scale',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        tester.view.physicalSize = const Size(375, 667);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final harness = _Harness(currentAttention: [_attention()]);
+        addTearDown(harness.dispose);
+        await _pumpLoaded(
+          tester,
+          harness,
+          _attentionSnapshot(harness.currentAttention),
+        );
+        await tester.drag(find.text('impl'), const Offset(-300, 0));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Pin'));
+        await tester.pumpAndSettle();
+        await tester.drag(find.text('impl'), const Offset(-300, 0));
+        await tester.pumpAndSettle();
+        for (final label in <String>['Unpin', 'Mark as seen']) {
+          final text = find.text(label);
+          expect(text.hitTestable(), findsOneWidget);
+          final paragraph = tester.renderObject<RenderParagraph>(
+            find.descendant(of: text, matching: find.byType(RichText)),
+          );
+          expect(paragraph.didExceedMaxLines, isFalse, reason: label);
+          expect(
+            paragraph.getMaxIntrinsicWidth(double.infinity),
+            lessThanOrEqualTo(paragraph.size.width + 0.01),
+            reason: label,
+          );
+        }
+        expect(tester.takeException(), isNull);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
+  testWidgets('semantics pins and unpins a normal agent in both views', (
+    tester,
+  ) async {
+    final harness = _Harness();
+    addTearDown(harness.dispose);
+    final semantics = tester.ensureSemantics();
+    await _pumpLoaded(tester, harness, _fiveStatusSnapshot());
+    expect(find.text('PINNED'), findsNothing);
+    await _performPinAction(tester, 'row-idle', 'Pin');
+    expect(find.text('PINNED'), findsOneWidget);
+    expect(find.text('IDLE'), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('row-idle')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('PINNED')).dy,
+      lessThan(tester.getTopLeft(find.text('WORKING')).dy),
+    );
+    await tester.tap(find.text('Workspace'));
+    await tester.pumpAndSettle();
+    expect(find.text('PINNED'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('row-idle')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('PINNED')).dy,
+      lessThan(tester.getTopLeft(_semanticsRow('ws, 4 panes')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('agent-idle')).dx,
+      moreOrLessEquals(
+        tester.getTopLeft(find.text('PINNED')).dx,
+        epsilon: 0.01,
+      ),
+    );
+    await _performPinAction(tester, 'row-idle', 'Unpin');
+    expect(find.text('PINNED'), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('row-idle')), findsOneWidget);
+    await tester.tap(find.text('Priority'));
+    await tester.pumpAndSettle();
+    expect(find.text('PINNED'), findsNothing);
+    expect(find.text('IDLE'), findsOneWidget);
+    expect(harness.openedPanes, isEmpty);
+    expect(harness.markedSeen, isEmpty);
+    semantics.dispose();
+  });
+
+  testWidgets('swipe pins and unpins a shell without Mark as seen', (
+    tester,
+  ) async {
+    final harness = _Harness();
+    addTearDown(harness.dispose);
+    await _pumpWorkspaceAxis(tester, harness, _hierarchySnapshot());
+    expect(find.text('PINNED'), findsNothing);
+    await tester.drag(find.text('Explorer'), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Mark as seen'), findsNothing);
+    await tester.tap(find.text('Pin'));
+    await tester.pumpAndSettle();
+    expect(find.text('PINNED'), findsOneWidget);
+    expect(find.text('Explorer'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('PINNED')).dy,
+      lessThan(tester.getTopLeft(_semanticsRow('lightspeed-kit, 3 panes')).dy),
+    );
+    await tester.tap(find.text('Priority'));
+    await tester.pumpAndSettle();
+    expect(find.text('PINNED'), findsNothing);
+    expect(find.text('Explorer'), findsNothing);
+    await tester.tap(find.text('Workspace'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.text('Explorer'), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Mark as seen'), findsNothing);
+    await tester.tap(find.text('Unpin'));
+    await tester.pumpAndSettle();
+    expect(find.text('PINNED'), findsNothing);
+    expect(find.text('Explorer'), findsOneWidget);
+    expect(harness.openedPanes, isEmpty);
+  });
+
+  testWidgets(
+    'pins survive service replacement and prune only after a snapshot',
+    (tester) async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      AgentListService service(String hostId) => AgentListService(
+        messages: harness.messages.stream,
+        connectionState: harness.connectionState.stream,
+        send: (Message message, {String? corr}) {},
+        unseenAttention: harness.attention.stream,
+        currentAttention: const <AttentionItem>[],
+        hostId: hostId,
+      );
+      final first = service('host-1');
+      harness.messages.add(_fiveStatusSnapshot());
+      await tester.pumpAndSettle();
+      await first.togglePinned('w1:p-idle');
+      await first.togglePinned('w1:p-working');
+      expect(first.currentView.prioritySections.first.title, 'PINNED');
+      expect(
+        first.currentView.prioritySections.first.rows.map((row) => row.paneId),
+        <String>['w1:p-idle', 'w1:p-working'],
+      );
+      expect(first.currentView.pinnedRows.map((row) => row.paneId), <String>[
+        'w1:p-idle',
+        'w1:p-working',
+      ]);
+      await first.togglePinned('w1:p-idle');
+      await first.togglePinned('w1:p-idle');
+      expect(first.currentView.pinnedRows.map((row) => row.paneId), <String>[
+        'w1:p-working',
+        'w1:p-idle',
+      ]);
+      first.dispose();
+      final restored = service('host-1');
+      addTearDown(restored.dispose);
+      final otherHost = service('host-2');
+      addTearDown(otherHost.dispose);
+      await tester.pumpAndSettle();
+      expect(restored.isPinned('w1:p-idle'), isTrue);
+      expect(restored.isPinned('w1:p-working'), isTrue);
+      expect(otherHost.isPinned('w1:p-idle'), isFalse);
+      expect(
+        await SharedPreferencesAsync().getString('agent_list_pinned_host-1'),
+        '["w1:p-working","w1:p-idle"]',
+      );
+      harness.messages.add(_oneAgentSnapshot());
+      await tester.pumpAndSettle();
+      expect(restored.isPinned('w1:p-idle'), isFalse);
+      expect(restored.isPinned('w1:p-working'), isFalse);
+      expect(
+        await SharedPreferencesAsync().getString('agent_list_pinned_host-1'),
+        '[]',
+      );
+    },
+  );
   setUp(() {
     SharedPreferencesAsyncPlatform.instance =
         InMemorySharedPreferencesAsync.empty();

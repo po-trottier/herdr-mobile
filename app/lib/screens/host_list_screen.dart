@@ -1,7 +1,7 @@
 /// The paired-computer list screen (Phase 18, `WP-18-a`, wave 9), drawn from
 /// `docs/31-mockups/05-host-list.md` at route `/hosts` (`docs/30-ux-spec.md` row 05): the
-/// rows, the connection glyph, the detail line, the attention badge, and the reveal-then-tap
-/// `Forget` action every row carries.
+/// rows, the connection glyph, the detail line, the attention badge, and the `Forget` action
+/// every row carries behind a long press.
 ///
 /// This file owns no route and no live `RelayConnection`: `app/lib/routing.dart` (`WP-12-b`,
 /// on request) wires `/hosts` to this widget, and supplies [HostListScreen.onSwitch] and
@@ -10,19 +10,16 @@
 /// screen needs, not the whole object" idiom `device_list_screen.dart`'s own header comment
 /// already establishes for `messages`/`connectionState`/`send` (R-90-024).
 ///
-/// **The reveal-action pattern this file publishes for `WP-18-b`'s `agent_list_screen.dart`
-/// to replicate** (R-31-05-08, R-31-05-09, R-30-299, R-32-578, R-32-580, R-30-298): one
-/// `SlidableAutoCloseBehavior` ancestor wraps the whole list; every row's `Slidable` shares
-/// [_slidableGroupTag] and is keyed by its own stable row id, never a list index; the
-/// destructive `ActionPane` sets `dragDismissible: false` and no `dismissible`, so a tap on
-/// its `CustomSlidableAction` is the only path to the action and it always raises
-/// `showChromeConfirmationDialog` first; and the row's own `Semantics` widget adds
-/// `customSemanticsActions` around the tappable row content, which merges into that content's
-/// own semantics node (neither sets `container: true`) rather than adding a second node.
+/// **The row-action pattern this file publishes for `WP-18-b`'s `agent_list_screen.dart`
+/// to replicate** (R-30-296 to R-30-298, R-32-515, R-32-580): every row is one
+/// `ChromeRowActions` keyed by its own stable row id, never a list index; its one item is
+/// destructive and always raises `showChromeConfirmationDialog` first; and the row's own
+/// `Semantics` widget adds `customSemanticsActions` around the tappable row content, which
+/// merges into that content's own semantics node (neither sets `container: true`) rather than
+/// adding a second node.
 library;
 
 import 'dart:async' show StreamSubscription, Timer, unawaited;
-import 'dart:math' as math;
 
 import 'package:connectivity_plus/connectivity_plus.dart'
     show Connectivity, ConnectivityResult;
@@ -39,24 +36,17 @@ import 'package:flutter/widgets.dart'
         Border,
         BorderRadius,
         BorderSide,
-        BoxConstraints,
         BoxDecoration,
         BuildContext,
         Center,
-        ColoredBox,
         Column,
         CrossAxisAlignment,
         CustomScrollView,
         DecoratedBox,
-        DefaultTextStyle,
-        Directionality,
         EdgeInsets,
         Expanded,
         Icon,
-        LayoutBuilder,
-        MainAxisAlignment,
         MainAxisSize,
-        MediaQuery,
         Padding,
         Row,
         SafeArea,
@@ -67,19 +57,9 @@ import 'package:flutter/widgets.dart'
         StatefulWidget,
         StatelessWidget,
         Text,
-        TextOverflow,
-        TextPainter,
-        TextSpan,
         ValueChanged,
         VoidCallback,
         Widget;
-import 'package:flutter_slidable/flutter_slidable.dart'
-    show
-        ActionPane,
-        CustomSlidableAction,
-        ScrollMotion,
-        Slidable,
-        SlidableAutoCloseBehavior;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show AppBar, Container, PreferredSize, Size, ValueKey;
@@ -128,13 +108,16 @@ import '../widgets/theme/chrome_confirmation_outcome.dart'
     show ChromeConfirmationOutcome;
 import '../widgets/theme/chrome_icon_action.dart';
 import '../widgets/theme/chrome_loading_delay.dart';
+import '../widgets/theme/chrome_menu.dart' show ChromeMenuItem;
+import '../widgets/theme/chrome_row_actions.dart';
 import '../widgets/theme/chrome_snackbar.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 
-/// shares this tag; `SlidableAutoCloseBehavior` wrapping the list is what enforces it.
-const Object _slidableGroupTag = 'host-list';
+/// Callout 9: the hint under the last row names the gesture and the word, because a long
+/// press is invisible (R-31-05-02).
+const String _rowActionsHint = 'Touch and hold a row, then tap Forget.';
 
 /// The text edge every host name starts on: the row inset of section 7.4. The connection state
 /// is the leading bar of R-03-100 (2026-09-09), flush to the row's edge and outside the inset,
@@ -142,7 +125,7 @@ const Object _slidableGroupTag = 'host-list';
 /// edges, because the glyph carried a state word of varying width).
 const double _textEdge = AppSpace.space4;
 
-/// The one revealed action's label (callout 11), `type.caption` under its icon (R-32-576).
+/// The one row action's label (callout 11).
 const String _forgetLabel = 'Forget';
 
 Future<bool> _defaultHasNetwork() async {
@@ -567,68 +550,64 @@ class _HostListScreenState extends State<HostListScreen> {
     // The strips carry `treat.warning` (R-32-506): the hue lives in the icon, and only
     // `treat.error` in a strip and `treat.destructive` take the leading bar (corrected
     // 2026-09-08: a bare body sentence beside a warning bar was neither treatment).
-    return SlidableAutoCloseBehavior(
-      child: Column(
-        children: <Widget>[
-          if (_hostInUseBanner) _hostInUseStrip(context),
-          if (_offline)
-            AppStrip(
-              child: const Treatment.warning(label: 'No network.'),
-              onTapDestination: () {
-                final id =
-                    _lastAttempt?.hostId ??
-                    _connectedHostId ??
-                    _newestLastSeenHostId();
-                if (id != null) widget.onOpenDiagnostics?.call(id);
-              },
-            )
-          else if (_lastAttempt case final attempt?
-              when _liveState is! RelayConnected)
-            AppStrip(
-              // R-31-05-18 (amended 2026-09-16): name the computer; the row carries the
-              // raw failure text (R-30-803).
-              child: Treatment.warning(
-                label:
-                    'Could not connect to '
-                    '${_findRecord(attempt.hostId)?.hostName ?? 'this computer'}. '
-                    'Tap for details.',
-              ),
-              onTapDestination: () =>
-                  widget.onOpenDiagnostics?.call(attempt.hostId),
+    return Column(
+      children: <Widget>[
+        if (_hostInUseBanner) _hostInUseStrip(context),
+        if (_offline)
+          AppStrip(
+            child: const Treatment.warning(label: 'No network.'),
+            onTapDestination: () {
+              final id =
+                  _lastAttempt?.hostId ??
+                  _connectedHostId ??
+                  _newestLastSeenHostId();
+              if (id != null) widget.onOpenDiagnostics?.call(id);
+            },
+          )
+        else if (_lastAttempt case final attempt?
+            when _liveState is! RelayConnected)
+          AppStrip(
+            // R-31-05-18 (amended 2026-09-16): name the computer; the row carries the
+            // raw failure text (R-30-803).
+            child: Treatment.warning(
+              label:
+                  'Could not connect to '
+                  '${_findRecord(attempt.hostId)?.hostName ?? 'this computer'}. '
+                  'Tap for details.',
             ),
-          Expanded(
-            // The list ends with the hint under its last row (R-03-109): no clearance and no
-            // ground below it.
-            child: CustomScrollView(
-              slivers: <Widget>[
-                SliverList.list(
-                  children: <Widget>[
-                    for (final row in rows) _buildRow(row),
-                    // Callout 9: plain `type.caption` under the last row, on the names'
-                    // text edge, `space.4` above and below, as the wireframe draws it
-                    // (moved out of a footer strip 2026-09-08: the strip's own inset put
-                    // the hint 20 px left of the names it explains).
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        _textEdge,
-                        AppSpace.space4,
-                        AppSpace.space4,
-                        AppSpace.space4,
-                      ),
-                      child: Text(
-                        'Swipe a row left, then tap Forget.',
-                        style: AppType.caption.copyWith(
-                          color: color.fgSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            onTapDestination: () =>
+                widget.onOpenDiagnostics?.call(attempt.hostId),
           ),
-        ],
-      ),
+        Expanded(
+          // The list ends with the hint under its last row (R-03-109): no clearance and no
+          // ground below it.
+          child: CustomScrollView(
+            slivers: <Widget>[
+              SliverList.list(
+                children: <Widget>[
+                  for (final row in rows) _buildRow(row),
+                  // Callout 9: plain `type.caption` under the last row, on the names'
+                  // text edge, `space.4` above and below, as the wireframe draws it
+                  // (moved out of a footer strip 2026-09-08: the strip's own inset put
+                  // the hint 20 px left of the names it explains).
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      _textEdge,
+                      AppSpace.space4,
+                      AppSpace.space4,
+                      AppSpace.space4,
+                    ),
+                    child: Text(
+                      _rowActionsHint,
+                      style: AppType.caption.copyWith(color: color.fgSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -695,94 +674,47 @@ class _HostListScreenState extends State<HostListScreen> {
       ? BarState.ok
       : BarState.unknown;
 
-  /// One row. The revealed `Forget` pane takes the anatomy of R-32-576 and R-32-579: as wide
-  /// as its label at `type.caption` plus `space.3` each side, floored at `size.target.min`
-  /// and never past half the row ([_actionExtentRatio]); `delete_outline` at `size.icon.md`
-  /// in `color.status.error` above the word, gap `space.1`; the label in `color.fg.primary`;
-  /// and the `border.attention` bar in `color.status.error` at the pane's leading edge, which
-  /// replaces the pane hairline. No red fill (R-32-126). Corrected 2026-09-08: the pane was a
-  /// fixed 0.28 of the row, its label `type.mono.button`, and it had no leading bar.
+  /// One row. A long press opens the row's actions (R-30-296): `Forget` alone, destructive,
+  /// with `delete_outline` from the R-32-401 map. The tap on it always raises
+  /// `showChromeConfirmationDialog` first (R-30-297).
   Widget _buildRow(HostListRow row) {
     final color = AppColor.of(context);
     final barState = _barStateFor(row);
     final isConnected = row.state == HostRowState.connected;
 
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) => Slidable(
-        key: ValueKey<String>(row.record.hostId),
-        groupTag: _slidableGroupTag,
-        endActionPane: ActionPane(
-          motion: const ScrollMotion(),
-          extentRatio: _actionExtentRatio(
-            context,
-            _forgetLabel,
-            constraints.maxWidth,
-          ),
-          dragDismissible: false,
-          children: <Widget>[
-            CustomSlidableAction(
-              onPressed: (_) => unawaited(_confirmForget(row.record)),
-              backgroundColor: color.bgRaised,
-              foregroundColor: color.fgPrimary,
-              child: SizedBox.expand(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    SizedBox(
-                      width: AppBorder.attention,
-                      child: ColoredBox(color: color.statusError),
-                    ),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          Icon(
-                            Symbols.delete_outline_rounded,
-                            size: AppSize.iconMd,
-                            color: color.statusError,
-                          ),
-                          const SizedBox(height: AppSpace.space1),
-                          DefaultTextStyle(
-                            style: AppType.caption.copyWith(
-                              color: color.fgPrimary,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            child: const Text(_forgetLabel),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+    return ChromeRowActions(
+      key: ValueKey<String>(row.record.hostId),
+      items: <ChromeMenuItem>[
+        ChromeMenuItem(
+          label: _forgetLabel,
+          icon: Symbols.delete_outline_rounded,
+          destructive: true,
+          onSelected: () => unawaited(_confirmForget(row.record)),
         ),
-        child: Semantics(
-          customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
-            const CustomSemanticsAction(label: 'Forget this computer'): () =>
-                unawaited(_confirmForget(row.record)),
+      ],
+      child: Semantics(
+        customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
+          const CustomSemanticsAction(label: 'Forget this computer'): () =>
+              unawaited(_confirmForget(row.record)),
+        },
+        // Callout 3: the connection state is the leading bar alone, no state word. `WORKING`
+        // and `IDLE` are agent words, which R-31-05-11 keeps off a computer's row, and their
+        // differing widths started the names on two edges (2026-09-08). R-03-100
+        // (2026-09-09): the bar is the one mark; the attention count of callout 8 is a badge
+        // in the trailing slot, never a second bar.
+        child: AppListRow(
+          state: barState,
+          primary: row.record.hostName,
+          secondary: _detailFor(row),
+          trailing: _trailingFor(row, color),
+          onTap: () {
+            if (row.state == HostRowState.rejected) {
+              widget.onPairAnother?.call();
+            } else {
+              unawaited(_handleRowTap(row.record));
+            }
           },
-          // Callout 3: the connection state is the leading bar alone, no state word. `WORKING`
-          // and `IDLE` are agent words, which R-31-05-11 keeps off a computer's row, and their
-          // differing widths started the names on two edges (2026-09-08). R-03-100
-          // (2026-09-09): the bar is the one mark; the attention count of callout 8 is a badge
-          // in the trailing slot, never a second bar.
-          child: AppListRow(
-            state: barState,
-            primary: row.record.hostName,
-            secondary: _detailFor(row),
-            trailing: _trailingFor(row, color),
-            onTap: () {
-              if (row.state == HostRowState.rejected) {
-                widget.onPairAnother?.call();
-              } else {
-                unawaited(_handleRowTap(row.record));
-              }
-            },
-            selected: isConnected,
-          ),
+          selected: isConnected,
         ),
       ),
     );
@@ -843,26 +775,6 @@ class _HostListScreenState extends State<HostListScreen> {
       ],
     );
   }
-}
-
-/// R-32-576: the revealed pane is exactly as wide as its one action, which is [label] at
-/// `type.caption` plus `space.3` on each side, floored at `size.target.min` and capped at half
-/// of [rowWidth]. Measured at the current text scale, so a large scale widens the action
-/// instead of shrinking its label (R-32-363). `flutter_slidable` takes the pane as a ratio of
-/// the row, so the width is converted here and is never a fixed fraction.
-double _actionExtentRatio(BuildContext context, String label, double rowWidth) {
-  final TextPainter painter = TextPainter(
-    text: TextSpan(text: label, style: AppType.caption),
-    textDirection: Directionality.of(context),
-    textScaler: MediaQuery.textScalerOf(context),
-    maxLines: 1,
-  )..layout();
-  final double width = math.max(
-    painter.width + AppSpace.space3 * 2,
-    AppSize.targetMin,
-  );
-  painter.dispose();
-  return math.min(width / rowWidth, 0.5);
 }
 
 /// The `Loading` state's skeleton (R-32-560, R-90-011), shown only after the 150 ms grace

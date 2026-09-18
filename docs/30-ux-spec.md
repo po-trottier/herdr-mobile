@@ -495,38 +495,37 @@ library.
 
   This rule decides the behaviour. It MUST NOT decide one screen's layout.
 
-### Swipe to reveal actions
+### Row actions from a long press
 
-The app uses `flutter_slidable` 4.0.3, MIT, for every swipe-to-reveal interaction. `Dismissible`
-MUST NOT appear anywhere in the app, because its only behaviour is dismiss-on-swipe and its
-background decoration is non-interactive. An implementer who sees `Dismissible.background` in the
-SDK might otherwise assume it can hold action buttons, so the prohibition is stated here rather
-than left implicit. `docs/20-mobile-framework.md` owns the dependency version and
-`docs/32-design-language.md` owns the action pane anatomy and the icon-plus-label rule that each
-action MUST carry.
+A list row that carries actions opens them from a long press, and the person taps one. Swipe
+actions were retired 2026-09-18 by the product owner: the Flutter SDK ships no swipe-action
+widget, and `R-03-059` forbids an imitation of a platform control, so the `flutter_slidable`
+package that drew the old swipe pane left the app with them. `Dismissible` MUST NOT appear
+anywhere in the app either: its only behaviour is dismiss-on-swipe and its background decoration
+is non-interactive. `docs/33-platform-chrome.md` `R-33-080` owns the platform control on each
+side, and `docs/32-design-language.md` section 7.25 owns the item anatomy.
 
-- **R-30-296** A left swipe on a row MUST reveal the trailing action pane and MUST NOT itself
-  perform an action. The revealed actions stay on screen until the person taps one, taps elsewhere,
-  or scrolls. The swipe is a reveal, never a command.
-- **R-30-297** A non-destructive revealed action MUST act on the tap at once, with no dialog. A
-  destructive revealed action MUST raise the destructive confirmation dialog that `R-30-005` permits
-  on the tap and MUST NOT act before the person confirms. A full swipe MUST NOT bypass that
-  confirmation, so `dragDismissible` MUST be `false` on any pane that carries a destructive action.
-- **R-30-298** Every revealed action MUST also be reachable without a swipe, as a named custom
-  semantics action on the row. `flutter_slidable` exposes nothing to the accessibility tree, so the
-  app supplies the semantics itself. `R-32-515` already requires this for the notification list
-  and the agent list, and it MUST now also say that the package provides nothing. A screen reader
-  user cannot swipe, and an action that has no spoken path does not exist.
-- **R-30-299** Only one row MUST hold its actions open at a time. Opening a pane closes any other
-  open pane through a shared `Slidable.groupTag`. The app MUST close every open pane before it
-  re-sorts a list, and MUST identify a row by a stable row identity, never by its list index. A
-  reorder under an open pane detaches the pane from its row, and a pane keyed to an index closes
-  the wrong row.
-- **R-30-295a** A swipeable row MUST respect the platform gesture inset and MUST NOT sit flush to
-  the screen edge, so a row swipe never fights the Android back gesture or the iOS interactive pop.
-  This refines `R-30-295`, which already requires the app to respect the safe area on every edge.
-  A swipeable row is the one control whose horizontal drag competes with the platform's own edge
-  gestures.
+- **R-30-296** A long press on a row MUST open the row's actions and MUST NOT itself perform an
+  action. On Android the actions are the platform menu, opened at the point of the press, per
+  `R-33-080`. On iOS they are the platform context menu with its preview of the row, per
+  `R-33-080`. The open menu stays until the person taps an action or taps outside it. A short
+  tap on the row keeps its own meaning, and a horizontal drag on a row MUST NOT open or perform
+  an action.
+- **R-30-297** A non-destructive action MUST act on the tap at once, with no dialog. A destructive
+  action MUST raise the destructive confirmation dialog that `R-30-005` permits on the tap and
+  MUST NOT act before the person confirms. No gesture MUST be able to reach a destructive action
+  and skip that dialog.
+- **R-30-298** Every row action MUST also be reachable without a long press, as a named custom
+  semantics action on the row. Neither platform menu exposes a closed row's actions to the
+  accessibility tree, so the app supplies the semantics itself. `R-32-515` requires this for every
+  list. A screen reader user cannot long press a row, and an action that has no spoken path does
+  not exist.
+- **R-30-299** A row's menu MUST belong to the row it opened on, identified by a stable row
+  identity, never by its list index. A tap outside an open menu MUST close it and MUST NOT act on
+  the row under the finger.
+- **R-30-295a** Retired 2026-09-18 with the swipe pane. No row takes a horizontal drag, so no
+  row competes with the Android back gesture or the iOS interactive pop, and `R-30-295` alone
+  governs the safe area.
 
 ## Terminal interaction model
 
@@ -617,8 +616,8 @@ easiest thing to trigger by accident in a pocket.
 
 ## Pane pins
 
-- **R-30-970** Every pane row MUST reveal `Pin` or `Unpin` after a left swipe, according to its
-  current pin state.
+- **R-30-970** Every pane row MUST offer `Pin` or `Unpin` in its long-press menu of `R-30-296`,
+  according to its current pin state.
   The action MUST change the preference only after a tap, without a confirmation dialog.
   The list MUST place pinned rows first, per `R-03-139`. Pin actions MUST NOT change agent status or
   attention.
@@ -707,8 +706,8 @@ owns the screen and its wireframes. This section owns the behaviour.
   physical. On Android the two axes are the two pages of a `TabBarView` behind the segmented
   control: a horizontal drag on the list body tracks the finger one-to-one, hands its velocity to
   the platform's page physics on release, and the segmented control follows the page. A tap on the
-  control moves the page the platform's own way. The row swipe of `R-30-296` keeps its priority on
-  the row that carries it, so the axis drag starts on a row without a revealed action, on a header
+  control moves the page the platform's own way. A row's actions open from a long press
+  (`R-30-296`), so no row competes with the axis drag; the drag starts on any row, on a header
   or on the ground. On iOS the segmented control switches the axis with the platform's own
   transition, and the body takes no axis drag: `R-03-108` names the page physics for Android only,
   and a body drag on iOS would compete with the interactive pop of `R-33-070`. Neither platform
@@ -757,8 +756,8 @@ app the operating system has stopped. `docs/22-platform-integration.md` owns the
   keeps its own history and is not this marker. Opening the pane MUST also send `mark_seen` for
   it (amended 2026-09-11, second, per `R-03-125`), so the computer marks it seen and every other
   surface follows; the local clear happens at once and does not wait for the reply (`R-11-241`).
-- **R-30-504** A person MUST also be able to clear a marker without opening the pane, by a left
-  swipe on the agent row to reveal `Mark as seen` and then a tap on that action. The action clears
+- **R-30-504** A person MUST also be able to clear a marker without opening the pane, by a long
+  press on the agent row to open its actions and then a tap on `Mark as seen`. The action clears
   the marker at once, with no dialog, because it destroys nothing, and sends `mark_seen` for the
   pane (amended 2026-09-11 per `R-03-125`), so "seen" means the same thing on the phone and on
   the computer. Some finished work needs no reading.
@@ -1212,7 +1211,7 @@ another.
     broken. Nothing was unpaired: `R-30-945` closed a connection, not a pairing.
 - **R-30-948** A tap on a saved computer's row on `/hosts` MUST start a switch to that computer. The
   row needs no separate `Connect` control, because the row is the control. Exactly one row MUST draw
-  the connected glyph, per `R-03-043`, and a swipe still reveals `Forget`, per `R-30-296`, so
+  the connected glyph, per `R-03-043`, and a long press still opens `Forget`, per `R-30-296`, so
   choosing a computer and forgetting one stay different gestures. A switch MUST close the current
   connection first and open the chosen one second, in the order `R-03-044` fixes. It MUST NOT raise
   a confirmation dialog: it destroys nothing, exactly as `Disconnect` destroys nothing under
@@ -1860,7 +1859,7 @@ https://github.com/flutter/flutter/blob/stable/packages/flutter/lib/src/services
 
 - [ ] Draw the rows, the connection glyph, the detail line and the attention badge.
 - [ ] Sort by attention, then connection, then name, per `R-31-05-01`.
-- [ ] Add the swipe-to-reveal `Forget` action with its confirmation dialog, per `R-30-296`,
+- [ ] Add the long-press `Forget` action with its confirmation dialog, per `R-30-296`,
   `R-30-297` and `R-31-05-02`.
 - [ ] Add the loading skeleton, the rejected Device error and the offline state.
 - [ ] Add the `Computer in use on another phone` banner and detail line, per `R-30-940` and
@@ -1893,8 +1892,8 @@ https://github.com/flutter/flutter/blob/stable/packages/flutter/lib/src/services
 - [ ] Suppress any pane text preview, per `R-31-06-03`.
 - [ ] Add pull to refresh with one `session.snapshot`.
 - [ ] Add the loading skeleton, the no agents empty state, the error block and the offline strip.
-- [ ] Clear the attention marker when a row opens, and add the `Mark as seen` action on swipe
-  reveal, per `R-30-504`.
+- [ ] Clear the attention marker when a row opens, and add the `Mark as seen` action to the
+  row's long-press menu, per `R-30-504`.
 - [ ] Put `Status colours` and search in the app bar, in that order, on both platforms; draw the
   floating create button of `R-30-041` on both, and no fixed band under the list, per `R-03-112`
   and `R-03-109` (added 2026-09-09, corrected 2026-09-10).

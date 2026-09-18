@@ -46,9 +46,6 @@ dependencies:
   package_info_plus: 10.2.1
   mobile_scanner: 7.4.0
 
-  # Swipe-to-reveal actions. R-20-040.
-  flutter_slidable: 4.0.3
-
   # Non-secret preferences, including the persisted theme mode. R-20-038.
   shared_preferences: 2.5.5
 

@@ -22,7 +22,8 @@
 |    last seen 3 Mar                   |
 +--------------------------------------+
 |                                      |
-| Swipe a row left, then tap Forget.   |
+| Touch and hold a row, then tap       |
+| Forget.                              |
 |                                      |
 +--------------------------------------+
 ```
@@ -31,7 +32,7 @@ The state character before each name (`*`, `o`, `.`) stands for the state bar of
 row's leading edge, which this scale cannot draw; on screen the name starts at the row inset and
 nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
 
-## Wireframe, a swiped row
+## Wireframe, a row's menu open
 
 ```text
 +--------------------------------------+
@@ -43,14 +44,19 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
 | o  build-box                       > |
 |    last seen 09:14             (!) 1 |
 +--------------------------------------+
-| o  macbook-pat         |      d      |
-|    last seen 3 Mar     |   Forget    |
-+--------------------------------------+
+| o  macbook-pat                     > |
+|    last seen 3 Mar                   |
+|        +-------------+               |
+|        | d  Forget   |               |
+|        +-------------+               |
 |                                      |
-| Swipe a row left, then tap Forget.   |
-|                                      |
+| Touch and hold a row, then tap       |
+| Forget.                              |
 +--------------------------------------+
 ```
+
+The menu sits at the point of the long press on Android; on iOS the platform context menu lifts
+the row as a preview and lists the action under it, per `R-33-080`.
 
 ## Callouts
 
@@ -135,27 +141,24 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
 9. Hint text. Token `type.caption`, colour `color.fg.secondary`, plain text under the last row on
    the names' text edge of callout 3, `space.4` above and below, never a strip (amended
    2026-09-08 by the product owner: a footer strip put the hint 20 px left of the names it
-   explains). It names the swipe and the word
-   the action uses, because a swipe is invisible. The word is `Forget`, not `Remove`:
+   explains). It names the gesture and the word
+   the action uses, because a long press is invisible. The word is `Forget`, not `Remove`:
    `14-devices.md` says `Remove` for revoking a phone on the computer, which is a different act.
    This line is also the alternative path to a hidden action.
-10. The revealed action pane. A left swipe slides the row aside and reveals the pane at the
-    trailing edge. It is the swipe action pane of `docs/32-design-language.md` section 7.25, on
-    `color.bg.raised`. The `|` in the wireframe marks its leading edge, where no divider is drawn.
-    One action sits in it, and the row keeps its own height.
+10. The row's menu. A long press on a row opens the platform menu of `R-33-080`: on Android a
+    Material menu at the point of the press, drawn in the wireframe below the row; on iOS the
+    platform context menu, which lifts the row as a preview and lists the action under it. It is
+    the row action menu of `docs/32-design-language.md` section 7.25. The row keeps its place.
 11. The `Forget` action. The glyph `d` is the icon that `R-32-401` names for `Forget this computer,
-    destructive`. It sits on the row's first line, with the word `Forget` under it on the second.
-    An icon alone is not permitted, per `R-32-577` and `R-32-404`. The action is destructive, so it
-    carries `treat.destructive` of `R-32-506` and no fill in a status hue, per `R-32-126`: the
-    word in `type.caption` `color.fg.primary`, the icon at `size.icon.md` in `color.status.error`
-    above it, and the `border.attention` bar of `R-32-579` at the pane's leading edge; the pane is
-    as wide as that word plus `space.3` each side, floored at `size.target.min`, per `R-32-576`
-    (amended 2026-09-08 by the product owner: the pane was a fixed 0.28 of the row with a
-    `type.mono.button` label and no bar). A tap
-    raises the confirmation, per `R-32-578`, and forgets nothing on its own, per `R-31-05-02`.
+    destructive`, beside the word `Forget` in the platform's own item. An icon alone is not
+    permitted, per `R-32-577` and `R-32-404`. The action is destructive, so it takes the platform's
+    destructive role and no fill in a status hue, per `R-32-579` and `R-32-126` (amended
+    2026-09-18 by the product owner: until then the action sat in a swipe pane of its own
+    anatomy). A tap raises the confirmation, per `R-32-578`, and forgets nothing on its own, per
+    `R-31-05-02`.
 12. Ground (added 2026-09-09, per `R-03-107`; amended the same day, per the amended `R-03-107`).
     A list with rows paints plain `color.bg.base` inside the safe area: no grid and no paper block
-    behind the rows, the `Swipe a row left, then tap Forget.` hint of callout 9, the skeleton rows
+    behind the rows, the `Touch and hold a row, then tap Forget.` hint of callout 9, the skeleton rows
     or the error block, and the list ends at the hint, per `R-03-109`. The `Computer in use` and
     `No network.` strips stay opaque `color.bg.raised` strips. Only the empty block of the `Empty`
     state takes the ground grid of `docs/32-design-language.md` `R-32-332`, painted across the
@@ -192,8 +195,8 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
 - Out, `Reconnect` or `Try again` in a trailing slot: the same two outcomes as a saved row above.
   The word only names which failure came before it, per `R-31-05-15`.
 - Out, `+`: `/pair/scan`, mockup `02-pair-scan.md`.
-- Out, swipe left, tap `Forget`, then confirm: the Host is forgotten locally, and the row leaves
-  the list.
+- Out, touch and hold a row, tap `Forget`, then confirm: the Host is forgotten locally, and the
+  row leaves the list.
 - Out, the dismissal of `R-31-05-19`: back to the caller, with the connection untouched. It exists
   only on the pushed variant.
 - Out, the strip of the `Switch failed` or the `Offline` state: `/hosts/:hostId/diagnostics`,
@@ -206,10 +209,11 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
   person must switch to in order to answer it. Connection state orders the connected computer above
   a saved one, and those are the only two values this key ever compares, because the offline state
   of callout 3 belongs to the phone and reaches every row at once.
-- **R-31-05-02** A left swipe on a row MUST reveal a `Forget` action, and that action MUST stay on
-  screen until the person taps it, taps elsewhere, or scrolls. The tap MUST raise the destructive
-  confirmation. The swipe itself MUST NOT forget anything, because forgetting destroys the Device
-  key for that Host.
+- **R-31-05-02** A long press on a row MUST open the row's actions, `Forget` alone, per
+  `R-30-296` and `R-33-080` (amended 2026-09-18 by the product owner: until then a left swipe
+  revealed the action; swipe actions are retired). The menu MUST stay open until the person taps
+  the action or taps outside it. The tap MUST raise the destructive confirmation. The press
+  itself MUST NOT forget anything, because forgetting destroys the Device key for that Host.
 - **R-31-05-03** Forgetting a Host on the Device MUST NOT claim that it revoked the Device on the
   Host. The interface MUST say `The computer still lists this phone. In the Relay pane, select
   pixel-9 and press d.` The name in the sentence is this phone's own device name, which is the name
@@ -228,13 +232,13 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
   list, and its address lives on `/settings`, per `R-30-922`.
 - **R-31-05-06** The `host_in_use` row MUST NOT offer to disconnect the other phone, per `R-30-941`.
   This phone has no authority over it.
-- **R-31-05-07** A full swipe MUST NOT forget a computer and MUST NOT bypass the confirmation. The
-  pane that carries `Forget` is not dismissible by a drag, per `R-32-578`.
-- **R-31-05-08** Only one row in this list MUST hold its actions open at a time. Opening a pane
-  MUST close every other open pane first.
-- **R-31-05-09** The app MUST close every open pane before this list re-sorts. `R-31-05-01`
-  re-sorts by attention count, so a re-sort would otherwise leave the pane open on a row that has
-  moved, and the person would tap `Forget` on a different computer.
+- **R-31-05-07** No gesture MUST forget a computer or bypass the confirmation. `Forget` acts only
+  from a tap on its menu item, and that tap raises the dialog first, per `R-32-578`.
+- **R-31-05-08** Only one row in this list MUST hold its menu open at a time. The platform menu
+  is modal on both sides, per `R-33-080`, so a second row cannot open while one is open.
+- **R-31-05-09** The app MUST close an open row menu before this list re-sorts. `R-31-05-01`
+  re-sorts by attention count, so a re-sort would otherwise leave the menu open over a row that
+  has moved, and the person would tap `Forget` on a different computer.
 - **R-31-05-10** `R-30-948` fixes the one-connected invariant. This file draws it: every wireframe
   here MUST show exactly one `*`, and a frame that shows two is wrong on its face, because two
   would mean two sockets. The `o` and `.` characters of callout 3 MUST NOT appear in the same
@@ -272,12 +276,12 @@ nothing sits between the bar and the name (amended 2026-09-09 per `R-03-100`).
   network. The `Loading` state of `R-31-05-16`, the `Switching` state of `R-30-948` and a
   `Try again` or `Reconnect` tap all run the same single attempt, so this rule covers all of them.
   The attempt ends on success, on the failure of `R-30-947`, or when the phone loses the network.
-  The swipe stays a different gesture from the tap, which is what `R-30-948` requires, so this rule
-  does not disable it in general. Two narrow limits apply while an attempt runs. An open swipe pane
-  MUST close when the attempt starts, because a switch changes the connection-state sort key of
-  `R-31-05-01` and `R-31-05-09` already forbids an open pane across a re-sort. A swipe MUST NOT
-  reveal `Forget` on the row the attempt is reaching, because forgetting that computer mid-attempt
-  would destroy the Device key the attempt is using.
+  The long press stays a different gesture from the tap, which is what `R-30-948` requires, so
+  this rule does not disable it in general. Two narrow limits apply while an attempt runs. An open
+  row menu MUST close when the attempt starts, because a switch changes the connection-state sort
+  key of `R-31-05-01` and `R-31-05-09` already forbids an open menu across a re-sort. A long
+  press MUST NOT offer `Forget` on the row the attempt is reaching, because forgetting that
+  computer mid-attempt would destroy the Device key the attempt is using.
 - **R-31-05-18** The strip of the `Switch failed` state MUST be tappable and MUST open
   `/hosts/:hostId/diagnostics`, mockup `13-connection.md`. It reads `Could not connect to
   <host name>. Tap for details.` (amended 2026-09-16 by the product owner: the earlier `No
@@ -324,7 +328,7 @@ This row retires one rule id. The id stays reserved, so an old citation still re
 
 ## Accessibility
 
-- Touch target: the `+` action, every row and every swipe action meet the minimum target of
+- Touch target: the `+` action, every row and every row action meet the minimum target of
   `R-30-290` and `R-30-740`, at the row height `R-32-515` fixes.
 - Contrast: the name uses `color.fg.primary` and the detail line `color.fg.secondary`, both on
   `color.bg.base`, and both are passing rows in `R-32-150`, per `R-30-720`. The state bar and the
@@ -343,8 +347,8 @@ This row retires one rule id. The id stays reserved, so an old citation still re
   Each row MUST be one semantics node whose label reads the name, that announcement, the detail
   line, then the attention count, so one swipe speaks the whole row. The trailing slot of
   `R-31-05-15` speaks its own word when it holds one, and speaks nothing when it holds nothing. The
-  revealed action MUST also be reachable as a custom semantics action named `Forget this computer`,
-  per `R-32-580`, because a screen reader user cannot swipe a row.
+  row action MUST also be reachable as a custom semantics action named `Forget this computer`,
+  per `R-32-580`, because a screen reader user cannot long press a row.
 - Screen reader, a running attempt: the app MUST announce a connection attempt twice through
   `SemanticsService.announce`, as `R-30-912` does. The start sentence names the computer, for
   example `Connecting to build-box`. The outcome sentence is the one the screen already shows: the
@@ -367,8 +371,8 @@ None.
 
 - `docs/32-design-language.md` - the app bar `R-32-510`, the list row `R-32-515`, the state bar
   `R-32-592`, the badge `R-32-518`, the badge icon `R-32-406`, the skeleton `R-32-560`, the icon map
-  `R-32-401`, the destructive treatment `R-32-506`, the snackbar of section 7.22, the swipe action
-  pane of section 7.25, `R-32-576` to `R-32-581`, the last-seen line `R-32-706`, the eyebrow
+  `R-32-401`, the destructive treatment `R-32-506`, the snackbar of section 7.22, the row action
+  menu of section 7.25, `R-32-576` to `R-32-581`, the last-seen line `R-32-706`, the eyebrow
   `R-32-590`, the ghost button `R-32-591`, the card `R-32-593`, `border.attention` `R-32-330`, and
   the contrast table `R-32-150`.
 - `docs/03-product-decisions.md` - many saved computers and one connected, `R-03-043` to

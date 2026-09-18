@@ -203,10 +203,9 @@ there is no wallpaper-derived scheme. The pipeline is:
 
 ## 5. Native controls
 
-- **R-33-077** The pane pin action of `R-30-970` MUST use a Material `TextButton` on Android and a
-  `CupertinoButton` on iOS.
-  The existing reveal pane MUST contain these native controls. `R-32-708` owns their icon and label
-  anatomy.
+- **R-33-077** The pane pin action of `R-30-970` MUST be an item of the row's platform menu of
+  `R-33-080`: a Material `MenuItemButton` on Android and a `CupertinoContextMenuAction` on iOS.
+  `R-32-708` owns their icon and label anatomy.
 
 "Native controls" means the control a person already knows on that platform. Taken seriously, this
 made the **create** control differ in kind until 2026-09-09, because a floating action button was a
@@ -262,7 +261,7 @@ and no glyph.
 | Strip action | `ListTile` | `CupertinoListTile`; `ChromeStripAction` owns the destination tap |
 | Section header disclosure | `ListTile` with `IconButton` | `CupertinoListTile` with `CupertinoButton`; the count keeps its trailing inset |
 | Workspace inline expansion | `ExpansionTile`, with its own disclosure glyph and rotation | `CupertinoListTile` with Flutter's `Expansible`, through `ChromeListRow.expand`; the rotating native glyph uses the expander colour and gap of `docs/32-design-language.md` section 7.23 |
-| Notification swipe action | `TextButton` or `FilledButton.tonal` | Plain `CupertinoButton`; the existing swipe reveal stays |
+| Row actions | `MenuAnchor` opened at the point of a long press, one `MenuItemButton` per action, through `ChromeRowActions` | `CupertinoContextMenu` with its preview of the row, one `CupertinoContextMenuAction` per action, through `ChromeRowActions`; no swipe pane on either platform, per `R-33-080` |
 | In-sheet back control | `BackButton` with an explicit return callback | `CupertinoNavigationBarBackButton` with an explicit return callback |
 
 - **R-33-033** The table above is normative. A screen MUST use the control in its platform column,
@@ -500,8 +499,9 @@ and no glyph.
   Android a Material `MenuAnchor` with one `MenuItemButton` per choice and its glyph of
   `R-32-401` leading; on iOS a `CupertinoMenuAnchor` with one `CupertinoMenuItem` per choice
   and the same glyph in the trailing slot, where an SF Symbol sits in a system menu. A
-  destructive choice takes `isDestructiveAction` on iOS and the `color.status.error` glyph and
-  label on Android. One widget draws it for both platforms,
+  destructive choice takes `isDestructiveAction` on iOS; on Android the hue lives in the
+  `color.status.error` glyph alone and the label keeps the component's own ink, per
+  `R-32-527`. One widget draws it for both platforms,
   `app/lib/widgets/theme/chrome_menu.dart` (`ChromeMenuAnchor`), and a screen MUST compose it.
   The create control stays a sheet, per `R-33-037`.
 - **R-33-079** **A content sheet.** A modal sheet that carries content, such as the pane
@@ -514,6 +514,21 @@ and no glyph.
   handle, a corner or a surface of its own. A short list of actions with a title, the pane
   actions, MAY stay a sheet on Android and MUST be a `CupertinoActionSheet` on iOS, whose
   actions carry no glyph, as the platform's own do.
+- **R-33-080** **Row actions.** (added 2026-09-18 by the product owner) The actions of a list row,
+  such as `Forget` on a computer row, `Pin` and `Mark as seen` on a pane row and `Mark as read`
+  and `Remove` on a notification row, MUST open from a long press on the row, per `R-30-296`, and
+  MUST be the platform's own surface: on Android a Material `MenuAnchor` opened at the point of
+  the press (`MenuController.open(position:)`) with one `MenuItemButton` per action and its glyph
+  of `R-32-401` leading; on iOS the platform context menu, `CupertinoContextMenu`, which lifts a
+  preview of the row and lists one `CupertinoContextMenuAction` per action with the same glyph
+  as `trailingIcon`. A destructive action takes `isDestructiveAction` on iOS and the
+  `color.status.error` glyph and label on Android. The app MUST NOT draw a swipe pane on either
+  platform: the SDK ships no swipe-action widget, and an imitation is forbidden by `R-03-059`.
+  One widget draws it for both platforms,
+  `app/lib/widgets/theme/chrome_row_actions.dart` (`ChromeRowActions`), and a screen MUST compose
+  it. A row that also carries a `⋮` opens the same actions from it, per `R-33-078`; on Android
+  the `⋮` opens the row's one menu at the control (`ChromeRowActions.openFrom`), so a second
+  `MenuAnchor` never nests inside the row's own.
 - **R-33-075** **A compose task.** A compose surface and its close control are platform controls,
   not one shared route with one shared glyph.
   1. On iOS a compose task MUST be a full-height sheet, pushed as `CupertinoSheetRoute` or through

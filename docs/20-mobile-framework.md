@@ -315,7 +315,6 @@ default, then the SDK, then an existing dependency, and only then a new package.
 | Device information | `device_info_plus` | 13.2.0 | BSD-3-Clause | https://pub.dev/packages/device_info_plus |
 | App package information | `package_info_plus` | 10.2.1 | BSD-3-Clause | https://pub.dev/packages/package_info_plus |
 | QR scanning | `mobile_scanner` | 7.4.0 | BSD-3-Clause | https://pub.dev/packages/mobile_scanner |
-| Swipe-to-reveal actions | `flutter_slidable` | 4.0.3 | MIT | https://pub.dev/packages/flutter_slidable |
 | Non-secret preferences | `shared_preferences` | 2.5.5 | BSD-3-Clause | https://pub.dev/packages/shared_preferences |
 | Display font (Archivo) | `Archivo-Bold.ttf`, `Archivo-Black.ttf` | bundled TTF | SIL OFL 1.1 | https://github.com/Omnibus-Type/Archivo |
 | Logging | `logging` | 1.3.0 | BSD-3-Clause | https://pub.dev/packages/logging |
@@ -398,16 +397,6 @@ dependency maps to a capability the product requires.**
   value the platform already holds, so it cannot drift.
   Constraints `sdk: >=3.10.0 <4.0.0` and `flutter: >=3.38.1` accept the pinned Dart 3.13.0 and
   Flutter 3.47.0.
-- `flutter_slidable` — rung four of the reuse ladder failed: no dependency already picked
-  provides a reveal-then-tap pane, and the SDK `Dismissible` is dismiss-only. The Flutter SDK
-  ships no reveal-then-tap widget, and `Dismissible.background` and
-  `Dismissible.secondaryBackground` are non-interactive decoration that disappear with the
-  child, so they cannot hold a tappable action. `flutter_slidable` 4.0.3 is pure Dart with no
-  platform channel, MIT, a Flutter Favorite, published by `romainrastel.com`. Constraints
-  `sdk: >=3.6.0 <4.0.0` and `flutter: >=3.27.0` accept the pinned Dart 3.13.0 and Flutter
-  3.47.0.
-  `https://pub.dev/packages/flutter_slidable`
-
 - `cupertino_ui` — Flutter 3.44 froze the in-SDK `cupertino.dart` library and
   moved new work to this standalone package. Version 1.0.1, BSD-3-Clause,
   published by `flutter.dev` (a pub.dev verified publisher). Its constraints are
@@ -442,7 +431,7 @@ dependency maps to a capability the product requires.**
 | `archive` | R-20-011 requires zlib compression of the frame envelope's plaintext bytes before Noise encryption. `dart:io` `ZLibCodec` already provides RFC 1950 zlib, so no package is needed. |
 | `noise_protocol_framework` | Does not provide `Noise_XXpsk0` or `Noise_KK`. It only provides `KNPSK0` and `NKPSK0`. It uses the `elliptic` package for traditional EC curves, not Curve25519. It uses the `crypto` package for SHA-256, not BLAKE2s. See R-20-032. |
 | Silent push and background execution packages | R-03-136 permits only a fixed-text alert. The app does not process push payloads. |
-| `flutter_swipe_action_cell` | Requires a `SwipeActionNavigatorObserver` in `MaterialApp.navigatorObservers`, which makes a list-row widget reach into the app navigation setup. `flutter_slidable` needs no observer. `https://pub.dev/packages/flutter_swipe_action_cell` |
+| `flutter_slidable`, `flutter_swipe_action_cell` | Retired 2026-09-18 per R-20-040: no swipe action exists in the app, on either platform. `flutter_slidable` 4.0.3 drew the swipe pane until then. `https://pub.dev/packages/flutter_slidable` |
 | Astryx | See R-20-004. |
 
 ### 6.3 Transport rules that follow from the measured Herdr facts
@@ -552,15 +541,15 @@ the dark one at run time. The colour values for both themes are owned by
 switches with the theme: a frame already on screen is repainted with the new palette, and the
 payload is not re-fetched, because the ANSI payload carries SGR indices and not RGB.
 
-### 6.6 Swipe-to-reveal dependency
+### 6.6 No swipe-action dependency
 
-**R-20-040**: The app MUST use `flutter_slidable` 4.0.3 for every swipe-to-reveal interaction.
-The app MUST NOT use `Dismissible` for a swipe that reveals actions. `Dismissible.background`
-and `Dismissible.secondaryBackground` are non-interactive decoration that disappear with the
-child, so they cannot hold a tappable action. An implementer who sees `Dismissible` in the SDK
-will otherwise assume it is close enough.
-Source: `https://pub.dev/packages/flutter_slidable` and
-`https://api.flutter.dev/flutter/widgets/Dismissible-class.html`.
+**R-20-040**: The app MUST NOT depend on a swipe-action package and MUST NOT use `Dismissible` for
+a row action. Amended 2026-09-18 by the product owner: `flutter_slidable` 4.0.3, which this rule
+mandated until then, is removed, because row actions open from a long press on the platform's own
+menu (`R-30-296`, `R-33-080`), the Flutter SDK ships no swipe-action widget, and an imitation of
+one is forbidden by `R-03-059`. `Dismissible.background` and `Dismissible.secondaryBackground` are
+non-interactive decoration that disappear with the child, so they cannot hold a tappable action.
+Source: `https://api.flutter.dev/flutter/widgets/Dismissible-class.html`.
 
 ### 6.7 Liquid Glass is not a blur
 

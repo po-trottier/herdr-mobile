@@ -196,9 +196,10 @@ and segmented control keep the same position on both axes (amended 2026-09-16 pe
 | |[ herdr-mobile      4 panes     - ]| |
 ```
 
-## Wireframe, the revealed swipe action
+## Wireframe, the row menu open
 
-A left swipe on the `gemini` row reveals `Pin` and `Mark as seen`.
+A long press on the `gemini` row opens `Pin` and `Mark as seen` (amended 2026-09-18 by the product
+owner: until then a left swipe revealed them; swipe actions are retired, per `R-30-296`).
 Each action carries an icon and a label. Only a tap executes an action, per `R-31-06-20`.
 
 ```text
@@ -210,16 +211,19 @@ Each action carries an icon and a label. Only a tap executes an action, per `R-3
 | !  codex                     blocked |
 |    ... > api-server > pane 11 1m 12s |
 +--------------------------------------+
-| +  gemini      | (pin) |    (vv)      |
-|    scratch     |  Pin  | Mark as seen |
+| +  gemini                       done |
+|    scratch > notes > pane 3   4m 02s |
+|          +--------------------+      |
+|          | (pin)  Pin         |      |
+|          | (vv)   Mark as seen|      |
+|          +--------------------+      |
 +--------------------------------------+
 |  Agents    Notifications    Settings |
 +--------------------------------------+
 ```
 
-The row content slides to the left and the pane takes the trailing edge. The row does not reflow, so
-its text clips at the pane's leading edge, as `notes` does here. The state word and the age of that
-row sit under the pane until it closes.
+On Android the menu sits at the point of the press. On iOS the platform context menu lifts the row
+as a preview and lists the two actions under it, per `R-33-080`. The row does not move or clip.
 
 ## Wireframe, host in use on another phone
 
@@ -403,9 +407,9 @@ row sit under the pane until it closes.
 16. A collapsed space. The header keeps its count and its attention badge, per `R-32-566` and
     `R-31-06-16`. The collapsed-space wireframe draws that case: `lightspeed-kit` is closed, and its
     `(!) 1` still reports the blocked agent inside it.
-17. The revealed action pane follows `R-31-06-20` and `R-32-708`.
+17. The row menu follows `R-31-06-20` and `R-32-708`.
     The wireframe uses `(pin)` for the pin glyph. A pinned row shows `Unpin` instead of `Pin`.
-    The pane keeps the platform gesture inset of `R-30-295a`.
+    It is the platform menu of `R-33-080`, opened by a long press.
 18. The create button, `[ + ]`. The create control of `R-31-06-22`: Material's floating action
     button of `docs/32-design-language.md` `R-32-588` on both platforms, the `add` glyph of
     `R-32-401`, spoken `New`, `space.4` from the trailing edge and from the bottom of the body,
@@ -446,9 +450,10 @@ row sit under the pane until it closes.
     `R-31-07-08` on line one in `type.body` `color.fg.secondary` (a shell borrows neither the
     agent's weight, decided 2026-09-08, nor its ink, decided 2026-09-09); the pane's `title` (its
     command) on line two in `type.caption` `color.fg.secondary` when it has one; no status word,
-    no attention bar and no revealed action. A pane with no `title`, such as `Explorer`, draws one
-    line and its row is `size.target.min` high; it MUST NOT keep a blank second line (decided
-    2026-09-08 by the product owner, per `R-32-517`). A tap opens the pane like any other row.
+    no attention bar and no `Mark as seen` action. A pane with no `title`, such as `Explorer`,
+    draws one line and its row is `size.target.min` high; it MUST NOT keep a blank second line
+    (decided 2026-09-08 by the product owner, per `R-32-517`). A tap opens the pane like any other
+    row.
 22. Pane search. The platform's own search pattern, per the `Search a list` row of `R-33-033` and
     the values of `R-32-598`, amended 2026-09-16 by the product owner, per `R-03-102`.
     On Android the search is the action of
@@ -486,9 +491,9 @@ row sit under the pane until it closes.
     in `type.body` `color.fg.secondary`, left at `space.4`. The drawings omit the grid.
 25. The axis switch (added 2026-09-09, per `R-03-108` and `R-30-415`). On Android the two axes are
     the two pages of a `TabBarView` on the segmented control's own controller: a horizontal drag on
-    the ground, or on a row that carries no revealed action, tracks the finger one-to-one and hands
+    the ground or on a row, tracks the finger one-to-one and hands
     its velocity to the page physics, and the settled page becomes the persisted axis of
-    `R-31-06-12`. A drag that starts on a `NEEDS YOU` row still reveals `Mark as seen`, per
+    `R-31-06-12`. A long press on a row opens its actions instead, per
     callout 17. Under reduced motion a tap on the control jumps with no slide, per `R-32-606`. On
     iOS the segmented control switches the axis with the platform's own transition and shows one
     body at a time. Neither takes a curve or a duration of `docs/32-design-language.md` section 8.
@@ -508,9 +513,9 @@ row sit under the pane until it closes.
 | Default | The connected computer reports one or more agents, and the axis is `Priority`. Only the connected computer reaches this route, per `R-30-946`. | The priority-grouping wireframe. A section with no members is hidden, header included. |
 | Workspace grouping | The person selected the `Workspace` view in the switcher of callout 13. | The workspace-grouping wireframe: one block per space, the three tiers of `R-31-06-31` inside it, every pane listed per `R-31-06-14`, and every pane row one line high per `R-31-06-18`. |
 | Time passes | One second elapses while the screen is shown (added 2026-09-09, `R-03-056`). | Every age on screen advances, per `R-31-06-32`. Nothing else redraws: a header, a row with no time and the list order stay as they are, and a hidden tab redraws nothing. |
-| Grouping switch while the list is scrolled | The person taps the other view while the list sits away from the top. | Every open action pane closes first, the list rebuilds, and it returns to the top, because a scroll offset in one axis names nothing in the other. The header block does not move, per `R-32-583`, and a screen reader announces the new axis once. |
+| Grouping switch while the list is scrolled | The person taps the other view while the list sits away from the top. | Any open row menu closes first, the list rebuilds, and it returns to the top, because a scroll offset in one axis names nothing in the other. The header block does not move, per `R-32-583`, and a screen reader announces the new axis once. |
 | Collapsed space holds attention | The person collapsed a space and an agent inside it needs attention. | The collapsed header keeps its count and its badge, per `R-31-06-16`. Its rows leave the traversal order until it is expanded, and the badge is the signal `R-30-501` requires in this axis. |
-| Swipe action revealed | The person swiped an agent row to the left. | The swipe wireframe. One pane at a time: opening one closes any other. A scroll closes it. The state word and the age of that row sit under the pane while it is open. |
+| Row menu open | The person touched and held an agent row. | The row menu wireframe. One menu at a time, per `R-33-080`. A tap outside it closes it. The row keeps its place; on iOS the platform lifts it as the menu's preview. |
 | Loading | The route opened and the `tree_snapshot` reply has not arrived, per `R-11-043`. | Three skeleton rows at the row height of `R-32-515`, each carrying the skeleton bars of `R-32-560`. The skeleton appears only after 150 ms. The grouping strip stays in place, because it belongs to the header block and not to the list. |
 | Empty, no agents | The Host is connected and reports zero agents. | One block on the ground grid of callout 24, left aligned at `space.4` (amended 2026-09-09 per `R-03-107`): the `Eyebrow('AGENTS')` of `R-32-590`, the title `No agents on patrick-desk.` in `type.title` and `color.accent.text`, the sentence `Start one in Herdr on your computer, then pull down to refresh.` in `type.body` `color.fg.secondary`, the watermark of `R-32-554` bottom-right, and no action button. When the computer reports no pane at all the grouping strip is hidden too, because there is nothing to group; when it reports panes without agents the strip stays and the `Workspace` axis lists them. The `New` action stays in the bar, because it creates a space and never an agent. The app MUST NOT offer to start an agent in version one. |
 | Empty, no panes | The axis is `Workspace` and the Host reports zero workspaces. | The same block with the title `No panes on patrick-desk.` and the sentence `Open one in Herdr on your computer, then pull down to refresh.`. A running Herdr always holds a workspace, so this state is the reconnect gap, not a normal sight. |
@@ -618,9 +623,9 @@ row sit under the pane until it closes.
   row or an expander on a tab row. Only the space header collapses, per `R-30-413`. The split
   geometry of the desktop does not help a person on a phone (amended 2026-09-04 by the product
   owner: the four tiers of `R-31-06-27` are the hierarchy, not a split).
-- **R-31-06-20** Every pane row MUST carry the reveal-then-tap actions of `R-30-970`.
+- **R-31-06-20** Every pane row MUST carry the long-press actions of `R-30-970`.
   An agent that needs attention MUST also offer `Mark as seen`, per `R-30-504`.
-  A swipe MUST NOT execute either action. The pane MUST close after a tap elsewhere or a scroll.
+  The press MUST NOT execute either action. The menu MUST close after a tap elsewhere.
   The mechanism remains `R-30-296` through `R-30-299`, with action anatomy in `R-32-708`.
 - **R-31-06-21** This screen MUST NOT ask for the notification permission, and MUST NOT offer a step
   that enables alerts. The app asks once at first run, per `R-30-509` and
@@ -784,7 +789,7 @@ row sit under the pane until it closes.
 
 - Touch target: the host chip, the `Status colours` action, the create button, the Android search
   action, the alerts off marker, both views of the switcher, the iOS pane search field, every pane
-  row, every space header, every revealed action and the three bottom destinations meet the
+  row, every space header, every row action and the three bottom destinations meet the
   minimum target of `R-30-290` and `R-30-740`, at the sizes `R-32-515`, `R-32-521`, `R-32-564`
   and `R-32-562` fix; the search field and the tab bar are platform components and keep their own
   height. A worktree row and a tab header are not targets, per callouts 15 and 19. The guide rule
@@ -797,8 +802,8 @@ row sit under the pane until it closes.
   indicator or the thumb and by a semantics state, never by colour alone, per `R-32-520`. The
   state bar is a non text indicator whose hues clear the 3.0 to 1 floor of `R-30-130` on
   `color.bg.base` and on `color.bg.raised`, per `R-32-150`, and the word beside it carries the
-  state in text, per `R-30-141`. The revealed action sits on
-  `color.bg.raised` with ink in `color.fg.primary`, and carries no red fill, per `R-32-126`. The
+  state in text, per `R-30-141`. A row action is the platform's own menu item, per `R-33-080`,
+  and carries no red fill, per `R-32-126`. The
   banner text sits on `color.bg.raised`, passing rows in `R-32-150`, per `R-30-720`. The guide rule
   and the hairlines are decorative, in `color.border.subtle`, and carry no fact a person must read.
 - Screen reader: every state bar's row MUST carry the state word in its label, per `R-30-716`, so a
@@ -813,9 +818,10 @@ row sit under the pane until it closes.
   already what the reading order says (added 2026-09-09). A space header MUST announce its name,
   its pane count, its attention count when one exists, and its expanded state, and MUST announce
   `expanded` or `collapsed` once on a toggle, per `R-32-568`. `Mark as seen` MUST also exist as a
-  named custom semantics action on the row, per `R-32-515` and `R-32-580`: the swipe package
-  exposes nothing to the accessibility tree, a screen reader user cannot swipe, so the app supplies
-  the action itself. The banner MUST announce its title once through `SemanticsService.announce`
+  named custom semantics action on the row, per `R-32-515` and `R-32-580`: neither platform menu
+  exposes a closed row's actions to the accessibility tree, a screen reader user cannot long press,
+  so the app supplies the action itself. The banner MUST announce its title once through
+  `SemanticsService.announce`
   when it appears, and MUST NOT be a live region, so it never interrupts a row that is being read.
   The alerts off marker MUST carry the label `Alerts are off`, per `R-30-717`; the create button
   of callout 18 and the action of callout 26 MUST carry the labels `New` and `Status colours`, and
@@ -842,7 +848,7 @@ row sit under the pane until it closes.
 - **R-31-06-38** Both pinned lists MUST use pin order, oldest first. A new pin MUST follow all
   existing pins.
   Pin IDs and their order MUST persist per Host in the same way as the preferences in `R-31-06-12`.
-  A tree snapshot MUST remove pins for absent panes. The swipe pane MUST follow `R-31-06-20` and `R-32-708`.
+  A tree snapshot MUST remove pins for absent panes. The row menu MUST follow `R-31-06-20` and `R-32-708`.
 
 ## Open questions
 
@@ -856,11 +862,11 @@ None.
   `R-32-562`, the icon map `R-32-401`, the spacing rule `R-32-302` and the indent ladder `R-32-570`,
   the contrast table `R-32-150`, the red fill decision `R-32-126`, the header forms of section 7.23
   (`R-32-563` to `R-32-569`), the space block of section 7.32 (`R-32-595` to `R-32-597`), the card
-  `R-32-593`, the breadcrumb of section 7.24, the swipe action pane of section 7.25, the grouping
+  `R-32-593`, the breadcrumb of section 7.24, the row action menu of section 7.25, the grouping
   strip of section 7.26, the state bar `R-32-592` of section 7.29, the eyebrow `R-32-590`, and
   `border.attention` `R-32-330`.
 - `docs/30-ux-spec.md` - the status model, the age rule `R-30-405`, the attention rules `R-30-501`
-  and `R-30-504`, the swipe mechanism `R-30-296` through `R-30-299`, the gesture inset `R-30-295a`,
+  and `R-30-504`, the row action mechanism `R-30-296` through `R-30-299`,
   the grouping axis `R-30-406` through `R-30-414`, the per-Host persistence `R-30-407`, the first
   run permission `R-30-509`, the offline behaviour `R-30-805` through `R-30-808`, the `host_in_use`
   banner `R-30-940`, the per-Host route scope `R-30-946`, the switch tap `R-30-948`, what a switch

@@ -7,7 +7,8 @@
 /// opened them and close on a choice.
 ///
 /// A destructive choice takes the platform's own role: `isDestructiveAction`
-/// on iOS, and the `color.status.error` glyph and label on Android. Both
+/// on iOS; on Android the `color.status.error` glyph alone, the label in the
+/// component's own ink (R-32-527). Both
 /// announce `destructive`, per R-30-141.
 library;
 
@@ -63,22 +64,15 @@ class ChromeMenuAnchor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
     Widget anchorChild(BuildContext c, MenuController controller, Widget? _) =>
         builder(c, controller);
-    Widget roleSemantics(ChromeMenuItem item, Widget child) => MergeSemantics(
-      child: Semantics(
-        hint: item.destructive ? 'destructive' : null,
-        child: child,
-      ),
-    );
     if (_isIos) {
       return CupertinoMenuAnchor(
         controller: controller,
         builder: anchorChild,
         menuChildren: <Widget>[
           for (final ChromeMenuItem item in items)
-            roleSemantics(
+            _roleSemantics(
               item,
               CupertinoMenuItem(
                 isDestructiveAction: item.destructive,
@@ -98,24 +92,40 @@ class ChromeMenuAnchor extends StatelessWidget {
     return MenuAnchor(
       controller: controller,
       builder: anchorChild,
-      menuChildren: <Widget>[
-        for (final ChromeMenuItem item in items)
-          roleSemantics(
-            item,
-            MenuItemButton(
-              style: item.destructive
-                  ? MenuItemButton.styleFrom(
-                      foregroundColor: color.statusError,
-                      iconColor: color.statusError,
-                      iconSize: AppSize.iconMd,
-                    )
-                  : MenuItemButton.styleFrom(iconSize: AppSize.iconMd),
-              leadingIcon: Icon(item.icon),
-              onPressed: item.onSelected,
-              child: Text(item.label),
-            ),
-          ),
-      ],
+      menuChildren: materialMenuChildren(context, items),
     );
   }
+}
+
+Widget _roleSemantics(ChromeMenuItem item, Widget child) => MergeSemantics(
+  child: Semantics(hint: item.destructive ? 'destructive' : null, child: child),
+);
+
+/// One `MenuItemButton` per item for a Material `MenuAnchor`, its glyph
+/// leading; a destructive item carries the hue in its glyph alone and keeps
+/// the component's own label ink (R-32-527, R-30-143). Shared by
+/// [ChromeMenuAnchor] and `chrome_row_actions.dart`, so a row's long-press
+/// menu and a control's menu draw the same items the same way.
+List<Widget> materialMenuChildren(
+  BuildContext context,
+  List<ChromeMenuItem> items,
+) {
+  final AppColor color = AppColor.of(context);
+  return <Widget>[
+    for (final ChromeMenuItem item in items)
+      _roleSemantics(
+        item,
+        MenuItemButton(
+          style: item.destructive
+              ? MenuItemButton.styleFrom(
+                  iconColor: color.statusError,
+                  iconSize: AppSize.iconMd,
+                )
+              : MenuItemButton.styleFrom(iconSize: AppSize.iconMd),
+          leadingIcon: Icon(item.icon),
+          onPressed: item.onSelected,
+          child: Text(item.label),
+        ),
+      ),
+  ];
 }

@@ -1119,11 +1119,11 @@ use one line; Priority agent rows keep two.
 | Horizontal inset | `space.4` |
 | Gap between the icon and the primary line | `space.3` |
 
-- **R-32-515** A row MUST expose one semantics node whose label follows `R-32-505`, and a swipe
-  action MUST also exist as a named custom semantics action. The reveal-then-tap package that
-  `R-20-040` mandates exposes nothing to the accessibility tree, so the app MUST supply that
-  action itself. An icon-only revealed action renders an unnamed button, and a screen-reader user
-  cannot swipe at all, so an action with no spoken path does not exist.
+- **R-32-515** A row MUST expose one semantics node whose label follows `R-32-505`, and a row
+  action of `R-30-296` MUST also exist as a named custom semantics action. Neither platform menu
+  exposes a closed row's actions to the accessibility tree, so the app MUST supply that action
+  itself. A screen-reader user cannot long press a row, so an action with no spoken path does not
+  exist.
 - **R-32-516** A row that needs attention MUST carry its state bar in `color.status.blocked` or
   `color.status.done` in addition to its icon and its word. Three signals, per `R-30-501`
   (amended 2026-09-09 by the product owner, per `R-03-100`: the attention bar and the state bar are
@@ -1781,68 +1781,53 @@ One line that names the workspace, the tab and the pane a row belongs to.
   `R-32-573` could not be met: the run that elides has to hold its own separators to know where a
   segment ends.
 
-### 7.25 Swipe action pane
+### 7.25 Row action menu
 
-A swipe reveals this pane at the row's far edge, and the person taps an
-action. `docs/20-mobile-framework.md` owns the package in `R-20-040`, `docs/30-ux-spec.md` owns the
-behaviour, and this section owns the anatomy.
+A long press on a row opens this menu, and the person taps an action (`R-30-296`, amended
+2026-09-18 by the product owner: the swipe action pane this section drew until then is retired,
+because the Flutter SDK ships no swipe-action widget and `R-03-059` forbids an imitation).
+`docs/33-platform-chrome.md` `R-33-080` owns the platform surface on each side, `docs/30-ux-spec.md`
+owns the behaviour, and this section owns the item anatomy, which is the anatomy of a menu from a
+control (`R-33-078`) so a row's `⋮` and its long press draw the same item.
 
 | Part | Value |
 | --- | --- |
-| Pane extent | the sum of its action widths, at most half the row width, per `R-32-576` |
-| Pane surface | `color.bg.raised` at `radius.none`, the full height of the row |
-| Pane edge that meets the row | `border.hairline` in `color.border.strong`, unless `R-32-579` replaces it |
-| Action width | the label at `type.caption` plus `space.3` on each side, floored at `size.target.min` |
-| Action height | the full height of the row it belongs to |
-| Action icon | `size.icon.md`, per `R-32-402`, above the label, gap `space.1` |
-| Action label | `type.caption`, one line, centred, at most two words |
-| Fill, a normal action | `color.bg.raised` |
-| Ink, a normal action | the icon and the label in `color.fg.primary` |
-| Fill, a destructive action | `color.bg.raised`, per `R-32-579` |
-| Ink, a destructive action | the label in `color.fg.primary`, the icon in `color.status.error`, and a `border.attention` bar in `color.status.error` at the action's leading edge |
-| Divider between two actions | `border.hairline` in `color.border.strong`, full height |
+| Surface | the platform menu's own, per `R-33-080`; the app paints no surface of its own |
+| Item | the platform's own item: `MenuItemButton` on Android, `CupertinoContextMenuAction` on iOS |
+| Item glyph | the action's glyph from `R-32-401` at `size.icon.md`, leading on Android, trailing on iOS |
+| Item label | the action's own word or two, in the interface face of `R-32-200` |
+| Ink, a normal action | the platform item's own |
+| Ink, a destructive action | `color.status.error` on the glyph and the label on Android, `isDestructiveAction` on iOS |
+| iOS preview | the row itself on `color.bg.raised` at `radius.md`, the lifted copy the platform draws |
 
-- **R-32-576** The table above is normative. A pane that holds a destructive action MUST be the
-  trailing pane; a leading pane MAY hold one non-destructive action where the owning mockup says so
-  (amended 2026-09-09: `docs/31-mockups/07-notifications.md` `R-31-07-09` puts `Mark as read` on
-  the leading pane and `Remove` on the trailing one, per the product owner's ask for an easy path
-  to each action). A pane MUST NOT
-  exceed half the row width at the default text scale, so part of the row stays on screen and the
-  person can see which row is about to change. The extent MUST be derived from the action widths and
-  MUST NOT be a fixed fraction. At a large text scale an action MUST grow with its label and MUST
-  NOT shrink its label, its icon or its target, per `R-32-210` and `R-32-363`.
-- **R-32-577** A revealed action MUST carry an icon **and** a short label. An icon MUST NOT be the
-  only carrier of meaning, per `R-32-404` and `R-30-141`, and that rule reaches a swipe action as it
+- **R-32-576** The table above is normative. A destructive action MUST be the last item. The item
+  order MUST be the same on both platforms and the same from the `⋮` and from the long press. At
+  a large text scale an item MUST grow with its label and MUST NOT shrink its label, its glyph or
+  its target, per `R-32-210` and `R-32-363`, which the platform items do on their own.
+- **R-32-577** A row action MUST carry an icon **and** a short label. An icon MUST NOT be the
+  only carrier of meaning, per `R-32-404` and `R-30-141`, and that rule reaches a menu item as it
   reaches every other control. So a bare trash can is not permitted, although the trash can is still
-  the thing the person taps: it carries the word `Forget` under it.
-- **R-32-578** A destructive revealed action MUST raise the confirmation dialog of section 7.17 on
-  the tap and MUST NOT act at once. That dialog is the destructive confirmation of `R-32-547`,
-  which `R-30-005` permits; a swipe action MUST NOT raise any other modal. A drag MUST NOT be able
-  to reach the action and skip the dialog;
-  `R-30-297` fixes the package flag that guarantees this. On cancel the pane closes and the row
-  stays.
-- **R-32-579** A destructive action MUST NOT take a red fill. Its fill is `color.bg.raised`, the
-  same as a normal action, and the destructive signal is the ink of `treat.destructive`: the label
-  in `color.fg.primary`, `delete_outline` at `size.icon.md` in `color.status.error`, and a
-  `border.attention` bar in `color.status.error` at the action's leading edge. Both pairs already
-  pass in `R-32-150`. `color.fg.primary` on `color.bg.raised` measures 6.74 in dark and 6.94 in
-  light against the 4.5 text floor, and `color.status.error` on `color.bg.raised` measures 3.08 and
-  4.11 against the 3.0 indicator floor. A red fill under a `color.fg.on_accent` label is measurably
-  available at 5.53 and 4.74, per `R-32-126`, and version one MUST NOT use it, per `R-32-527`. When
-  that bar sits at the pane's leading edge it MUST replace the pane's `border.hairline`, because two
-  lines at one edge draw a box this design does not want, and a 3 wide bar at 3.08 identifies that
-  edge as well as a hairline does. One deviation from `R-32-506` is recorded here: an action cell
-  can be as narrow as `size.target.min` and cannot hold an icon beside a label, so the icon sits
-  above the label at gap `space.1` instead of leading it at gap `space.3`. The inks and the bar do
-  not change.
-- **R-32-580** Every revealed action MUST also exist as a named custom semantics action on the row,
-  per `R-32-515`. Its name MUST be the action's own label, so `Forget` is spoken as `Forget`.
-- **R-32-581** The app MUST NOT build this pane from `Dismissible`. `Dismissible.background` and
-  `Dismissible.secondaryBackground` are non-interactive decoration that disappears with the child,
-  so neither one can hold any part of the table above, and no code path parks the row open.
-  `R-20-040` mandates the reveal-then-tap package and forbids `Dismissible` for the app as a whole.
-  This rule states the anatomy reason, because an implementer who reads `Dismissible.background` in
-  the SDK will otherwise assume it can hold action buttons.
+  the thing the person recognises: it sits beside the word `Forget`.
+- **R-32-578** A destructive row action MUST raise the confirmation dialog of section 7.17 on the
+  tap and MUST NOT act at once. That dialog is the destructive confirmation of `R-32-547`, which
+  `R-30-005` permits; a row action MUST NOT raise any other modal. No gesture MUST be able to reach
+  the action and skip the dialog; `R-30-297` fixes that. On cancel the row stays.
+- **R-32-579** A destructive row action MUST NOT take a red fill. Its fill is the platform item's
+  own, and the destructive signal is the platform's destructive role: the `color.status.error`
+  glyph and label on Android, `isDestructiveAction` on iOS. `color.status.error` on
+  `color.bg.raised` measures 3.08 in dark and 4.11 in light against the 3.0 indicator floor, and
+  passes in `R-32-150`. A red fill is measurably available, per `R-32-126`, and version one MUST
+  NOT use it, per `R-32-527`.
+- **R-32-580** Every row action MUST also exist as a named custom semantics action on the row,
+  per `R-32-515`. Its name MUST be the action's own label, so `Remove` is spoken as `Remove`; the
+  one exception is the computer row, whose spoken name `Forget this computer` is fixed by
+  `docs/31-mockups/05-host-list.md`.
+- **R-32-581** The app MUST NOT build a row action from `Dismissible`, and MUST NOT draw a swipe
+  pane of its own. `Dismissible.background` and `Dismissible.secondaryBackground` are
+  non-interactive decoration that disappears with the child, so neither one can hold an action,
+  and a drawn pane is the imitation `R-03-059` forbids. This rule states the anatomy reason,
+  because an implementer who reads `Dismissible.background` in the SDK will otherwise assume it
+  can hold action buttons.
 
 ### 7.26 The grouping strip
 
@@ -2058,7 +2043,7 @@ is `app/lib/widgets/key_label.dart`.
   a pin glyph or reserve space for it. Pinning MUST preserve the text alignment of the row.
   Use `Symbols.keep_rounded` for the `Pin` action.
   Use `Symbols.keep_off_rounded` for the `Unpin` action.
-  Each action MUST contain its icon and label in the native button of `R-33-077`, with the
+  Each action MUST be an item of the row's platform menu of `R-33-077`, with the
   non-destructive anatomy of section 7.25.
   `Pin` or `Unpin` MUST precede `Mark as seen` when both actions apply.
   Each action MUST expose the named semantics required by `R-32-515`.

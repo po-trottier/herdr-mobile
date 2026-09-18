@@ -263,7 +263,7 @@ void main() {
       );
       expect(find.text('Forget'), findsOneWidget);
       expect(
-        find.textContaining('The host list, revealed by a left swipe.'),
+        find.textContaining('The host list, from a touch and hold on a row.'),
         findsOneWidget,
       );
       expect(find.text('Remove'), findsOneWidget);

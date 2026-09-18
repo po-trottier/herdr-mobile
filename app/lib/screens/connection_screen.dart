@@ -1175,7 +1175,7 @@ class _DistinctionTable extends StatelessWidget {
     ),
     (
       'Forget',
-      'The host list, revealed by a left swipe. Drops the paired computer on this phone, '
+      'The host list, from a touch and hold on a row. Drops the paired computer on this phone, '
           'and destroys the Device key for it.',
       true,
     ),

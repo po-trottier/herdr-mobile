@@ -21,13 +21,12 @@
 /// bar in `color.accent.primary`, `type.body.strong` and the `color.accent.soft` wash. A read row
 /// carries none of the three. The two group headers say the same thing for the group.
 ///
-/// **Reveal-then-tap.** Each row is a `Slidable` (R-20-040, R-30-297 to R-30-299): one
-/// `SlidableAutoCloseBehavior` ancestor, a shared `groupTag`, `dragDismissible: false`, and
-/// `customSemanticsActions` naming every revealed action (R-30-298, R-32-580). A swipe toward
-/// the trailing edge reveals `Remove`; a swipe toward the leading edge reveals `Mark as read` on
-/// an unread row (R-31-07-09). `Remove` acts at once, because a row is a phone-local record and
-/// nothing on the computer changes (R-31-07-04); `Remove all` confirms first through
-/// `chrome_confirmation_dialog.dart`, per `docs/32-design-language.md` section 7.17.
+/// **Row actions.** Each row is a `ChromeRowActions` (R-30-296 to R-30-298): a long press opens
+/// `Mark as read` on an unread row and `Remove` on every row, the `⋮` of callout 11 opens the
+/// same list, and `customSemanticsActions` name both (R-32-580). `Remove` acts at once, because
+/// a row is a phone-local record and nothing on the computer changes (R-31-07-04); `Remove all`
+/// confirms first through `chrome_confirmation_dialog.dart`, per `docs/32-design-language.md`
+/// section 7.17.
 ///
 /// The row's small helpers (`_formatAge`, the breadcrumb separator, the pinned header delegate)
 /// duplicate `agent_list_screen.dart`'s private ones per R-41-042 rung 1 and R-90-018: that file
@@ -35,12 +34,10 @@
 library;
 
 import 'dart:async' show StreamSubscription, Timer, unawaited;
-import 'dart:math' as math;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoButton,
-        CupertinoTheme,
         CupertinoNavigationBar,
         CupertinoPageScaffold,
         kMinInteractiveDimensionCupertino;
@@ -51,15 +48,12 @@ import 'package:flutter/widgets.dart'
     show
         Border,
         BorderSide,
-        BoxConstraints,
         BoxDecoration,
+        Builder,
         BuildContext,
-        Center,
         ColoredBox,
         Column,
         CrossAxisAlignment,
-        Curve,
-        Curves,
         CustomScrollView,
         DecoratedBox,
         EdgeInsets,
@@ -67,13 +61,10 @@ import 'package:flutter/widgets.dart'
         Expanded,
         Icon,
         IconData,
-        LayoutBuilder,
         MainAxisSize,
-        MediaQuery,
         MenuController,
         Padding,
         Row,
-        SingleTickerProviderStateMixin,
         SizedBox,
         SliverChildBuilderDelegate,
         SliverList,
@@ -87,24 +78,13 @@ import 'package:flutter/widgets.dart'
         StatelessWidget,
         Text,
         TextBaseline,
-        TextDirection,
         TextOverflow,
-        TextPainter,
-        TextSpan,
         TickerMode,
         ValueKey,
         VoidCallback,
         Widget;
-import 'package:flutter_slidable/flutter_slidable.dart'
-    show
-        ActionPane,
-        ScrollMotion,
-        Slidable,
-        SlidableAutoCloseBehavior,
-        SlidableController;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
-import 'package:material_ui/material_ui.dart'
-    show AppBar, IconButton, Scaffold, TextButton, Theme;
+import 'package:material_ui/material_ui.dart' show AppBar, IconButton, Scaffold;
 
 import '../core/result/result.dart' show Err, Result;
 import '../models/messages/agent_status_kind.dart';
@@ -118,7 +98,6 @@ import '../widgets/app_text_button.dart';
 import '../widgets/ground_grid.dart' show GroundGrid;
 import '../widgets/status_bar.dart' show BarState;
 import '../widgets/theme/app_color.dart';
-import '../widgets/theme/app_motion.dart' show AppMotion;
 import '../widgets/theme/app_radius.dart';
 import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
@@ -126,6 +105,7 @@ import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_confirmation_dialog.dart';
 import '../widgets/theme/chrome_confirmation_outcome.dart';
 import '../widgets/theme/chrome_menu.dart';
+import '../widgets/theme/chrome_row_actions.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -143,10 +123,6 @@ double get _menuGlyphInset =>
         AppSize.iconMd) /
     2;
 
-/// `Slidable.groupTag` shared by every row on this screen, so opening one closes any other
-/// (R-30-299).
-const String _slidableGroupTag = 'notifications';
-
 /// R-30-511's `pane closed` copy, drawn as the inline strip of R-31-07-07.
 const String paneClosedSentence = 'That pane has closed.';
 
@@ -159,39 +135,6 @@ const String earlierHeaderLabel = 'EARLIER';
 /// next step, in one sentence pair.
 const String noNewSentence =
     'No new notifications. You have read everything below.';
-
-/// The swipe reveal's settle (R-32-600, R-32-609). `flutter_slidable` tracks the finger 1:1
-/// while it drags, then settles a released row with its own `Curves.ease` over 200 ms, a weak
-/// ease-in-out that ignores the motion tokens. Its `ActionPane` settles through these two
-/// methods, so this controller substitutes the tokens there: `motion.curve.enter` for the
-/// reveal, `motion.curve.exit` for the close, `motion.duration.base` for both, and instant
-/// under reduce motion (R-32-606). `animateBack` runs the close in forward time, so the exit
-/// curve, defined in reverse space, is `flipped` here, as R-32-609 says a forward-running
-/// animation of a leaving element takes it.
-class _SnapController extends SlidableController {
-  _SnapController(super.vsync);
-
-  /// `MediaQuery.disableAnimationsOf`, read at build by the row that owns this controller.
-  bool reduceMotion = false;
-
-  Duration get _duration =>
-      reduceMotion ? AppMotion.durationInstant : AppMotion.durationBase;
-
-  Curve _curve(Curve curve) => reduceMotion ? Curves.linear : curve;
-
-  @override
-  Future<void> openCurrentActionPane({Duration? duration, Curve? curve}) =>
-      super.openCurrentActionPane(
-        duration: _duration,
-        curve: _curve(AppMotion.curveEnter),
-      );
-
-  @override
-  Future<void> close({Duration? duration, Curve? curve}) => super.close(
-    duration: _duration,
-    curve: _curve(AppMotion.curveExit.flipped),
-  );
-}
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({
@@ -605,8 +548,8 @@ class _NotificationList extends StatelessWidget {
   Widget _rows(List<NotificationItem> entries) => SliverList(
     delegate: SliverChildBuilderDelegate(
       (BuildContext context, int index) => _NotificationRow(
-        // R-30-299: the row's identity is its pane, never its index, so its reveal state
-        // follows it across a re-sort or a move between the two groups.
+        // The row's identity is its pane, never its index, so it follows a move between the
+        // two groups.
         key: ValueKey<String>(entries[index].item.paneId),
         entry: entries[index],
         color: color,
@@ -622,49 +565,46 @@ class _NotificationList extends StatelessWidget {
   );
 
   @override
-  Widget build(BuildContext context) => SlidableAutoCloseBehavior(
-    child: CustomScrollView(
-      slivers: <Widget>[
+  Widget build(BuildContext context) => CustomScrollView(
+    slivers: <Widget>[
+      SliverPadding(
+        padding: const EdgeInsets.only(top: AppSpace.space6),
+        sliver: SliverMainAxisGroup(
+          slivers: <Widget>[
+            _header(newHeaderLabel),
+            if (unread.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpace.space4,
+                    vertical: AppSpace.space3,
+                  ),
+                  child: Text(
+                    noNewSentence,
+                    style: AppType.body.copyWith(color: color.fgSecondary),
+                  ),
+                ),
+              )
+            else
+              _rows(unread),
+          ],
+        ),
+      ),
+      if (read.isNotEmpty)
         SliverPadding(
           padding: const EdgeInsets.only(top: AppSpace.space6),
           sliver: SliverMainAxisGroup(
-            slivers: <Widget>[
-              _header(newHeaderLabel),
-              if (unread.isEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpace.space4,
-                      vertical: AppSpace.space3,
-                    ),
-                    child: Text(
-                      noNewSentence,
-                      style: AppType.body.copyWith(color: color.fgSecondary),
-                    ),
-                  ),
-                )
-              else
-                _rows(unread),
-            ],
+            slivers: <Widget>[_header(earlierHeaderLabel), _rows(read)],
           ),
         ),
-        if (read.isNotEmpty)
-          SliverPadding(
-            padding: const EdgeInsets.only(top: AppSpace.space6),
-            sliver: SliverMainAxisGroup(
-              slivers: <Widget>[_header(earlierHeaderLabel), _rows(read)],
-            ),
-          ),
-      ],
-    ),
+    ],
   );
 }
 
-/// One row plus its two reveals (R-31-07-09): a swipe toward the trailing edge reveals `Remove`
-/// on every row; a swipe toward the leading edge reveals `Mark as read` on an unread row only (a
-/// read row gets no dead affordance). Stateful for one reason: it owns the [_SnapController]
-/// that settles both reveals on the motion tokens.
-class _NotificationRow extends StatefulWidget {
+/// One row and its actions (R-31-07-09): `Mark as read` on an unread row only (a read row gets
+/// no dead affordance), then `Remove`. A long press opens them (R-30-296), the `⋮` of callout 11
+/// opens the same list, and each is a named custom semantics action (R-30-298).
+class _NotificationRow extends StatelessWidget {
   const _NotificationRow({
     super.key,
     required this.entry,
@@ -685,170 +625,53 @@ class _NotificationRow extends StatefulWidget {
   final DateTime Function() now;
 
   @override
-  State<_NotificationRow> createState() => _NotificationRowState();
-}
-
-class _NotificationRowState extends State<_NotificationRow>
-    with SingleTickerProviderStateMixin {
-  late final _SnapController _controller = _SnapController(this);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  /// Measure the platform label and reserve the native button padding and glyph.
-  double _actionWidth(BuildContext context, String label) {
-    final TextPainter painter = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: _isIos
-            ? CupertinoTheme.of(context).textTheme.actionTextStyle
-            : Theme.of(context).textTheme.labelLarge,
-      ),
-      textDirection: TextDirection.ltr,
-      textScaler: MediaQuery.textScalerOf(context),
-    )..layout();
-    final double width =
-        painter.width +
-        (_isIos ? AppSpace.space5 : AppSpace.space4) * 2 +
-        AppSize.iconMd +
-        AppSpace.space2;
-    painter.dispose();
-    return math.max(AppSize.targetMin, width);
-  }
-
-  ActionPane _pane(
-    BoxConstraints constraints, {
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    required bool leading,
-  }) {
-    final double width = _actionWidth(context, label);
-    return ActionPane(
-      motion: const ScrollMotion(),
-      dragDismissible: false,
-      // R-32-576: the pane extent is its action's width, never a fixed fraction.
-      extentRatio: math.min(1, width / constraints.maxWidth),
-      children: <Widget>[
-        _SwipeAction(icon: icon, label: label, leading: leading, onTap: onTap),
-      ],
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final NotificationItem entry = widget.entry;
     final String paneId = entry.item.paneId;
-    _controller.reduceMotion = MediaQuery.disableAnimationsOf(context);
-    void markRead() => widget.onMarkSeen(paneId);
-    void remove() => widget.onRemove(paneId);
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) => Slidable(
-        controller: _controller,
-        groupTag: _slidableGroupTag,
-        startActionPane: entry.seen
-            ? null
-            : _pane(
-                constraints,
-                // `Mark as seen` in the R-32-401 map.
-                icon: Symbols.done_all_rounded,
-                label: 'Mark as read',
-                onTap: markRead,
-                leading: true,
-              ),
-        endActionPane: _pane(
-          constraints,
-          // `Remove one notification, destructive` in the R-32-401 map (2026-09-08).
-          icon: Symbols.delete_outline_rounded,
-          label: 'Remove',
-          onTap: remove,
-          leading: false,
+    void markRead() => onMarkSeen(paneId);
+    void remove() => onRemove(paneId);
+    final List<ChromeMenuItem> items = <ChromeMenuItem>[
+      if (!entry.seen)
+        ChromeMenuItem(
+          // `Mark as seen` in the R-32-401 map.
+          label: 'Mark as read',
+          icon: Symbols.done_all_rounded,
+          onSelected: markRead,
         ),
-        child: _RowContent(
-          entry: entry,
-          color: widget.color,
-          showDivider: widget.showDivider,
-          onTap: () => widget.onOpenPane(paneId),
-          onMarkSeen: entry.seen ? null : markRead,
-          onRemove: remove,
-          now: widget.now,
-          customActions: <CustomSemanticsAction, VoidCallback>{
-            if (!entry.seen)
-              const CustomSemanticsAction(label: 'Mark as read'): markRead,
-            const CustomSemanticsAction(label: 'Remove'): remove,
-          },
-        ),
+      ChromeMenuItem(
+        // `Remove one notification, destructive` in the R-32-401 map (2026-09-08).
+        label: 'Remove',
+        icon: Symbols.delete_outline_rounded,
+        destructive: true,
+        onSelected: remove,
+      ),
+    ];
+    return ChromeRowActions(
+      items: items,
+      child: _RowContent(
+        entry: entry,
+        color: color,
+        showDivider: showDivider,
+        onTap: () => onOpenPane(paneId),
+        items: items,
+        now: now,
+        customActions: <CustomSemanticsAction, VoidCallback>{
+          if (!entry.seen)
+            const CustomSemanticsAction(label: 'Mark as read'): markRead,
+          const CustomSemanticsAction(label: 'Remove'): remove,
+        },
       ),
     );
   }
 }
 
-/// A platform action inside the existing swipe reveal.
-class _SwipeAction extends StatelessWidget {
-  const _SwipeAction({
-    required this.icon,
-    required this.label,
-    required this.leading,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final bool leading;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    void act() {
-      onTap();
-      unawaited(Slidable.of(context)?.close());
-    }
-
-    final Widget glyph = Icon(
-      icon,
-      size: AppSize.iconMd,
-      color: leading ? null : color.statusError,
-    );
-    return Expanded(
-      child: ColoredBox(
-        color: color.bgRaised,
-        child: Center(
-          child: _isIos
-              ? CupertinoButton(
-                  onPressed: act,
-                  foregroundColor: color.accentText,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      glyph,
-                      const SizedBox(width: AppSpace.space2),
-                      Text(label),
-                    ],
-                  ),
-                )
-              : TextButton.icon(
-                  onPressed: act,
-                  icon: glyph,
-                  label: Text(label),
-                ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A native notification row with its status, age, and action menu.
+/// A native notification row with its status, age, and the `⋮` of callout 11.
 class _RowContent extends StatelessWidget {
   const _RowContent({
     required this.entry,
     required this.color,
     required this.showDivider,
     required this.onTap,
-    required this.onMarkSeen,
-    required this.onRemove,
+    required this.items,
     required this.now,
     required this.customActions,
   });
@@ -857,9 +680,8 @@ class _RowContent extends StatelessWidget {
   final bool showDivider;
   final VoidCallback onTap;
 
-  /// `null` on a read row: the menu then offers `Remove` alone.
-  final VoidCallback? onMarkSeen;
-  final VoidCallback onRemove;
+  /// The row's actions, the same list the long press opens (R-31-07-09).
+  final List<ChromeMenuItem> items;
   final DateTime Function() now;
   final Map<CustomSemanticsAction, VoidCallback> customActions;
 
@@ -910,29 +732,25 @@ class _RowContent extends StatelessWidget {
         left: AppSpace.space4,
         right: AppSpace.space4 - _menuGlyphInset,
       ),
-      trailing: ChromeMenuAnchor(
-        items: <ChromeMenuItem>[
-          if (onMarkSeen != null)
-            ChromeMenuItem(
-              // `Mark as seen` in the R-32-401 map.
-              label: 'Mark as read',
-              icon: Symbols.done_all_rounded,
-              onSelected: onMarkSeen,
+      trailing: _isIos
+          // R-33-078: on iOS the `⋮` opens its own pull-down menu from the control.
+          ? ChromeMenuAnchor(
+              items: items,
+              builder: (BuildContext context, MenuController menu) =>
+                  _IconAction(
+                    icon: Symbols.more_vert_rounded,
+                    label: 'Notification actions',
+                    onTap: menu.open,
+                  ),
+            )
+          // On Android the row holds one menu; the `⋮` opens it at the control.
+          : Builder(
+              builder: (BuildContext control) => _IconAction(
+                icon: Symbols.more_vert_rounded,
+                label: 'Notification actions',
+                onTap: () => ChromeRowActions.openFrom(control),
+              ),
             ),
-          ChromeMenuItem(
-            // `Remove one notification, destructive` in the R-32-401 map (2026-09-08).
-            label: 'Remove',
-            icon: Symbols.delete_outline_rounded,
-            destructive: true,
-            onSelected: onRemove,
-          ),
-        ],
-        builder: (BuildContext context, MenuController menu) => _IconAction(
-          icon: Symbols.more_vert_rounded,
-          label: 'Notification actions',
-          onTap: menu.open,
-        ),
-      ),
       onTap: onTap,
     );
   }

@@ -214,10 +214,9 @@ on 2026-09-08.
     box, ink and pressed state come from the platform theme in `app/lib/app.dart`, so on iOS the
     glyph takes the Cupertino tint. The visible glyph ends on the `space.4` trailing inset, where
     every other row's trailing text ends, while the control keeps its `size.target.min` hit
-    target (2026-09-08). A tap opens a bottom sheet, the menu surface of `R-33-033`, headed by
-    the row's phrase over its breadcrumb, with the sheet action rows `Mark as read` (unread rows
-    only) and `Remove`, then `Cancel`. It is the visible path to the two per-row actions; the
-    swipes of `R-31-07-09` are the shortcuts.
+    target (2026-09-08). A tap opens the platform menu of `R-33-078` from the control, with
+    `Mark as read` (unread rows only) and `Remove`. It is the visible path to the two per-row
+    actions; the long press of `R-31-07-09` opens the same two.
 12. The empty `NEW` line. When no row is unread, the `NEW` group holds one `type.body` line in
     `color.fg.secondary`, inset `space.4` with `space.3` above and below: `No new notifications.
     You have read everything below.` It names the absent thing and the next step, per `R-30-801`
@@ -326,15 +325,15 @@ person switches back.
   rule. A row on this screen draws `pane_title` from `agent_status` instead, per callout 6, because
   that message carries no `label`.
 - **R-31-07-09** Every row MUST carry a visible actions control, callout 11, that opens `Remove`
-  and, on an unread row, `Mark as read`, on the menu surface of `R-33-033`. Decided 2026-09-08 by
-  the product owner: an action a person finds only by a swipe is not an easy action. A swipe toward
-  the trailing edge MUST reveal `Remove`, and a swipe toward the leading edge MUST reveal
-  `Mark as read` on an unread row, each through the reveal-then-tap pane of `R-32-580` (amended
-  2026-09-09 by the product owner, per his ask for an easy path to each action; before this date
-  one trailing pane held both). A read row MUST have no leading pane. The swipe MUST NOT act by
-  itself, and a full swipe MUST NOT remove the row, per `R-30-297`. Each action MUST also exist as
-  a named custom semantics action on the row, per `R-30-298`. Every path MUST call the same
-  actions, so the row's state is the same whichever path a person takes.
+  and, on an unread row, `Mark as read`, on the menu surface of `R-33-078`. Decided 2026-09-08 by
+  the product owner: an action a person finds only by a hidden gesture is not an easy action. A
+  long press on the row MUST open the same two actions as the platform menu of `R-33-080`, per
+  `R-30-296` (amended 2026-09-18 by the product owner: until then a swipe toward the trailing edge
+  revealed `Remove` and a swipe toward the leading edge revealed `Mark as read`; swipe actions are
+  retired). A read row MUST offer `Remove` alone. The press MUST NOT act by itself, per
+  `R-30-297`. Each action MUST also exist as a named custom semantics action on the row, per
+  `R-30-298`. Every path MUST call the same actions, so the row's state is the same whichever
+  path a person takes.
 - **R-31-07-10** The empty body MUST contain only the title and sentence of callout 13, in the
   empty-state anatomy of `docs/32-design-language.md` section 7.19 (amended 2026-09-09 per
   `R-03-107`: the title takes `type.title` in `color.accent.text`, the sentence `type.body`
@@ -377,7 +376,7 @@ reused above for the Notifications screen. A reader who finds an old citation re
 
 ## Accessibility
 
-- Touch target: both bulk controls, every row and every revealed action meet the minimum target
+- Touch target: both bulk controls, every row and every row action meet the minimum target
   of `R-30-290` and `R-30-740`, at the sizes `R-32-515`, `R-32-526` and `R-32-562` fix.
 - Contrast: the phrase uses `color.fg.primary`, the breadcrumb and the age use
   `color.fg.secondary`, on `color.bg.base` and on the `color.accent.soft` wash, which the brand
@@ -389,7 +388,7 @@ reused above for the Notifications screen. A reader who finds an old citation re
 - Screen reader: a row MUST read the phrase, the breadcrumb with commas for the separator per
   `R-32-574`, the age when present, and `unread` when unread, per `R-30-716`. The two bulk
   controls MUST carry the labels `Mark all read` and `Remove all`, per `R-30-717`, and MUST report
-  a disabled state when disabled. Each revealed action MUST exist as a custom semantics action
+  a disabled state when disabled. Each row action MUST exist as a custom semantics action
   with its own label, per `R-30-298`. The two group headers are read as `NEW` and `EARLIER`.
 - Focus order: per `R-30-719`, `Mark all read`, `Remove all`, the pane-closed strip when present,
   the `NEW` header, its rows or its line, the `EARLIER` header, its rows, then the three bottom
@@ -402,14 +401,14 @@ reused above for the Notifications screen. A reader who finds an old citation re
 - `docs/30-ux-spec.md` - the destination set `R-30-021`, the attention signals `R-30-500` and
   `R-30-501`, the clearing rules `R-30-503` and `R-30-504`, the exact count `R-30-508`, the
   notification fields `R-30-510`, the tap cases `R-30-511`, the no-synthesis rule `R-30-513`, the
-  swipe rules `R-30-297` to `R-30-299`, the age format `R-30-405`, the empty-state words
+  row action rules `R-30-297` to `R-30-299`, the age format `R-30-405`, the empty-state words
   `R-30-801` and `R-30-802`, the per-Host route scope `R-30-946`, and the unnamed create
   `R-30-954`.
 - `docs/32-design-language.md` - the app bar `R-32-510`, the header block `R-32-582`, the text
   action `R-32-526`, the disabled opacity `R-32-502`, the destructive treatment `R-32-506` and
   `R-32-527`, the badge `R-32-518`, the strip `R-32-561`, the destinations `R-32-562`, the
   upper-case header `R-32-563`, `R-32-567` and `R-32-569`, the breadcrumb `R-32-572` and
-  `R-32-574`, the revealed action `R-32-580`, the selected-row wash of section 7.4, the state bar
+  `R-32-574`, the row action `R-32-580`, the selected-row wash of section 7.4, the state bar
   `R-32-592` of section 7.29, the confirmation dialog of section 7.17, and the contrast table
   `R-32-150`.
 - `docs/31-mockups/06-agent-list.md` - the agent list whose `NEEDS YOU` section shares this

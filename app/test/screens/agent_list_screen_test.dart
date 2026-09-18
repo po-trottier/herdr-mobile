@@ -3,7 +3,7 @@
 /// grouping-strip axis switch to `Workspace` with its `Space > Worktree > Tab > Pane` blocks
 /// (R-31-06-27 to R-31-06-29, decided 2026-09-04 by the product owner), the shell rows of
 /// R-31-06-14, the app bar with no plugin control (callout 2, R-03-055) and no attention badge,
-/// the reveal-then-tap `Mark as seen` action with its named custom semantics action (R-30-504,
+/// the long-press `Mark as seen` action with its named custom semantics action (R-30-504,
 /// R-32-580, R-30-298), and clearing the marker on a row tap (R-30-503, R-31-06-06).
 ///
 /// Also covers: the five status icon/label pairs and their five distinct icon shapes
@@ -20,6 +20,7 @@ import 'dart:ui' show SemanticsAction, TextBaseline, Tristate;
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoButton,
+        CupertinoContextMenuAction,
         CupertinoListTile,
         CupertinoPageScaffold,
         CupertinoSearchTextField,
@@ -27,7 +28,7 @@ import 'package:cupertino_ui/cupertino_ui.dart'
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/rendering.dart'
-    show BoxConstraints, RenderBox, RenderParagraph;
+    show BoxConstraints, RenderBox;
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart'
     show
@@ -48,7 +49,6 @@ import 'package:flutter/widgets.dart'
         Offset,
         Opacity,
         Rect,
-        RichText,
         Scrollable,
         Semantics,
         Size,
@@ -100,6 +100,7 @@ import 'package:material_ui/material_ui.dart'
         IconButton,
         Icons,
         MaterialApp,
+        MenuItemButton,
         Scaffold,
         SearchBar,
         TabBar,
@@ -108,6 +109,8 @@ import 'package:shared_preferences/shared_preferences.dart'
     show SharedPreferencesAsync;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
+
+import 'row_actions_support.dart';
 
 AttentionItem _attention({
   String paneId = 'w1:p9',
@@ -519,7 +522,8 @@ void main() {
     TargetPlatform.iOS,
   ]) {
     testWidgets(
-      '$platform: revealed Unpin and Mark as seen labels fit at default scale',
+      '$platform: a long press opens Pin, then Unpin and Mark as seen, as platform menu '
+      'items with their glyphs (R-32-708, R-33-077)',
       (tester) async {
         debugDefaultTargetPlatformOverride = platform;
         addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -534,22 +538,26 @@ void main() {
           harness,
           _attentionSnapshot(harness.currentAttention),
         );
-        await tester.drag(find.text('impl'), const Offset(-300, 0));
+        final Type item = platform == TargetPlatform.iOS
+            ? CupertinoContextMenuAction
+            : MenuItemButton;
+        await openRowActions(tester, find.text('impl'));
+        expect(find.widgetWithText(item, 'Pin'), findsOneWidget);
+        await tester.tap(find.widgetWithText(item, 'Pin'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Pin'));
-        await tester.pumpAndSettle();
-        await tester.drag(find.text('impl'), const Offset(-300, 0));
-        await tester.pumpAndSettle();
-        for (final label in <String>['Unpin', 'Mark as seen']) {
-          final text = find.text(label);
-          expect(text.hitTestable(), findsOneWidget);
-          final paragraph = tester.renderObject<RenderParagraph>(
-            find.descendant(of: text, matching: find.byType(RichText)),
-          );
-          expect(paragraph.didExceedMaxLines, isFalse, reason: label);
+        expect(find.byType(item), findsNothing);
+        await openRowActions(tester, find.text('impl'));
+        for (final (label, icon) in <(String, IconData)>[
+          ('Unpin', Symbols.keep_off_rounded),
+          ('Mark as seen', Symbols.done_all_rounded),
+        ]) {
+          expect(find.widgetWithText(item, label), findsOneWidget);
           expect(
-            paragraph.getMaxIntrinsicWidth(double.infinity),
-            lessThanOrEqualTo(paragraph.size.width + 0.01),
+            find.descendant(
+              of: find.widgetWithText(item, label),
+              matching: find.byIcon(icon),
+            ),
+            findsOneWidget,
             reason: label,
           );
         }
@@ -601,15 +609,14 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('swipe pins and unpins a shell without Mark as seen', (
+  testWidgets('a long press pins and unpins a shell without Mark as seen', (
     tester,
   ) async {
     final harness = _Harness();
     addTearDown(harness.dispose);
     await _pumpWorkspaceAxis(tester, harness, _hierarchySnapshot());
     expect(find.text('PINNED'), findsNothing);
-    await tester.drag(find.text('Explorer'), const Offset(-300, 0));
-    await tester.pumpAndSettle();
+    await openRowActions(tester, find.text('Explorer'));
     expect(find.text('Mark as seen'), findsNothing);
     await tester.tap(find.text('Pin'));
     await tester.pumpAndSettle();
@@ -625,8 +632,7 @@ void main() {
     expect(find.text('Explorer'), findsNothing);
     await tester.tap(find.text('Workspace'));
     await tester.pumpAndSettle();
-    await tester.drag(find.text('Explorer'), const Offset(-300, 0));
-    await tester.pumpAndSettle();
+    await openRowActions(tester, find.text('Explorer'));
     expect(find.text('Mark as seen'), findsNothing);
     await tester.tap(find.text('Unpin'));
     await tester.pumpAndSettle();
@@ -1685,7 +1691,7 @@ void main() {
   });
 
   testWidgets(
-    'a swipe on a NEEDS YOU row reveals Mark as seen; tapping it calls onMarkSeen',
+    'a long press on a NEEDS YOU row opens Mark as seen; tapping it calls onMarkSeen',
     (tester) async {
       final harness = _Harness(currentAttention: [_attention()]);
       addTearDown(harness.dispose);
@@ -1694,8 +1700,7 @@ void main() {
       harness.messages.add(_attentionSnapshot(harness.currentAttention));
       await tester.pumpAndSettle();
 
-      await tester.drag(find.text('impl'), const Offset(-300, 0));
-      await tester.pumpAndSettle();
+      await openRowActions(tester, find.text('impl'));
 
       expect(find.text('Mark as seen'), findsOneWidget);
       await tester.tap(find.text('Mark as seen'));

@@ -582,7 +582,9 @@ same size as the send button which is a rookie mistake, you still have a whole r
 instead of something like the + button iMessage has to show more options." The anatomy, taken from
 iOS Messages and Google Messages: one row of three parts, a round `+` control leading, the field in
 the middle, the send control trailing. **Every control on the row is exactly the field's
-single-line height**, and when the field grows the controls stay bottom-aligned with its last line.
+single-line height**. Amended 2026-09-17 by the product owner: as the field grows, its corner radius
+MUST stay fixed so it becomes a rounded rectangle, and the controls MUST stay vertically centred
+beside the field. The previous bottom alignment and growing pill corners broke multiline input.
 The key row is gone as a permanent surface. The `+` opens the **key panel** in the place of the
 The key row is gone as a permanent surface. The `+` opens the **key panel**, and the panel MUST
 open **above the bar, over the bottom of the grid, with the keyboard left exactly as it was**:

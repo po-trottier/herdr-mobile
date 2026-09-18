@@ -531,6 +531,7 @@ app/
 │       ├── app_strip.dart
 │       ├── app_text_button.dart
 │       ├── brand_mark.dart
+│       ├── composer.dart  # WP-17, live terminal input
 │       ├── eyebrow.dart
 │       ├── ground_grid.dart
 │       ├── input_field.dart
@@ -668,6 +669,7 @@ app/
 │       ├── app_ghost_button_test.dart
 │       ├── app_section_header_test.dart
 │       ├── brand_mark_test.dart
+│       ├── composer_test.dart  # WP-17, live input and multiline layout
 │       ├── eyebrow_test.dart
 │       ├── ground_grid_test.dart
 │       ├── input_field_test.dart

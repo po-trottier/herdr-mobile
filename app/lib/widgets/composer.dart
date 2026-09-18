@@ -89,6 +89,8 @@ class _ComposerState extends State<Composer> {
     );
     final bool ios = defaultTargetPlatform == TargetPlatform.iOS;
     final double height = ios ? AppSize.inputIos : AppSize.field;
+    // R-32-537: growing the field must not grow its corner arcs into a pill.
+    final BorderRadius fieldRadius = BorderRadius.circular(height / 2);
     final Widget send = ios
         ? Semantics(
             label: 'Send',
@@ -113,7 +115,7 @@ class _ComposerState extends State<Composer> {
             icon: const Icon(Symbols.send_rounded, size: AppSize.iconMd),
           );
     final OutlineInputBorder border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.full),
+      borderRadius: fieldRadius,
       borderSide: BorderSide(
         color: color.borderStrong,
         width: AppBorder.hairline,
@@ -129,7 +131,7 @@ class _ComposerState extends State<Composer> {
         ? CupertinoTextField(
             key: const ValueKey<String>('composerField'),
             controller: _controller,
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             suffix: Padding(
               padding: const EdgeInsets.all(3 - AppBorder.hairline),
               child: send,
@@ -159,7 +161,7 @@ class _ComposerState extends State<Composer> {
             onSubmitted: (_) => _submit(),
             decoration: BoxDecoration(
               color: color.bgHigh,
-              borderRadius: BorderRadius.circular(AppRadius.full),
+              borderRadius: fieldRadius,
               border: Border.all(
                 color: color.borderStrong,
                 width: AppBorder.hairline,
@@ -208,7 +210,7 @@ class _ComposerState extends State<Composer> {
             ),
           );
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         SizedBox.square(
           key: const ValueKey<String>('composerMore'),

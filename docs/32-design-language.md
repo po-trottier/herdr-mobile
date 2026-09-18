@@ -1404,11 +1404,11 @@ This surface follows R-03-133. `docs/31-mockups/09-key-row.md` owns its behaviou
 | --- | --- |
 | Surface | One `color.bg.raised` surface; top `border.hairline` in `color.border.strong` |
 | Inset | `space.4` horizontally; `space.2` vertically; keyboard or system inset per R-30-519 |
-| Row | Leading `+`, expanded field, trailing send; `space.2` gaps; `crossAxisAlignment: end`. Both controls stay bottom-aligned when the field grows |
+| Row | Leading `+`, expanded field, trailing send; `space.2` gaps; `crossAxisAlignment: center`. Both controls stay vertically centred when the field grows; the iOS suffix uses the same alignment |
 | Single-line height | Android: `size.field` (48 dp). iOS: 36 pt. The leading circle matches the field. The iOS send circle occupies the suffix inside that height |
 | Leading control | Android: round `IconButton.filledTonal`, exactly 48 dp. iOS: `CupertinoButton` with its own `color` and `borderRadius`, 36 pt painted circle in `color.bg.high`, 44 pt `minimumSize` tap target, glyph in `color.accent.text` |
 | Leading glyph | `Symbols.add_rounded`, semantics `More keys`; `Symbols.close_rounded` while open, semantics `Fewer keys` |
-| Field | Fill `color.bg.high`; `radius.full`; `border.hairline` in `color.border.strong`. Text `type.mono.compose` in `color.fg.primary`; placeholder `Type here` in `color.fg.disabled`. `minLines: 1`, `maxLines: 5`, multiline keyboard, `textInputAction: send`. Autocorrect, suggestions, and automatic capitalisation off |
+| Field | Fill `color.bg.high`; corner radius equals half the platform's single-line field height (Android 24 dp; iOS 18 pt), unchanged as the field grows; `border.hairline` in `color.border.strong`. Text `type.mono.compose` in `color.fg.primary`; placeholder `Type here` in `color.fg.disabled`. `minLines: 1`, `maxLines: 5`, multiline keyboard, `textInputAction: send`. Native editing options follow R-31-09-30 |
 | Field padding | Android: `space.3` horizontally, 13 dp vertically; one 22 dp text line totals 48 dp. iOS: `space.3` leading, `space.1` trailing, 7 pt vertically; one 22 pt text line totals 36 pt |
 | Send control | Android: outside the field, round `IconButton.filled`, exactly 48 dp, `Symbols.send_rounded`. iOS: inside the field suffix, `CupertinoButton` with zero padding and `minimumSize: 30`, a 30 pt circle and 3 pt inset, `Symbols.arrow_upward_rounded`. Both use `color.accent.primary` with `color.fg.on_accent` glyphs at `size.icon.md` and semantics `Send` |
 | Send state | Enabled when empty, per R-31-09-28. Field and send controls stay disabled offline or while the Host is in use, per R-30-807 and R-32-502 |
@@ -1418,7 +1418,8 @@ This surface follows R-03-133. `docs/31-mockups/09-key-row.md` owns its behaviou
   `docs/33-platform-chrome.md` section 5.
   The leading control and Android send control MUST equal their platform's single-line field height.
   The iOS send control MUST fit inside the field suffix at the dimensions above.
-  Controls MUST stay bottom-aligned with the last line when the field grows.
+  Controls MUST stay vertically centred when the field grows, per R-03-133 (amended 2026-09-17).
+  The field's corner radius MUST equal half its platform's single-line height, even when taller.
   The key panel MUST overlay the grid above the bar, not replace or cover the keyboard.
   The app MUST NOT draw substitute fields, buttons, or keys.
 

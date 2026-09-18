@@ -56,24 +56,24 @@ bottom-aligned).
 
 ### Wrapped field
 
-The field below has three lines. Both outer controls align with the last line.
-The field grows to five lines, then uses its native scroll.
+The field below has three lines. The controls stay vertically centred beside the field.
+The corner radius stays fixed as the field grows to five lines, then uses its native scroll.
 
 ```text
 Android
 +------------------------------------------------+
 |      /----------------------------------\     |
 |      | A long command wraps onto the    |     |
-|      | next line and continues onto a   |     |
-|  (+) [ third line in the native field.  ] (>) |
+|  (+) | next line and continues onto a   | (>) |
+|      [ third line in the native field.  ]     |
 +------------------------------------------------+
 
 iOS
 +------------------------------------------------+
 |      /--------------------------------------\ |
 |      | A long command wraps onto the        | |
-|      | next line and continues onto a       | |
-|  (+) [ third line in the native field.  (^) ] |
+|  (+) | next line and continues onto a   (^) | |
+|      [ third line in the native field.      ] |
 +------------------------------------------------+
 ```
 
@@ -368,7 +368,8 @@ unreachable.
   single-line field: 48 dp on Android, 36 pt on iOS. Android MUST use a round 48 dp
   `IconButton.filled` outside the field for Send. iOS MUST use a `CupertinoButton` inside the field
   suffix: a 30 pt circle with 3 pt inset. The iOS leading circle MUST retain a 44 pt minimum tap
-  target. Controls MUST stay bottom-aligned with the last line when the field grows. The field MUST
+  target. Controls MUST stay vertically centred when the field grows, and the field's corner
+  radius MUST stay fixed, per R-03-133 (amended 2026-09-17). The field MUST
   use `TextField` on Android and `CupertinoTextField` on iOS, `type.mono.compose`, and placeholder
   `Type here`. It MUST have one minimum line, five maximum lines, a multiline keyboard, and
   `textInputAction.send`. Android MUST use `Symbols.send_rounded`; iOS MUST use

@@ -18,7 +18,7 @@ import 'package:herdr_mobile/services/terminal.dart';
 import 'package:herdr_mobile/widgets/composer.dart';
 import 'package:herdr_mobile/widgets/key_row.dart';
 import 'package:material_ui/material_ui.dart'
-    show MaterialApp, Scaffold, TextField;
+    show MaterialApp, OutlineInputBorder, Scaffold, TextField;
 
 void main() {
   testWidgets('native edits never write to the Host grid (R-31-09-30)', (
@@ -161,51 +161,65 @@ void main() {
     TargetPlatform.android,
     TargetPlatform.iOS,
   ]) {
-    testWidgets('message controls align on ${platform.name}', (tester) async {
-      debugDefaultTargetPlatformOverride = platform;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
-      final focus = FocusNode();
-      addTearDown(focus.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Composer(
-              focusNode: focus,
-              onText: (_) {},
-              onDelete: (_) {},
-              onSubmit: () {},
-              onTogglePanel: () {},
+    testWidgets(
+      'multiline field keeps its corners and centers controls on ${platform.name}',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final focus = FocusNode();
+        addTearDown(focus.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Composer(
+                focusNode: focus,
+                onText: (_) {},
+                onDelete: (_) {},
+                onSubmit: () {},
+                onTogglePanel: () {},
+              ),
             ),
           ),
-        ),
-      );
-      final field = find.byKey(const ValueKey<String>('composerField'));
-      final more = find.byKey(const ValueKey<String>('composerMore'));
-      final double height = platform == TargetPlatform.iOS ? 36 : 48;
-      expect(tester.getSize(field).height, height);
-      expect(tester.getSize(more).height, height);
-      expect(tester.getBottomLeft(more).dy, tester.getBottomLeft(field).dy);
-      final send = find.byKey(const ValueKey<String>('composerSend'));
-      final double sendHeight = platform == TargetPlatform.iOS ? 30 : height;
-      final double sendInset = platform == TargetPlatform.iOS ? 3 : 0;
-      expect(tester.getSize(send).height, sendHeight);
-      expect(
-        tester.getBottomLeft(send).dy,
-        tester.getBottomLeft(field).dy - sendInset,
-      );
-      await tester.enterText(find.byType(EditableText), 'one\ntwo\nthree');
-      await tester.pump();
-      expect(tester.getSize(field).height, height + 44);
-      expect(tester.getSize(more).height, height);
-      expect(tester.getBottomLeft(more).dy, tester.getBottomLeft(field).dy);
-      expect(tester.getSize(send).height, sendHeight);
-      expect(
-        tester.getBottomLeft(send).dy,
-        tester.getBottomLeft(field).dy - sendInset,
-      );
-      await tester.pumpWidget(const SizedBox.shrink());
-      debugDefaultTargetPlatformOverride = null;
-    });
+        );
+        final field = find.byKey(const ValueKey<String>('composerField'));
+        final more = find.byKey(const ValueKey<String>('composerMore'));
+        double paintedCornerRadius() {
+          final BorderRadiusGeometry radius = platform == TargetPlatform.iOS
+              ? tester
+                    .widget<CupertinoTextField>(field)
+                    .decoration!
+                    .borderRadius!
+              : (tester.widget<TextField>(field).decoration!.border!
+                        as OutlineInputBorder)
+                    .borderRadius;
+          return radius
+              .resolve(TextDirection.ltr)
+              .toRRect(tester.getRect(field))
+              .scaleRadii()
+              .tlRadiusX;
+        }
+
+        final double height = platform == TargetPlatform.iOS ? 36 : 48;
+        expect(tester.getSize(field).height, height);
+        final singleLineRadius = paintedCornerRadius();
+        expect(tester.getSize(more).height, height);
+        expect(tester.getCenter(more).dy, tester.getCenter(field).dy);
+        final send = find.byKey(const ValueKey<String>('composerSend'));
+        final double sendHeight = platform == TargetPlatform.iOS ? 30 : height;
+        expect(tester.getSize(send).height, sendHeight);
+        expect(tester.getCenter(send).dy, tester.getCenter(field).dy);
+        await tester.enterText(find.byType(EditableText), 'one\ntwo\nthree');
+        await tester.pump();
+        expect(tester.getSize(field).height, height + 44);
+        expect(paintedCornerRadius(), singleLineRadius);
+        expect(tester.getSize(more).height, height);
+        expect(tester.getCenter(more).dy, tester.getCenter(field).dy);
+        expect(tester.getSize(send).height, sendHeight);
+        expect(tester.getCenter(send).dy, tester.getCenter(field).dy);
+        await tester.pumpWidget(const SizedBox.shrink());
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
     testWidgets(
       'rapid native edits preserve the complete field on ${platform.name}',
       (tester) async {

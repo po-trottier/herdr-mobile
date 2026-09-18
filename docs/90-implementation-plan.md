@@ -4653,6 +4653,8 @@ the send control.
 
 **Owns.** `app/lib/services/chord_latch.dart`, `app/lib/services/draft_store.dart`,
 `app/lib/widgets/input_field.dart`, `app/lib/widgets/key_row.dart`,
+`app/lib/widgets/composer.dart`, `app/test/widgets/composer_test.dart` (the live input surface
+of R-03-130 and its multiline layout in R-03-133),
 `app/test/screens/no_gesture_sends_test.dart`, `app/test/services/key_map_test.dart`,
 `app/test/widgets/key_row_test.dart`, `app/test/widgets/key_row_golden_test.dart` and its
 masters `app/test/widgets/goldens/key_row_{bank_one,bank_two,ctrl_latched,ctrl_locked,offline,landscape}_{dark,light}.png`

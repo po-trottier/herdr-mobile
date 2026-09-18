@@ -46,7 +46,11 @@ fn temp_paths() -> ConfigPaths {
             .as_nanos()
     ));
     std::fs::remove_dir_all(&dir).ok();
-    ConfigPaths::new(dir)
+    let paths = ConfigPaths::new(dir);
+    // The bridge calls this before its first write (`run_inner`); a test that
+    // writes the store first needs it too, or macOS reports NotFound.
+    paths.ensure_dir().expect("create the temp config dir");
+    paths
 }
 
 fn public_key(seed: u8) -> [u8; 32] {

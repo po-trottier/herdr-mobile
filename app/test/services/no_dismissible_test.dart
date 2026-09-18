@@ -1,10 +1,10 @@
-/// Forbids `Dismissible` anywhere under `app/lib/` (R-32-581, R-20-040): the app's one
-/// reveal-then-tap package is `flutter_slidable`, and the SDK's `Dismissible` widget cannot
-/// carry a tappable revealed action at all (`Dismissible.background` and
-/// `Dismissible.secondaryBackground` are non-interactive decoration that disappears with the
-/// child). A static source scan, not a widget-tree assertion: the failure mode this rule
-/// guards against is an implementer reaching for the SDK's own, wrong, closest-sounding
-/// class, which no widget test would ever exercise unless it happened to be built.
+/// Forbids a swipe action anywhere under `app/lib/` (R-30-296, R-32-581): swipe actions were
+/// retired 2026-09-18 by the product owner, because the SDK ships no swipe-action widget and
+/// R-03-059 forbids an imitation, so neither the SDK's `Dismissible` (dismiss-only, its
+/// backgrounds non-interactive decoration) nor the retired `flutter_slidable` package may
+/// return. A static source scan, not a widget-tree assertion: the failure mode this rule guards
+/// against is an implementer reaching for the closest-sounding class, which no widget test would
+/// ever exercise unless it happened to be built.
 library;
 
 import 'dart:io';
@@ -12,7 +12,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('no .dart file under lib/ constructs the SDK Dismissible widget', () {
+  test('no .dart file under lib/ builds a swipe action', () {
     final libDir = Directory('lib');
     expect(libDir.existsSync(), isTrue, reason: 'run from the app/ directory');
 
@@ -20,10 +20,10 @@ void main() {
     for (final entity in libDir.listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
       final content = entity.readAsStringSync();
-      // The SDK widget constructor call, never `dismissible:`/`ActionPane.dismissible` (a
-      // flutter_slidable parameter name, lower-case `d`, no trailing `(`) or prose mentioning
-      // the word.
-      if (content.contains('Dismissible(')) {
+      // The SDK widget constructor call (never prose mentioning the word) or the retired
+      // package's import.
+      if (content.contains('Dismissible(') ||
+          content.contains('package:flutter_slidable/')) {
         offenders.add(entity.path);
       }
     }
@@ -32,8 +32,8 @@ void main() {
       offenders,
       isEmpty,
       reason:
-          'R-32-581/R-20-040: the app MUST use flutter_slidable, never Dismissible, for a '
-          'swipe that reveals an action. Offending files: $offenders',
+          'R-30-296/R-32-581: a row action opens from a long press, never a swipe. '
+          'Offending files: $offenders',
     );
   });
 }

@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
-import 'package:flutter/widgets.dart' show Brightness, Navigator, Offset;
+import 'package:flutter/widgets.dart' show Brightness, Navigator;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart' show Ok;
 import 'package:herdr_mobile/models/messages/agent_status_kind.dart';
@@ -12,6 +12,7 @@ import 'package:herdr_mobile/services/agent_status.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 
 import 'golden_support.dart';
+import 'row_actions_support.dart';
 
 NotificationItem _entry({
   required String paneId,
@@ -89,8 +90,7 @@ void main() {
         'all_read',
         'empty',
         'pane_closed',
-        'swipe_remove',
-        'swipe_read',
+        'row_actions',
         'actions',
       ]) {
         final suffix =
@@ -128,17 +128,14 @@ void main() {
           await tester.pump();
           if (state == 'empty') {
             await precacheBrandMark(tester, find.byType(NotificationsScreen));
-          } else if (state == 'swipe_remove' || state == 'swipe_read') {
-            await tester.drag(
-              find.text('omp is blocked'),
-              Offset(state == 'swipe_remove' ? -300 : 300, 0),
-            );
+          } else if (state == 'row_actions') {
+            await openRowActions(tester, find.text('omp is blocked'));
           } else if (state == 'actions') {
             await tester.tap(find.byIcon(Symbols.more_vert_rounded).first);
           }
           await tester.pumpAndSettle();
           await expectLater(
-            state == 'actions'
+            state == 'actions' || state == 'row_actions'
                 ? find.byType(Navigator).first
                 : find.byType(NotificationsScreen),
             matchesGoldenFile(

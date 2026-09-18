@@ -33,7 +33,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
-import 'package:flutter/widgets.dart' show Brightness, Widget;
+import 'package:flutter/widgets.dart' show Brightness, Navigator, Widget;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart' show Ok, Result;
 import 'package:herdr_mobile/models/message.dart';
@@ -52,6 +52,7 @@ import 'package:herdr_mobile/widgets/app_ground.dart' show EmptyMark;
 import 'package:herdr_mobile/widgets/ground_grid.dart' show GroundGrid;
 
 import 'golden_support.dart';
+import 'row_actions_support.dart';
 
 /// A trimmed copy of `host_list_screen_test.dart`'s own `_Harness`: same fake-service shape,
 /// down to the field and method names, minus the parts this file's four states never drive
@@ -257,7 +258,7 @@ void main() {
           expect(find.text('2'), findsOneWidget); // patrick-desk's badge count.
           expect(find.text('1'), findsOneWidget); // build-box's badge count.
           expect(
-            find.text('Swipe a row left, then tap Forget.'),
+            find.text('Touch and hold a row, then tap Forget.'),
             findsOneWidget,
           );
           // R-03-107 (amended 2026-09-09): a list with rows paints plain `color.bg.base`, no
@@ -267,6 +268,29 @@ void main() {
           await expectLater(
             find.byType(HostListScreen),
             matchesGoldenFile('goldens/host_list_default_$themeName.png'),
+          );
+          debugDefaultTargetPlatformOverride = null;
+        },
+      );
+
+      // The mockup's revealed-row wireframe, now the long-press menu of R-30-296 on the
+      // `build-box` row: `Forget`, destructive, at the finger on Android, under the row's
+      // preview on iOS.
+      testWidgets(
+        'row_actions ($themeName) matches docs/31-mockups/05-host-list.md',
+        (tester) async {
+          final harness = _defaultHarness();
+          await renderAndSettle(
+            tester,
+            harness,
+            brightness,
+            afterMount: _pushDefaultLiveState,
+          );
+          await openRowActions(tester, find.text('build-box'));
+          expect(find.text('Forget'), findsOneWidget);
+          await expectLater(
+            find.byType(Navigator).first,
+            matchesGoldenFile('goldens/host_list_row_actions_$themeName.png'),
           );
           debugDefaultTargetPlatformOverride = null;
         },
@@ -349,8 +373,11 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(find.text('Computers'), findsOneWidget);
-          // No row, and no hint pointing at a swipe gesture with nothing to swipe.
-          expect(find.text('Swipe a row left, then tap Forget.'), findsNothing);
+          // No row, and no hint pointing at a gesture with nothing to press.
+          expect(
+            find.text('Touch and hold a row, then tap Forget.'),
+            findsNothing,
+          );
           // R-03-107 (amended 2026-09-09): the empty block sits on the ground grid inside the mark.
           expect(
             find.descendant(

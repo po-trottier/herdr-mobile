@@ -2,7 +2,7 @@
 /// 2026-09-09): the worded bulk controls and their disabled states (R-31-07-03, R-31-07-04,
 /// R-32-502), the `NEW`/`EARLIER` groups and the badge predicate they share (R-31-07-05,
 /// R-31-07-11), the row anatomy and its one unread signal (R-31-07-03, R-03-058), a row tap
-/// opening the pane (R-31-07-05), the two swipes and their semantics (R-31-07-09), the confirmed
+/// opening the pane (R-31-07-05), the long-press actions and their semantics (R-31-07-09), the confirmed
 /// `Remove all` (docs/32 section 7.17), the live insert and the ticking age (R-31-07-12,
 /// R-03-056), the `Empty` state, and the pane-closed strip (R-31-07-07).
 library;
@@ -13,6 +13,7 @@ import 'dart:ui' show Tristate;
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoButton,
+        CupertinoContextMenuAction,
         CupertinoListTile,
         CupertinoMenuItem,
         CupertinoNavigationBar;
@@ -42,6 +43,8 @@ import 'package:material_ui/material_ui.dart'
         MaterialApp,
         MenuItemButton,
         TextButton;
+
+import 'row_actions_support.dart';
 
 final DateTime _fixedNow = DateTime.utc(2026, 9, 4, 10, 4);
 
@@ -330,43 +333,37 @@ void main() {
     expect(calls.open, <String>['w1:p1']);
   });
 
-  testWidgets(
-    'a swipe toward the trailing edge reveals Remove alone; a swipe toward the leading edge '
-    'reveals Mark as read on an unread row and nothing on a read row (R-31-07-09)',
-    (tester) async {
-      final (calls, _) = await _pump(
-        tester,
-        items: <NotificationItem>[
-          _entry('w1:p1'),
-          _entry('w1:p2', seen: true, status: AgentStatusKind.done),
-        ],
-      );
+  testWidgets('a long press opens Mark as read and Remove on an unread row, and Remove alone on a read '
+      'row (R-31-07-09)', (tester) async {
+    final (calls, _) = await _pump(
+      tester,
+      items: <NotificationItem>[
+        _entry('w1:p1'),
+        _entry('w1:p2', seen: true, status: AgentStatusKind.done),
+      ],
+    );
 
-      await tester.drag(find.text('claude is blocked'), const Offset(-300, 0));
-      await tester.pumpAndSettle();
-      expect(find.text('Remove'), findsOneWidget);
-      expect(find.text('Mark as read'), findsNothing);
-      await tester.tap(find.text('Remove'));
-      await tester.pumpAndSettle();
-      expect(calls.remove, <String>['w1:p1']);
+    await openRowActions(tester, find.text('claude is blocked'));
+    expect(find.text('Remove'), findsOneWidget);
+    expect(find.text('Mark as read'), findsOneWidget);
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle();
+    expect(calls.remove, <String>['w1:p1']);
+    expect(find.text('Remove'), findsNothing, reason: 'the menu closed');
 
-      await tester.drag(find.text('claude is blocked'), const Offset(300, 0));
-      await tester.pumpAndSettle();
-      expect(find.text('Mark as read'), findsOneWidget);
-      expect(find.text('Remove'), findsNothing);
-      await tester.tap(find.text('Mark as read'));
-      await tester.pumpAndSettle();
-      expect(calls.markSeen, <String>['w1:p1']);
+    await openRowActions(tester, find.text('claude is blocked'));
+    await tester.tap(find.text('Mark as read'));
+    await tester.pumpAndSettle();
+    expect(calls.markSeen, <String>['w1:p1']);
 
-      await tester.drag(find.text('claude is done'), const Offset(300, 0));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Mark as read'),
-        findsNothing,
-        reason: 'a read row has no leading pane',
-      );
-    },
-  );
+    await openRowActions(tester, find.text('claude is done'));
+    expect(find.text('Remove'), findsOneWidget);
+    expect(
+      find.text('Mark as read'),
+      findsNothing,
+      reason: 'a read row offers no Mark as read',
+    );
+  });
 
   testWidgets(
     'every revealed action is also a named custom semantics action (R-30-298)',
@@ -710,29 +707,32 @@ void main() {
           tester,
           items: <NotificationItem>[_entry('w1:p1')],
         );
-        final Type button = platform == TargetPlatform.iOS
-            ? CupertinoButton
-            : TextButton;
         final Type tile = platform == TargetPlatform.iOS
             ? CupertinoListTile
             : ListTile;
         expect(find.byType(tile), findsOneWidget);
-        await tester.drag(
-          find.text('claude is blocked'),
-          const Offset(-300, 0),
-        );
-        await tester.pumpAndSettle();
+        await openRowActions(tester, find.text('claude is blocked'));
+        // The long press opens the platform menu of R-33-033's `Row actions` row:
+        // `MenuItemButton` at the finger on Android, `CupertinoContextMenuAction` under the
+        // row's preview on iOS, each choice with its glyph.
+        final Type rowItem = platform == TargetPlatform.iOS
+            ? CupertinoContextMenuAction
+            : MenuItemButton;
         expect(calls.remove, isEmpty);
-        final remove = find.widgetWithText(button, 'Remove');
-        expect(remove, findsOneWidget);
-        await tester.tap(remove);
+        expect(find.widgetWithText(rowItem, 'Mark as read'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.widgetWithText(rowItem, 'Remove'),
+            matching: find.byIcon(Symbols.delete_outline_rounded),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.widgetWithText(rowItem, 'Remove'));
         await tester.pumpAndSettle();
         expect(calls.remove, <String>['w1:p1']);
-        await tester.drag(find.text('claude is blocked'), const Offset(300, 0));
-        await tester.pumpAndSettle();
-        final mark = find.widgetWithText(button, 'Mark as read');
-        expect(mark, findsOneWidget);
-        await tester.tap(mark);
+        expect(find.byType(rowItem), findsNothing);
+        await openRowActions(tester, find.text('claude is blocked'));
+        await tester.tap(find.widgetWithText(rowItem, 'Mark as read'));
         await tester.pumpAndSettle();
         expect(calls.markSeen, <String>['w1:p1']);
         // The row's `⋮` opens the platform menu of R-33-033: `MenuItemButton` on Android,

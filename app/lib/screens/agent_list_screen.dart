@@ -42,9 +42,9 @@
 /// (R-03-100), and the unread state as weight and wash: `type.body.strong` on the agent kind
 /// and the `color.accent.soft` fill (R-03-058, R-31-06-33). No second bar, no dot.
 ///
-/// **Reveal-then-tap.** All panes offer Pin or Unpin, then Mark as seen when applicable.
-/// One Slidable group closes other reveals. Full swipes never execute an action.
-/// Custom semantics expose the same actions (R-31-06-36..38, R-32-708, R-33-077).
+/// **Row actions.** All panes offer Pin or Unpin, then Mark as seen when applicable, from a long
+/// press on the row (`ChromeRowActions`, R-30-296). Custom semantics expose the same actions
+/// (R-31-06-36..38, R-32-708, R-33-077).
 ///
 /// **Known gaps, disclosed.** Two mockup states are not built here because neither is named by
 /// this package's sixteen checkboxes (`docs/90-implementation-plan.md` §5.2 `WP-18-b`): the
@@ -55,12 +55,10 @@
 library;
 
 import 'dart:async' show StreamSubscription, Timer, unawaited;
-import 'dart:math' as math;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         BuildContext,
-        CupertinoButton,
         CupertinoPageScaffold,
         CupertinoSearchTextField,
         CupertinoSlidingSegmentedControl,
@@ -79,7 +77,6 @@ import 'package:flutter/widgets.dart'
         BorderSide,
         BoxConstraints,
         BoxDecoration,
-        Builder,
         Center,
         ClipRRect,
         Color,
@@ -90,18 +87,15 @@ import 'package:flutter/widgets.dart'
         CrossAxisAlignment,
         CustomScrollView,
         DecoratedBox,
-        Directionality,
         EdgeInsets,
         Expanded,
         Icon,
-        IconData,
         Flexible,
         IgnorePointer,
         InheritedNotifier,
         Key,
         LayoutBuilder,
         Listener,
-        MainAxisAlignment,
         MainAxisSize,
         MediaQuery,
         Opacity,
@@ -144,8 +138,6 @@ import 'package:flutter/widgets.dart'
         VoidCallback,
         Widget,
         WidgetSpan;
-import 'package:flutter_slidable/flutter_slidable.dart'
-    show ActionPane, ScrollMotion, Slidable, SlidableAutoCloseBehavior;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
@@ -158,7 +150,6 @@ import 'package:material_ui/material_ui.dart'
         TabBar,
         TabBarView,
         TabController,
-        TextButton,
         kTabScrollDuration;
 
 import '../core/result/result.dart' show Err, Ok, Result;
@@ -185,21 +176,19 @@ import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_icon_action.dart';
 import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/theme/chrome_loading_delay.dart';
+import '../widgets/theme/chrome_menu.dart' show ChromeMenuItem;
+import '../widgets/theme/chrome_row_actions.dart';
 import '../widgets/theme/chrome_tonal_button.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 
-/// The one revealed action's label (callout 17), `type.caption` under its icon (R-32-576).
+/// The second row action's label (callout 17).
 const String _markSeenLabel = 'Mark as seen';
 
 /// The breadcrumb separator, `›` (U+203A) with a hair space (U+200A) on each side, in one text
 /// run, per R-32-572.
 const String _breadcrumbSeparator = '\u2009\u203A\u2009';
-
-/// `Slidable.groupTag` shared by every row on this screen, so opening one closes any other
-/// (R-30-299, R-31-06-05's pending-reorder companion).
-const String _slidableGroupTag = 'agent_list';
 
 /// `opacity.disabled` (R-32-502): the create control while the link is down, the ink unchanged
 /// (R-32-331). The one control this screen dims itself; a `ChromeIconAction` dims its own.
@@ -795,8 +784,7 @@ class _AgentListScreenState extends State<AgentListScreen>
     // R-03-108: on Android the two axes are the two pages of a `TabBarView` on the strip's own
     // controller, so a horizontal swipe tracks the finger and hands its velocity to the page
     // physics; the settled page becomes the service's axis through [_onTabsChanged]. A row's
-    // own reveal (`Mark as seen`) wins a horizontal drag that starts on it, as inside any
-    // Material tab page.
+    // actions open from a long press (R-30-296), so no row competes for the horizontal drag.
     return TabBarView(
       controller: _tabs,
       children: <Widget>[
@@ -1214,49 +1202,45 @@ class _PriorityList extends StatelessWidget {
   final void Function(String paneId) onTogglePinned;
 
   @override
-  Widget build(BuildContext context) => SlidableAutoCloseBehavior(
-    child: CustomScrollView(
-      slivers: <Widget>[
-        for (final (int index, PrioritySection section) in sections.indexed)
-          SliverPadding(
-            padding: EdgeInsets.only(top: index == 0 ? 0 : AppSpace.space6),
-            sliver: SliverMainAxisGroup(
-              slivers: <Widget>[
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _PinnedHeaderDelegate(
-                    height: AppSize.header,
-                    child: ColoredBox(
-                      color: color.bgBase,
-                      child: AppSectionHeader.upperCase(label: section.title),
-                    ),
+  Widget build(BuildContext context) => CustomScrollView(
+    slivers: <Widget>[
+      for (final (int index, PrioritySection section) in sections.indexed)
+        SliverPadding(
+          padding: EdgeInsets.only(top: index == 0 ? 0 : AppSpace.space6),
+          sliver: SliverMainAxisGroup(
+            slivers: <Widget>[
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _PinnedHeaderDelegate(
+                  height: AppSize.header,
+                  child: ColoredBox(
+                    color: color.bgBase,
+                    child: AppSectionHeader.upperCase(label: section.title),
                   ),
                 ),
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (BuildContext context, int index) => _PaneRowTile(
-                      row: section.rows[index],
-                      axis: AgentListAxis.priority,
-                      color: color,
-                      // The last row of a section carries no divider.
-                      // decided 2026-09-03 by the product owner.
-                      showDivider: index < section.rows.length - 1,
-                      onOpenPane: onOpenPane,
-                      onMarkSeen: onMarkSeen,
-                      onTogglePinned: onTogglePinned,
-                      pinned: pinnedPaneIds.contains(
-                        section.rows[index].paneId,
-                      ),
-                    ),
-                    childCount: section.rows.length,
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (BuildContext context, int index) => _PaneRowTile(
+                    row: section.rows[index],
+                    axis: AgentListAxis.priority,
+                    color: color,
+                    // The last row of a section carries no divider.
+                    // decided 2026-09-03 by the product owner.
+                    showDivider: index < section.rows.length - 1,
+                    onOpenPane: onOpenPane,
+                    onMarkSeen: onMarkSeen,
+                    onTogglePinned: onTogglePinned,
+                    pinned: pinnedPaneIds.contains(section.rows[index].paneId),
                   ),
+                  childCount: section.rows.length,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        const SliverToBoxAdapter(child: SizedBox(height: _createClearance)),
-      ],
-    ),
+        ),
+      const SliverToBoxAdapter(child: SizedBox(height: _createClearance)),
+    ],
   );
 }
 
@@ -1299,117 +1283,111 @@ class _SpaceList extends StatelessWidget {
   final void Function(String spaceKey) onToggleSpace;
 
   @override
-  Widget build(BuildContext context) => SlidableAutoCloseBehavior(
-    child: CustomScrollView(
-      slivers: <Widget>[
-        if (searchField != null)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpace.space4,
-              AppSpace.space3,
-              AppSpace.space4,
-              AppSpace.space6,
-            ),
-            sliver: SliverToBoxAdapter(child: searchField),
+  Widget build(BuildContext context) => CustomScrollView(
+    slivers: <Widget>[
+      if (searchField != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.space4,
+            AppSpace.space3,
+            AppSpace.space4,
+            AppSpace.space6,
           ),
-        if (pinnedRows.isNotEmpty)
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-              AppSpace.space4,
-              searchField == null ? AppSpace.space3 : 0,
-              AppSpace.space4,
-              AppSpace.space6,
-            ),
-            sliver: SliverToBoxAdapter(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: color.bgRaised,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    border: Border.all(
-                      color: color.borderSubtle,
-                      width: AppBorder.hairline,
+          sliver: SliverToBoxAdapter(child: searchField),
+        ),
+      if (pinnedRows.isNotEmpty)
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(
+            AppSpace.space4,
+            searchField == null ? AppSpace.space3 : 0,
+            AppSpace.space4,
+            AppSpace.space6,
+          ),
+          sliver: SliverToBoxAdapter(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: color.bgRaised,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(
+                    color: color.borderSubtle,
+                    width: AppBorder.hairline,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    ColoredBox(
+                      color: color.bgHigh,
+                      child: const AppSectionHeader.upperCase(label: 'PINNED'),
                     ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      ColoredBox(
-                        color: color.bgHigh,
-                        child: const AppSectionHeader.upperCase(
-                          label: 'PINNED',
-                        ),
+                    for (final PaneRow row in pinnedRows)
+                      _PaneRowTile(
+                        row: row,
+                        axis: AgentListAxis.workspace,
+                        color: color,
+                        showDivider: false,
+                        pinned: true,
+                        showWorkspace: true,
+                        slotWidth: AppSize.iconSm,
+                        onOpenPane: onOpenPane,
+                        onMarkSeen: onMarkSeen,
+                        onTogglePinned: onTogglePinned,
                       ),
-                      for (final PaneRow row in pinnedRows)
-                        _PaneRowTile(
-                          row: row,
-                          axis: AgentListAxis.workspace,
-                          color: color,
-                          showDivider: false,
-                          pinned: true,
-                          showWorkspace: true,
-                          slotWidth: AppSize.iconSm,
-                          onOpenPane: onOpenPane,
-                          onMarkSeen: onMarkSeen,
-                          onTogglePinned: onTogglePinned,
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
             ),
           ),
-        SliverPadding(
-          padding: EdgeInsets.only(
-            left: AppSpace.space4,
-            right: AppSpace.space4,
-            top: searchField == null && pinnedRows.isEmpty
-                ? AppSpace.space3
-                : 0,
-          ),
-          sliver: spaces.isEmpty && pinnedRows.isEmpty
-              // R-31-06-30: reached only while a search matches nothing (the empty tree never
-              // builds this list), so the line names the search, not the computer.
-              ? SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpace.space3,
-                    ),
-                    child: Text(
-                      'No pane matches \u201C$search\u201D.',
-                      style: AppType.body.copyWith(color: color.fgSecondary),
-                    ),
-                  ),
-                )
-              : SliverList(
-                  delegate: SliverChildBuilderDelegate((
-                    BuildContext context,
-                    int index,
-                  ) {
-                    final SpaceGroup space = spaces[index];
-                    return Padding(
-                      // Blocks sit one group gap apart, `space.6` (R-32-595, amended
-                      // 2026-09-08 by the product owner: `space.3` read tighter than the 24
-                      // between two rows inside a block).
-                      padding: const EdgeInsets.only(bottom: AppSpace.space6),
-                      child: _SpaceBlock(
-                        space: space,
-                        expanded: !collapsed.contains(space.key),
-                        color: color,
-                        onOpenPane: onOpenPane,
-                        onMarkSeen: onMarkSeen,
-                        onTogglePinned: onTogglePinned,
-                        pinnedPaneIds: pinnedPaneIds,
-                        onToggle: () => onToggleSpace(space.key),
-                      ),
-                    );
-                  }, childCount: spaces.length),
-                ),
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: _createClearance)),
-      ],
-    ),
+      SliverPadding(
+        padding: EdgeInsets.only(
+          left: AppSpace.space4,
+          right: AppSpace.space4,
+          top: searchField == null && pinnedRows.isEmpty ? AppSpace.space3 : 0,
+        ),
+        sliver: spaces.isEmpty && pinnedRows.isEmpty
+            // R-31-06-30: reached only while a search matches nothing (the empty tree never
+            // builds this list), so the line names the search, not the computer.
+            ? SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpace.space3,
+                  ),
+                  child: Text(
+                    'No pane matches \u201C$search\u201D.',
+                    style: AppType.body.copyWith(color: color.fgSecondary),
+                  ),
+                ),
+              )
+            : SliverList(
+                delegate: SliverChildBuilderDelegate((
+                  BuildContext context,
+                  int index,
+                ) {
+                  final SpaceGroup space = spaces[index];
+                  return Padding(
+                    // Blocks sit one group gap apart, `space.6` (R-32-595, amended
+                    // 2026-09-08 by the product owner: `space.3` read tighter than the 24
+                    // between two rows inside a block).
+                    padding: const EdgeInsets.only(bottom: AppSpace.space6),
+                    child: _SpaceBlock(
+                      space: space,
+                      expanded: !collapsed.contains(space.key),
+                      color: color,
+                      onOpenPane: onOpenPane,
+                      onMarkSeen: onMarkSeen,
+                      onTogglePinned: onTogglePinned,
+                      pinnedPaneIds: pinnedPaneIds,
+                      onToggle: () => onToggleSpace(space.key),
+                    ),
+                  );
+                }, childCount: spaces.length),
+              ),
+      ),
+      const SliverToBoxAdapter(child: SizedBox(height: _createClearance)),
+    ],
   );
 }
 
@@ -1846,101 +1824,28 @@ class _PaneRowTile extends StatelessWidget {
           const CustomSemanticsAction(label: _markSeenLabel): () =>
               onMarkSeen(row.paneId),
       },
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) => Slidable(
-          key: ValueKey<String>(row.paneId),
-          groupTag: _slidableGroupTag,
-          endActionPane: ActionPane(
-            motion: const ScrollMotion(),
-            dragDismissible: false,
-            extentRatio:
-                math.max(
-                  _actionExtentRatio(context, pinLabel, constraints.maxWidth),
-                  canMarkSeen
-                      ? _actionExtentRatio(
-                          context,
-                          _markSeenLabel,
-                          constraints.maxWidth,
-                        )
-                      : 0.0,
-                ) *
-                (canMarkSeen ? 2 : 1),
-            children: <Widget>[
-              for (final (String label, IconData icon, VoidCallback action)
-                  in <(String, IconData, VoidCallback)>[
-                    (
-                      pinLabel,
-                      pinned ? Symbols.keep_off_rounded : Symbols.keep_rounded,
-                      () => onTogglePinned(row.paneId),
-                    ),
-                    if (canMarkSeen)
-                      (
-                        _markSeenLabel,
-                        Symbols.done_all_rounded,
-                        () => onMarkSeen(row.paneId),
-                      ),
-                  ])
-                Expanded(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: color.bgRaised,
-                      border: Border(
-                        left: BorderSide(
-                          color: color.borderStrong,
-                          width: AppBorder.hairline,
-                        ),
-                      ),
-                    ),
-                    child: Builder(
-                      builder: (BuildContext context) {
-                        void activate() {
-                          unawaited(Slidable.of(context)?.close());
-                          action();
-                        }
-
-                        final Widget labelWidget = Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            Icon(
-                              icon,
-                              size: AppSize.iconMd,
-                              color: color.fgPrimary,
-                            ),
-                            const SizedBox(height: AppSpace.space1),
-                            Text(
-                              label,
-                              style: AppType.caption.copyWith(
-                                color: color.fgPrimary,
-                                inherit: false,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        );
-                        return _isIos
-                            ? CupertinoButton(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpace.space3,
-                                ),
-                                onPressed: activate,
-                                child: labelWidget,
-                              )
-                            : TextButton(
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpace.space3,
-                                  ),
-                                ),
-                                onPressed: activate,
-                                child: labelWidget,
-                              );
-                      },
-                    ),
-                  ),
-                ),
-            ],
+      child: ChromeRowActions(
+        key: ValueKey<String>(row.paneId),
+        items: <ChromeMenuItem>[
+          ChromeMenuItem(
+            label: pinLabel,
+            icon: pinned ? Symbols.keep_off_rounded : Symbols.keep_rounded,
+            onSelected: () => onTogglePinned(row.paneId),
           ),
+          if (canMarkSeen)
+            ChromeMenuItem(
+              label: _markSeenLabel,
+              icon: Symbols.done_all_rounded,
+              onSelected: () => onMarkSeen(row.paneId),
+            ),
+        ],
+        // The iOS context menu draws a copy of the row in the root overlay and in its own route,
+        // outside this screen's tree, so the row carries the screen's clock with it. Read without
+        // a dependency: only the age inside [content] rebuilds on a tick.
+        child: _AgeClock(
+          notifier: context
+              .getInheritedWidgetOfExactType<_AgeClock>()!
+              .notifier!,
           child: content,
         ),
       ),
@@ -2330,27 +2235,6 @@ class _AgentRowContent extends StatelessWidget {
       ),
     );
   }
-}
-
-/// R-32-576: the revealed pane is exactly as wide as its one action, which is [label] at
-/// `type.caption` plus `space.3` on each side, floored at `size.target.min` and capped at half
-/// of [rowWidth]. Measured at the current text scale, so a large scale widens the action
-/// instead of shrinking its label (R-32-363). `flutter_slidable` takes the pane as a ratio of
-/// the row, so the width is converted here and is never a fixed fraction. Mirrors
-/// `host_list_screen.dart`'s own private copy.
-double _actionExtentRatio(BuildContext context, String label, double rowWidth) {
-  final TextPainter painter = TextPainter(
-    text: TextSpan(text: label, style: AppType.caption),
-    textDirection: Directionality.of(context),
-    textScaler: MediaQuery.textScalerOf(context),
-    maxLines: 1,
-  )..layout();
-  final double width = math.max(
-    (painter.width + AppSpace.space3 * 2 + AppBorder.hairline).ceilToDouble(),
-    AppSize.targetMin,
-  );
-  painter.dispose();
-  return math.min(width / rowWidth, 0.5);
 }
 
 /// The breadcrumb of section 7.24: one line, front-elided, the last segment always whole

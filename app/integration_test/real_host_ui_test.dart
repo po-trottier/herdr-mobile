@@ -134,7 +134,6 @@ import 'package:flutter/widgets.dart'
         Text,
         TextDirection,
         ValueKey;
-import 'package:flutter_slidable/flutter_slidable.dart' show Slidable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/main.dart' as app;
 import 'package:herdr_mobile/screens/agent_list_screen.dart'
@@ -150,6 +149,8 @@ import 'package:herdr_mobile/widgets/app_filled_button.dart'
     show AppFilledButton;
 import 'package:herdr_mobile/widgets/terminal_view_widget.dart'
     show TerminalViewWidget;
+import 'package:herdr_mobile/widgets/theme/chrome_row_actions.dart'
+    show ChromeRowActions;
 import 'package:integration_test/integration_test.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
@@ -294,17 +295,21 @@ Future<Finder> _visible(
   return finder;
 }
 
-/// Reveals a `Slidable` notification row's actions with the real gesture
-/// (R-30-297): a horizontal drag on the row, then time for the reveal.
+/// Opens a notification row's actions with the real gesture (R-30-296): a
+/// long press on the row, held past both platforms' thresholds, then time
+/// for the menu.
 Future<void> _reveal(WidgetTester tester, Finder row) async {
   await _visible(tester, row, host: NotificationsScreen);
-  await tester.drag(row, const Offset(-260, 0));
+  final TestGesture press = await tester.startGesture(tester.getCenter(row));
+  await tester.pump(const Duration(seconds: 1));
+  await _settle(tester, 1);
+  await press.up();
   await _settle(tester, 1);
 }
 
-/// Closes a revealed row without acting on it.
+/// Closes an open row menu without acting on it: a tap outside it.
 Future<void> _conceal(WidgetTester tester, Finder row) async {
-  await tester.drag(row, const Offset(260, 0));
+  await tester.tapAt(const Offset(1, 1));
   await _settle(tester, 1);
 }
 
@@ -1158,20 +1163,12 @@ Future<void> _notificationsPhase(WidgetTester tester) async {
   // Keep a second real row for Remove all after the single removal.
   final Finder notificationRows = find.descendant(
     of: find.byType(NotificationsScreen),
-    matching: find.byType(Slidable),
+    matching: find.byType(ChromeRowActions),
   );
   _phase('awaiting bulk notification prerequisite');
   await _pumpUntil(
     tester,
-    () {
-      final paneIds = tester
-          .widgetList<Slidable>(notificationRows)
-          .map((Slidable item) => item.key)
-          .whereType<ValueKey<String>>()
-          .map((ValueKey<String> key) => key.value)
-          .toSet();
-      return paneIds.length >= 2;
-    },
+    () => tester.widgetList<ChromeRowActions>(notificationRows).length >= 2,
     description:
         'at least two real notification rows from distinct panes; '
         'drive a second real agent transition',

@@ -1,8 +1,8 @@
 /// Smoke-tests `HostListScreen` (`WP-18-a`) against `docs/31-mockups/05-host-list.md`: row
-/// sort and content, the reveal-then-tap `Forget` action with its confirmation and its named
-/// custom semantics action (R-31-05-02, R-31-05-03, R-32-580, R-30-298), the non-drag-
-/// dismissible destructive pane (R-30-297, R-31-05-07), one open pane at a time across rows
-/// (R-31-05-08, R-30-299), a saved-row tap starting a switch with no confirmation (R-30-948),
+/// sort and content, the long-press `Forget` action with its confirmation and its named
+/// custom semantics action (R-31-05-02, R-31-05-03, R-32-580, R-30-298), the destructive
+/// action acting only after the dialog (R-30-297, R-31-05-07), an outside tap closing the
+/// menu without a switch (R-30-299), a saved-row tap starting a switch with no confirmation (R-30-948),
 /// the `Switch failed` state (R-30-947), no relay address on any row (R-31-05-05), the
 /// `host_in_use` row offering only `Try again` (R-31-05-06), the trailing slot's mutual
 /// exclusivity (R-31-05-15), a tap on the already-connected row navigating without a second
@@ -13,20 +13,17 @@ library;
 import 'dart:async';
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoActivityIndicator, CupertinoButton, CupertinoNavigationBar;
+    show
+        CupertinoActivityIndicator,
+        CupertinoButton,
+        CupertinoContextMenuAction,
+        CupertinoNavigationBar;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show AppBar;
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart'
-    show
-        CustomScrollView,
-        Offset,
-        SizedBox,
-        SliverList,
-        Text,
-        TextStyle,
-        Widget;
+    show CustomScrollView, SizedBox, SliverList, Text, TextStyle, Widget;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart' show Ok, Result;
 import 'package:herdr_mobile/models/message.dart';
@@ -44,7 +41,9 @@ import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show CircularProgressIndicator, MaterialApp;
+    show CircularProgressIndicator, MaterialApp, MenuItemButton;
+
+import 'row_actions_support.dart';
 
 PairedHostRecord _record({
   required String hostId,
@@ -197,7 +196,10 @@ void main() {
       expect(find.byType(GroundGrid), findsNothing);
       expect(find.byType(EmptyMark), findsNothing);
       expect(find.text('alpha-box'), findsOneWidget);
-      expect(find.text('Swipe a row left, then tap Forget.'), findsOneWidget);
+      expect(
+        find.text('Touch and hold a row, then tap Forget.'),
+        findsOneWidget,
+      );
       // The rows and the hint are the one sliver, and nothing follows it: no remainder and no
       // clearance for a create control (R-03-109).
       final CustomScrollView list = tester.widget<CustomScrollView>(
@@ -266,7 +268,7 @@ void main() {
       await tester.pumpWidget(harness.build());
       await tester.pumpAndSettle();
 
-      final hint = find.text('Swipe a row left, then tap Forget.');
+      final hint = find.text('Touch and hold a row, then tap Forget.');
       expect(hint, findsOneWidget);
       final screenBottom = tester.view.physicalSize.height;
       expect(
@@ -277,38 +279,61 @@ void main() {
     },
   );
 
-  testWidgets('a swipe reveals Forget; confirming calls onForget with the R-31-05-03 sentence and '
-      'removes the row', (tester) async {
-    final harness = _Harness(
-      hosts: <PairedHostRecord>[_record(hostId: 'a', hostName: 'alpha-box')],
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  ]) {
+    testWidgets(
+      '$platform: a long press opens Forget as the platform menu item; confirming calls '
+      'onForget with the R-31-05-03 sentence and removes the row',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final harness = _Harness(
+          hosts: <PairedHostRecord>[
+            _record(hostId: 'a', hostName: 'alpha-box'),
+          ],
+        );
+        addTearDown(harness.dispose);
+
+        await tester.pumpWidget(harness.build());
+        await tester.pumpAndSettle();
+
+        await openRowActions(tester, find.text('alpha-box'));
+
+        final Type item = platform == TargetPlatform.iOS
+            ? CupertinoContextMenuAction
+            : MenuItemButton;
+        expect(find.widgetWithText(item, 'Forget'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(item),
+            matching: find.byIcon(Symbols.delete_outline_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(harness.forgotten, isEmpty);
+        await tester.tap(find.widgetWithText(item, 'Forget'));
+        await tester.pumpAndSettle();
+
+        // The body is a `Text.rich` with the `d` key cap as a `WidgetSpan` (R-03-103), which
+        // `find.text` cannot match.
+        expect(
+          find.textContaining('In the Relay pane, select pixel-9 and press'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Forget').last);
+        await tester.pumpAndSettle();
+
+        expect(harness.forgotten.single.hostId, 'a');
+        expect(find.text('alpha-box'), findsNothing);
+        debugDefaultTargetPlatformOverride = null;
+      },
     );
-    addTearDown(harness.dispose);
-
-    await tester.pumpWidget(harness.build());
-    await tester.pumpAndSettle();
-
-    await tester.drag(find.text('alpha-box'), const Offset(-300, 0));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Forget'), findsOneWidget);
-    await tester.tap(find.text('Forget'));
-    await tester.pumpAndSettle();
-
-    // The body is a `Text.rich` with the `d` key cap as a `WidgetSpan` (R-03-103), which
-    // `find.text` cannot match.
-    expect(
-      find.textContaining('In the Relay pane, select pixel-9 and press'),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('Forget').last);
-    await tester.pumpAndSettle();
-
-    expect(harness.forgotten.single.hostId, 'a');
-    expect(find.text('alpha-box'), findsNothing);
-  });
+  }
 
   testWidgets(
-    'the revealed Forget action is also a named custom semantics action (R-32-580, R-30-298)',
+    'the Forget action is also a named custom semantics action (R-32-580, R-30-298)',
     (tester) async {
       final harness = _Harness(
         hosts: <PairedHostRecord>[_record(hostId: 'a', hostName: 'alpha-box')],
@@ -332,7 +357,7 @@ void main() {
   );
 
   testWidgets(
-    'opening one row\'s pane closes another open pane (R-31-05-08, R-30-299)',
+    'a tap outside an open row menu only closes it: no switch starts (R-30-299)',
     (tester) async {
       final harness = _Harness(
         hosts: <PairedHostRecord>[
@@ -345,20 +370,17 @@ void main() {
       await tester.pumpWidget(harness.build());
       await tester.pumpAndSettle();
 
-      await tester.drag(find.text('alpha-box'), const Offset(-300, 0));
-      await tester.pumpAndSettle();
+      await openRowActions(tester, find.text('alpha-box'));
       expect(find.text('Forget'), findsOneWidget);
 
-      // `SlidableAutoCloseBehavior`'s barrier absorbs the first tap elsewhere and uses it only
-      // to close the open pane — it does not fall through and start a switch on row b.
+      // The menu consumes the outside tap and closes; row b does not start a switch.
       await tester.tap(find.text('beta-box'), warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.text('Forget'), findsNothing);
       expect(harness.switchedTo, isEmpty);
 
-      // A second, separate interaction can now open row b's own pane.
-      await tester.drag(find.text('beta-box'), const Offset(-300, 0));
-      await tester.pumpAndSettle();
+      // A second, separate interaction opens row b's own menu.
+      await openRowActions(tester, find.text('beta-box'));
       expect(find.text('Forget'), findsOneWidget);
     },
   );

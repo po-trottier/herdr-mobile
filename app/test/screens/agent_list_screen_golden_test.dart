@@ -24,7 +24,8 @@ import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoSlidingSegmentedControl;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
-import 'package:flutter/widgets.dart' show Brightness, Text, TextStyle, Widget;
+import 'package:flutter/widgets.dart'
+    show Brightness, Navigator, Text, TextStyle, Widget;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/agent_status_kind.dart';
@@ -52,6 +53,7 @@ import 'package:shared_preferences_platform_interface/in_memory_shared_preferenc
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 import 'golden_support.dart';
+import 'row_actions_support.dart';
 
 const _scroll = PaneScrollState(
   offsetFromBottom: 0,
@@ -381,8 +383,8 @@ void main() {
     TargetPlatform.iOS,
   ]) {
     for (final (themeName, brightness) in _themes) {
+      final platformName = platform == TargetPlatform.iOS ? 'ios' : 'android';
       for (final axis in <String>['priority', 'workspace']) {
-        final platformName = platform == TargetPlatform.iOS ? 'ios' : 'android';
         testWidgets('$axis pinned ($platformName $themeName)', (tester) async {
           debugDefaultTargetPlatformOverride = platform;
           addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -411,6 +413,31 @@ void main() {
           debugDefaultTargetPlatformOverride = null;
         });
       }
+      // The mockup's revealed-actions wireframe, now the long-press menu of R-30-296 on the
+      // `gemini` row: `Pin` and `Mark as seen`, at the finger on Android, under the row's
+      // preview on iOS.
+      testWidgets('row actions ($platformName $themeName)', (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final fixture = _AgentListFixture();
+        final harness = _Harness(currentAttention: fixture.attention);
+        addTearDown(harness.dispose);
+        await _pumpScreen(tester, brightness, harness.build());
+        await tester.pumpAndSettle();
+        harness.messages.add(fixture.snapshot);
+        await tester.pumpAndSettle();
+        // The `gemini` row is the one `Done` row of the fixture; the press lands on its word.
+        await openRowActions(tester, find.text('Done'));
+        expect(find.text('Pin'), findsOneWidget);
+        expect(find.text('Mark as seen'), findsOneWidget);
+        await expectLater(
+          find.byType(Navigator).first,
+          matchesGoldenFile(
+            'goldens/agent_list_row_actions_${platformName}_$themeName.png',
+          ),
+        );
+        debugDefaultTargetPlatformOverride = null;
+      });
     }
   }
 

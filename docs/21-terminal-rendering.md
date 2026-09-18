@@ -503,7 +503,8 @@ Source: `docs/10-herdr-integration.md`, R-10-024, section 4.10.
 
 **R-21-008.** The Device MUST match the Host pane size, option A. The emulator grid is exactly
 `rect.width` columns by `scroll.viewport_rows` rows, per R-21-009. The latest user screenshots of
-2026-09-08 supersede the earlier same-day fit-default decision. The presentation has two modes:
+2026-09-08 supersede the earlier same-day fit-default decision. The 2026-09-17 user correction
+adds continuous zoom between the two presets:
 
 1. **Readable mode is the default.** It starts at the saved R-21-010 ladder size, 13 logical pixels
    by default, and MUST never shrink automatically. A wide grid clips at the viewport edge, supports
@@ -514,13 +515,15 @@ Source: `docs/10-herdr-integration.md`, R-10-024, section 4.10.
    painter measures it. It MUST adopt the exact `renderTerminal.cellSize` result. The fit MUST
    recompute on viewport width, Host column count, text-size and mode changes. Overview hides the
    column window because the whole grid fits. Its action label is `Readable`, and pressing it
-   immediately restores the current readable ladder size and its exact saved glyph width.
+   immediately restores the size saved in Settings and its exact saved glyph width.
 3. The mode is route-local. It MUST reset for a new pane or a restart, MUST survive rotation, and
    MUST NOT change Host rows, Host columns or saved settings. Rotation MUST preserve the existing
    broadcast ACK controller.
-4. A first pinch threshold in Overview MUST exit to the current readable size without stepping that
-   first threshold. Further pinch thresholds step the existing R-21-010 ladder. Pinch MUST NOT
-   change the Host column count.
+4. A pinch MUST scale continuously from the actual painted size at gesture start, including
+   Overview's fractional fit. It MUST retain the exact custom size after release and rotation,
+   without changing Settings. The bounds come from R-32-208. The mode button MUST keep its
+   labeled destination during custom zoom; pressing it clears the custom size and applies that
+   preset. Subsequent presses alternate Overview and Readable. Pinch MUST NOT change Host geometry.
 
 **Reasoning.** Readable mode makes terminal text legible on first paint while preserving the Host grid.
 Overview remains available for a structural view of a wide pane. Both modes map each rendered cell to
@@ -551,8 +554,9 @@ void resize(int newWidth, int newHeight, [int? pixelWidth, int? pixelHeight])
 
 Source: `lib/src/terminal.dart`, lines 352–377.
 
-**R-21-010.** The terminal text size MUST be one of exactly 10, 11, 12, 13, 14, 16, or 18 logical
-pixels, with 13 as the default, per R-30-210 (docs/30-ux-spec.md). Readable mode starts at the saved
+**R-21-010.** The saved terminal text size MUST be one of exactly 10, 11, 12, 13, 14, 16, or 18
+logical pixels, with 13 as the default, per R-30-210 (docs/30-ux-spec.md). R-21-008 permits a
+temporary continuous zoom without changing that saved value. Readable mode starts at the saved
 size, so the 13px window applies by default. The terminal text size MUST NOT follow the system text
 scale. The line height is 1.3, per the reconciled constant in section 12 of the repository contract.
 The font family is `JetBrainsMono Nerd Font Mono`, per R-21-011.
@@ -1056,8 +1060,8 @@ flowchart TD
 - [ ] Add the labeled `Overview`/`Readable` action and its route-local mode. Recompute Overview's
   measured fit on width, column, size and mode changes, and adopt `renderTerminal.cellSize`
   exactly (R-21-008).
-- [ ] Implement the pinch as a step along the R-21-010 text-size ladder, never as a column-count
-  change (R-21-008).
+- [ ] Implement continuous pinch zoom from the painted size, with exact custom sizes and preset
+  resets, never a Host column-count change (R-21-008).
 - [ ] Never resize the Host pane from either mode; keep `autoResize: false` and the exact grid size
   (R-21-008, R-21-036, R-21-038).
 - [ ] Assert in a test that no code path calls `pane.resize` or `pane.split` from a layout, an

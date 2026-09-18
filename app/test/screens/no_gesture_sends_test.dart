@@ -36,7 +36,7 @@ const ValueKey<String> _gridKey = ValueKey<String>('terminalGridArea');
 Future<List<String>> _pumpGrid(
   WidgetTester tester, {
   VoidCallback? onForceRead,
-  ValueChanged<bool>? onPinchSizeStep,
+  ValueChanged<double?>? onPinchTextSize,
   void Function(({int first, int last})?)? onVisibleColumnsChanged,
   EdgeInsets? viewPadding,
 }) async {
@@ -57,7 +57,7 @@ Future<List<String>> _pumpGrid(
     textSize: 18,
     maxScrollOffsetFromBottom: 50,
     onForceRead: onForceRead,
-    onPinchSizeStep: onPinchSizeStep,
+    onPinchTextSize: onPinchTextSize,
     onVisibleColumnsChanged: onVisibleColumnsChanged,
   );
   if (viewPadding != null) {
@@ -164,16 +164,16 @@ void main() {
   });
 
   testWidgets(
-    'a pinch steps the size callback and sends nothing to the pane (R-30-300, R-30-302)',
+    'a pinch reports the exact scaled size and sends nothing to the pane (R-30-300, R-30-302)',
     (WidgetTester tester) async {
-      final List<bool> steps = <bool>[];
+      final sizes = <double?>[];
       final List<String> sentToPane = await _pumpGrid(
         tester,
-        onPinchSizeStep: steps.add,
+        onPinchTextSize: sizes.add,
       );
 
       // Two fingers down, one moves 50 px: the span grows 100 -> 150,
-      // scale 1.5 — past R-30-302's 1.15 threshold, once.
+      // scale 1.5, applied to the painted 18px size.
       final a = await tester.startGesture(const Offset(350, 300));
       final b = await tester.startGesture(const Offset(450, 300));
       await tester.pump();
@@ -183,9 +183,7 @@ void main() {
       await b.up();
       await tester.pump();
 
-      expect(steps, <bool>[
-        true,
-      ], reason: 'one threshold crossing, one step up');
+      expect(sizes, [27.0]);
       expect(
         sentToPane,
         isEmpty,

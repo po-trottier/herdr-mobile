@@ -199,7 +199,7 @@ class TerminalScreen extends StatefulWidget {
   final TerminalPaneWatcher unwatchPane;
 
   /// The terminal text size the person chose in Settings (R-21-010's
-  /// ladder, R-30-210); a pinch steps it for this screen only.
+  /// ladder, R-30-210). Readable always restores this saved default.
   final int initialTextSize;
 
   /// R-03-131: host_info arrives before this screen opens.
@@ -313,9 +313,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
   _StateDialog? _stateDialog;
   bool _stateDialogSyncScheduled = false;
 
-  late int _textSize = widget.initialTextSize;
+  late final int _textSize = widget.initialTextSize;
   bool _overview = false;
-  int? _sizeFlash;
+  double? _customTextSize;
+  double? _sizeFlash;
   Timer? _sizeFlashTimer;
   ({int first, int last})? _visibleWindow;
 
@@ -752,29 +753,20 @@ class _TerminalScreenState extends State<TerminalScreen> {
     _sizeFlashTimer?.cancel();
     setState(() {
       _overview = !_overview;
+      _customTextSize = null;
       _sizeFlash = null;
     });
   }
 
-  /// R-30-302: one step along the R-21-010 ladder per threshold crossing,
-  /// `haptic.select` on each step, and the new size in the status strip
-  /// for `motion.duration.slow`. Under `disableAnimationsOf` (R-30-730) the
-  /// readout does not time out: it stays until the next step, so no
-  /// information is lost (R-30-732).
-  /// The first threshold in overview restores the current readable size without a step.
-  void _onPinchSizeStep(bool up) {
-    const List<int> sizes = AppType.monoTerminalSizes;
-    final int index = sizes.indexOf(_textSize);
-    final int next = _overview ? index : (up ? index + 1 : index - 1);
-    if (index < 0 || next < 0 || next >= sizes.length) return;
-    unawaited(AppHaptic.select());
+  /// R-30-302: keep an exact route-local zoom, without changing the Settings
+  /// default or the preset button's destination. Continuous motion has no ticks.
+  void _onPinchTextSize(double? size) {
     setState(() {
-      _overview = false;
-      _textSize = sizes[next];
-      _sizeFlash = sizes[next];
+      _customTextSize = size;
+      _sizeFlash = size;
     });
     _sizeFlashTimer?.cancel();
-    if (MediaQuery.disableAnimationsOf(context)) return;
+    if (size == null || MediaQuery.disableAnimationsOf(context)) return;
     _sizeFlashTimer = Timer(AppMotion.durationSlow, () {
       if (mounted) setState(() => _sizeFlash = null);
     });
@@ -1099,6 +1091,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       hostTheme: _service.hostTheme,
       textSize: _textSize,
       overview: _overview,
+      customTextSize: _customTextSize,
       revision: frame.revision,
       hostName: widget.hostName,
       captureTime: _lastFrameAt,
@@ -1120,7 +1113,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
           _service.setSelectionLive(live: live),
       onScrollOffsetChanged: _onScrollOffsetRows,
       onVisibleColumnsChanged: _onVisibleColumnsChanged,
-      onPinchSizeStep: _onPinchSizeStep,
+      onPinchTextSize: _onPinchTextSize,
       onForceRead: _onForceRead,
     );
 

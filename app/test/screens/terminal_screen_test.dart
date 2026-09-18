@@ -3,7 +3,7 @@
 /// since R-03-116, 2026-09-10), the live typing path of R-03-054 and its per-pane ACK filter,
 /// the grid tap that raises the keyboard and never sends (R-31-08-08), readable text, the
 /// column window (R-21-037), and the explicit Overview control.
-/// Other cases cover pinch thresholds (R-30-302), the force-read pull (R-11-053), the live link word
+/// Other cases cover continuous pinch zoom (R-30-302), the force-read pull (R-11-053), the live link word
 /// on a pane taller than the viewport (the 2026-09-03 live-review defect), the live dot's
 /// re-arm on a frame whose revision did not move (Herdr freezes `revision` on agent panes,
 /// 2026-09-03), the R-03-119 alerts of the pane-gone (`tree_update`, R-11-046) and read-failed
@@ -521,6 +521,23 @@ String _gridCell(Terminal terminal, int row, int col) {
   return (first: int.parse(match.group(1)!), last: int.parse(match.group(2)!));
 }
 
+double _paintedTextSize(WidgetTester tester) =>
+    tester.widget<TerminalView>(find.byType(TerminalView)).textStyle.fontSize;
+
+Future<void> _pinchBy(WidgetTester tester, double scale) async {
+  final center = tester.getCenter(find.byKey(_gridKey));
+  final a = await tester.startGesture(center - const Offset(50, 0));
+  final b = await tester.startGesture(center + const Offset(50, 0));
+  final movement = 50 * (scale - 1);
+  await a.moveBy(Offset(-movement, 0));
+  await b.moveBy(Offset(movement, 0));
+  await tester.pump();
+  await tester.pump();
+  await a.up();
+  await b.up();
+  await tester.pump();
+}
+
 Future<void> _toggleOverview(WidgetTester tester) async {
   await tester.tap(find.byKey(_overviewKey));
   await tester.pump();
@@ -529,6 +546,74 @@ Future<void> _toggleOverview(WidgetTester tester) async {
 }
 
 void main() {
+  for (final (waitFrames, returnLive) in [
+    (1, false),
+    (60, false),
+    (60, true),
+  ]) {
+    testWidgets(
+      'a two-finger scroll awaits history through bounce ($waitFrames frames, return live: $returnLive)',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final harness = _Harness(initialTextSize: 16);
+        await _pumpScreen(tester, harness);
+        await _attachLive(tester, harness);
+        final center = tester.getCenter(find.byKey(_gridKey));
+        final a = await tester.startGesture(center - const Offset(50, 0));
+        final b = await tester.startGesture(center + const Offset(50, 0));
+        for (var i = 0; i < 5; i++) {
+          await a.moveBy(const Offset(0, 20));
+          await b.moveBy(const Offset(0, 20));
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await a.up();
+        await b.up();
+        for (var frame = 0; frame < waitFrames; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(harness.scrollRequests, hasLength(1));
+        if (returnLive) {
+          await tester.tap(find.text('to bottom'));
+          await tester.pump(const Duration(milliseconds: 600));
+          await tester.pump();
+        }
+        harness.emit(
+          Message.scrollResponse(
+            ScrollResponse(
+              paneId: _paneId,
+              lines: 150,
+              truncated: true,
+              text: List.generate(150, (i) => 'history row $i').join('\r\n'),
+            ),
+          ),
+        );
+        for (var frame = 0; frame < 5; frame++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(
+          tester
+              .widget<TerminalView>(find.byType(TerminalView))
+              .terminal
+              .buffer
+              .lines
+              .length,
+          returnLive ? 50 : 150,
+        );
+        expect(
+          tester
+              .widget<TerminalViewWidget>(find.byType(TerminalViewWidget))
+              .customTextSize,
+          isNull,
+        );
+        expect(_paintedTextSize(tester), 16);
+        expect(harness.sendInputs, isEmpty);
+        await _flushDotTimer(tester);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
+
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     testWidgets(
       'short live grid still loads history on an ordinary drag on ${platform.name}',
@@ -1411,196 +1496,144 @@ void main() {
     },
   );
 
-  testWidgets('a pinch steps the text size only past the 1.15 threshold and flashes it in the '
-      'strip (R-30-302)', (tester) async {
-    final harness = _Harness();
-    await _pumpScreen(tester, harness);
-    await _attachLive(tester, harness);
-    final initialWindow = _columnWindow(tester);
-    expect(
-      tester.widget<TerminalView>(find.byType(TerminalView)).textStyle.fontSize,
-      13.0,
-    );
+  testWidgets(
+    'pinch chooses fractional sizes continuously and keeps the Settings default',
+    (tester) async {
+      final harness = _Harness();
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness);
+      final initialWindow = _columnWindow(tester);
+      await _pinchBy(tester, 1.1);
+      expect(_paintedTextSize(tester), closeTo(14.3, 0.001));
+      expect(find.textContaining('14.3px'), findsOneWidget);
+      expect(_columnWindow(tester).last, lessThan(initialWindow.last));
+      await _pinchBy(tester, 0.65);
+      expect(_paintedTextSize(tester), closeTo(9.295, 0.001));
+      expect(_columnWindow(tester).last, greaterThan(initialWindow.last));
+      expect(
+        tester
+            .widget<TerminalViewWidget>(find.byType(TerminalViewWidget))
+            .textSize,
+        13,
+      );
+      await _toggleOverview(tester);
+      await _toggleOverview(tester);
+      expect(_paintedTextSize(tester), 13);
+      await _flushDotTimer(tester);
+    },
+  );
 
-    // A 10% span increase stays below the 1.15 threshold.
-    final a1 = await tester.startGesture(const Offset(145, 400));
-    final b1 = await tester.startGesture(const Offset(245, 400));
-    await tester.pump();
-    await a1.moveBy(const Offset(-5, 0));
-    await b1.moveBy(const Offset(5, 0));
-    await tester.pump();
-    expect(find.textContaining('px'), findsNothing);
-    expect(_columnWindow(tester), initialWindow);
-    expect(
-      tester.widget<TerminalView>(find.byType(TerminalView)).textStyle.fontSize,
-      13.0,
-    );
-    await a1.up();
-    await b1.up();
-    await tester.pump();
+  testWidgets(
+    'a fine pinch does not open the keyboard but the next tap still does',
+    (tester) async {
+      final harness = _Harness();
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness);
+      expect(tester.testTextInput.isVisible, isFalse);
+      await _pinchBy(tester, 1.02);
+      expect(_paintedTextSize(tester), closeTo(13.26, 0.001));
+      expect(tester.testTextInput.isVisible, isFalse);
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.tap(find.byKey(_gridKey));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      expect(harness.sendInputs, isEmpty);
+      await _flushDotTimer(tester);
+    },
+  );
 
-    // A 50% span increase crosses the threshold and changes 13px to 14px.
-    final a2 = await tester.startGesture(const Offset(145, 400));
-    final b2 = await tester.startGesture(const Offset(245, 400));
-    await tester.pump();
-    await a2.moveBy(const Offset(-50, 0));
-    await tester.pump();
-    await a2.up();
-    await b2.up();
-    await tester.pump();
-    final cellWidth = tester
-        .state<TerminalViewState>(find.byType(TerminalView))
-        .renderTerminal
-        .cellSize
-        .width;
-    final visible = (tester.getSize(find.byKey(_gridKey)).width / cellWidth)
-        .floor();
-    final window = _columnWindow(tester);
-    expect(
-      window.last - window.first + 1,
-      inInclusiveRange(visible, visible + 1),
-    );
-    expect(visible, lessThan(initialWindow.last));
-    expect(
-      tester.widget<TerminalView>(find.byType(TerminalView)).textStyle.fontSize,
-      14.0,
-    );
-    expect(find.textContaining('14px'), findsOneWidget);
+  testWidgets(
+    'continuous pinch updates use the gesture baseline and ignore a third finger',
+    (tester) async {
+      final harness = _Harness();
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness);
+      final center = tester.getCenter(find.byKey(_gridKey));
+      final a = await tester.startGesture(center - const Offset(50, 0));
+      final b = await tester.startGesture(center + const Offset(50, 0));
+      await a.moveBy(const Offset(-10, 0));
+      await tester.pump();
+      await tester.pump();
+      expect(_paintedTextSize(tester), closeTo(14.3, 0.001));
+      await b.moveBy(const Offset(20, 0));
+      await tester.pump();
+      await tester.pump();
+      expect(_paintedTextSize(tester), closeTo(16.9, 0.001));
+      final c = await tester.startGesture(center + const Offset(0, 50));
+      await a.moveBy(const Offset(-30, 0));
+      await tester.pump();
+      expect(_paintedTextSize(tester), closeTo(16.9, 0.001));
+      await c.up();
+      await b.moveBy(const Offset(20, 0));
+      await tester.pump();
+      expect(_paintedTextSize(tester), closeTo(16.9, 0.001));
+      await a.up();
+      await b.up();
+      await _flushDotTimer(tester);
+    },
+  );
 
-    // The flash clears after motion.duration.slow (320 ms) and the
-    // revision returns, on a no-break space so the readout never splits.
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.textContaining('14px'), findsNothing);
-    expect(find.textContaining('rev\u00a02'), findsOneWidget);
-    await _flushDotTimer(tester);
-  });
-
-  testWidgets('a pinch inward past 0.87 steps the text size down (R-30-302)', (
-    tester,
-  ) async {
-    final harness = _Harness();
-    await _pumpScreen(tester, harness);
-    await _attachLive(tester, harness);
-    final initialWindow = _columnWindow(tester);
-
-    // A 25% span decrease crosses the threshold and changes 13px to 12px.
-    final a = await tester.startGesture(const Offset(145, 400));
-    final b = await tester.startGesture(const Offset(245, 400));
-    await tester.pump();
-    await a.moveBy(const Offset(25, 0));
-    await tester.pump();
-    await a.up();
-    await b.up();
-    await tester.pump();
-    final cellWidth = tester
-        .state<TerminalViewState>(find.byType(TerminalView))
-        .renderTerminal
-        .cellSize
-        .width;
-    final visible = (tester.getSize(find.byKey(_gridKey)).width / cellWidth)
-        .floor();
-    final window = _columnWindow(tester);
-    expect(
-      window.last - window.first + 1,
-      inInclusiveRange(visible, visible + 1),
-    );
-    expect(visible, greaterThan(initialWindow.last));
-    expect(
-      tester.widget<TerminalView>(find.byType(TerminalView)).textStyle.fontSize,
-      12.0,
-    );
-    expect(find.textContaining('12px'), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 400));
-    await _flushDotTimer(tester);
-  });
-
-  for (final (textSize, movement, nextSize) in [
-    (13, const Offset(-50, 0), 14),
-    (18, const Offset(25, 0), 16),
-  ]) {
+  for (final textSize in [13, 18]) {
     testWidgets(
-      'the first overview pinch restores ${textSize}px and the next threshold changes it to ${nextSize}px',
+      'Overview pinch keeps intermediate zoom and Readable restores Settings $textSize',
       (tester) async {
         final harness = _Harness(initialTextSize: textSize);
         await _pumpScreen(tester, harness);
         await _attachLive(tester, harness, columns: 282);
-        final readableCell = tester
-            .state<TerminalViewState>(find.byType(TerminalView))
-            .renderTerminal
-            .cellSize;
-        final readableWidth = tester.getSize(find.byKey(_cellsKey)).width;
+        final terminal = tester
+            .widget<TerminalView>(find.byType(TerminalView))
+            .terminal;
         final sentBefore = List<Message>.of(harness.sent);
         await _toggleOverview(tester);
+        final fittedSize = _paintedTextSize(tester);
+        expect(fittedSize, lessThan(10));
+        await _pinchBy(tester, 1.25);
+        expect(_paintedTextSize(tester), closeTo(fittedSize * 1.25, 0.001));
+        expect(_paintedTextSize(tester), lessThan(textSize));
         expect(find.text('Readable').hitTestable(), findsOneWidget);
-
-        final center = tester.getCenter(find.byKey(_gridKey));
-        final a = await tester.startGesture(center - const Offset(50, 0));
-        final b = await tester.startGesture(center + const Offset(50, 0));
-        await tester.pump();
-        await a.moveBy(movement);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-
-        expect(find.text('Overview').hitTestable(), findsOneWidget);
-        expect(find.text('Readable'), findsNothing);
-        expect(
-          tester
-              .widget<TerminalView>(find.byType(TerminalView))
-              .textStyle
-              .fontSize,
-          textSize.toDouble(),
-        );
-        expect(
-          tester
-              .state<TerminalViewState>(find.byType(TerminalView))
-              .renderTerminal
-              .cellSize,
-          readableCell,
-        );
-        expect(tester.getSize(find.byKey(_cellsKey)).width, readableWidth);
-        expect(find.textContaining(RegExp(r'c\d+-\d+')), findsOneWidget);
-        expect(
-          tester
-              .widget<TerminalViewWidget>(find.byType(TerminalViewWidget))
-              .textSize,
-          textSize,
-        );
-
-        await a.moveBy(movement);
-        await tester.pump();
-        await tester.pump();
-        expect(
-          tester
-              .widget<TerminalView>(find.byType(TerminalView))
-              .textStyle
-              .fontSize,
-          nextSize.toDouble(),
-        );
-        expect(find.textContaining('${nextSize}px'), findsOneWidget);
-        await a.up();
-        await b.up();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
-
+        final custom = _paintedTextSize(tester);
+        await tester.pump(const Duration(seconds: 1));
+        expect(_paintedTextSize(tester), custom);
+        await _pinchBy(tester, 1.2);
+        expect(_paintedTextSize(tester), closeTo(custom * 1.2, 0.001));
         await _toggleOverview(tester);
+        expect(_paintedTextSize(tester), textSize.toDouble());
         await _toggleOverview(tester);
-        final view = tester.widget<TerminalView>(find.byType(TerminalView));
-        expect(view.textStyle.fontSize, nextSize.toDouble());
-        expect(view.autoResize, isFalse);
-        expect(view.terminal.viewWidth, 282);
-        expect(view.terminal.viewHeight, 50);
+        expect(_paintedTextSize(tester), closeTo(fittedSize, 0.001));
+        expect(terminal.viewWidth, 282);
+        expect(terminal.viewHeight, 50);
         expect(
-          tester
-              .widget<TerminalScreen>(find.byType(TerminalScreen))
-              .initialTextSize,
-          textSize,
+          tester.widget<TerminalView>(find.byType(TerminalView)).terminal,
+          same(terminal),
         );
         expect(harness.sent, sentBefore);
         await _flushDotTimer(tester);
       },
     );
   }
+
+  testWidgets(
+    'custom zoom survives rotation without changing Host geometry or Settings',
+    (tester) async {
+      final harness = _Harness(initialTextSize: 16);
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness, columns: 282);
+      await _toggleOverview(tester);
+      await _pinchBy(tester, 1.6);
+      final custom = _paintedTextSize(tester);
+      final sentBefore = List<Message>.of(harness.sent);
+      tester.view.physicalSize = const Size(844, 390);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      expect(_paintedTextSize(tester), custom);
+      expect(find.text('Readable').hitTestable(), findsOneWidget);
+      await _toggleOverview(tester);
+      expect(_paintedTextSize(tester), 16);
+      expect(harness.sent, sentBefore);
+      await _flushDotTimer(tester);
+    },
+  );
 
   testWidgets('a pull down from the top of the grid while at the bottom sends one scroll_request '
       '(force a read, R-11-053)', (tester) async {
@@ -1966,7 +1999,7 @@ void main() {
     expect(tester.testTextInput.isVisible, isTrue);
     expect(harness.sendInputs, isEmpty);
 
-    // The pinch reduces the column window and sets the grid font to 14px.
+    // The pinch reduces the column window and scales the grid by 50%.
     final a = await tester.startGesture(const Offset(345, 150));
     final b = await tester.startGesture(const Offset(445, 150));
     await tester.pump();
@@ -1991,7 +2024,7 @@ void main() {
     expect(visible, lessThan(initialWindow.last));
     expect(
       tester.widget<TerminalView>(find.byType(TerminalView)).textStyle.fontSize,
-      14.0,
+      19.5,
     );
     await _flushDotTimer(tester);
   });

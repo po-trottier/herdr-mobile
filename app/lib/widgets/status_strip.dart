@@ -114,7 +114,7 @@ class StatusStrip extends StatelessWidget {
   /// on in the status strip for `motion.duration.slow`. The caller owns
   /// the timing; non-null takes the trailing slot for that moment (the
   /// leading group has no width to spare on a 390-pixel screen).
-  final int? textSizeFlash;
+  final double? textSizeFlash;
 
   @override
   Widget build(BuildContext context) {
@@ -125,7 +125,7 @@ class StatusStrip extends StatelessWidget {
     // R-31-08-18: the scroll readout whenever the Device's own offset is above zero, the
     // revision otherwise; R-30-302's size flash takes the slot for its slow duration.
     final String trailing = textSizeFlash != null
-        ? '${textSizeFlash}px'
+        ? '${textSizeFlash!.toStringAsFixed(textSizeFlash == textSizeFlash!.roundToDouble() ? 0 : 1)}px'
         : scrollOffsetFromBottom > 0
         ? '-$scrollOffsetFromBottom\u00a0/\u00a0$scrollMaxOffsetFromBottom'
         : 'rev\u00a0$revision';

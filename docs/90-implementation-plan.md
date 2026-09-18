@@ -942,7 +942,10 @@ The five integration steps:
   other package is involved. The 2026-09-17 scrollback repair also lands here: the terminal
   service, grid widget, screen, and their existing service/widget/screen tests stay with these
   owners. It implements history rendering, progressive window expansion, and bounded rendering
-  and accessibility work during ordinary scrolling without a wire change.
+  and accessibility work during ordinary scrolling without a wire change. The same day's zoom
+  correction updates `WP-16-b`'s widget and `WP-16-c`'s screen, status strip, and screen tests.
+  Its callback contract becomes an exact custom font size, or null to restore a preset. `WP-17` adapts
+  `app/test/screens/no_gesture_sends_test.dart` to that callback and retains its no-input assertion.
 - **`INT-25-host`** — `WP-25` writes `crates/herdr-relay/src/bridge.rs`, `src/control.rs`,
   `src/main.rs`, `src/pairing.rs`, `src/popup.rs`, `src/store.rs`, `tests/popup_once.rs` and the
   two `relayctl` shims once, after `WP-0-a`, `WP-6`, `WP-10-a`, `WP-10-b`, `WP-10-c` and `WP-11`
@@ -4570,7 +4573,7 @@ way `pane_actions_sheet.dart` does),
       `app/lib/widgets/terminal_view_widget.dart` (R-31-08-07, R-21-009).
 - [x] Measure character width with a Unicode East Asian Width table and render a double-width code
       point across two cells, in `app/lib/models/char_width.dart` (R-10-023).
-- [x] Implement the pinch as a step along the `R-21-010` text-size ladder, never as a column-count
+- [x] Implement continuous pinch zoom with preset resets under `R-21-008`, never as a column-count
       change, in `app/lib/widgets/terminal_view_widget.dart` (R-21-008, R-31-08-07).
 - [x] Never ask the Host to resize a pane, automatically or on request; the phone adapts to the Host
       grid, in `app/lib/services/terminal.dart` (R-21-036, R-31-08-07).

@@ -84,6 +84,133 @@ Terminal _terminal({String? feed}) {
 }
 
 void main() {
+  for (final overview in [false, true]) {
+    testWidgets(
+      'two fingers scroll without changing the preset (overview: $overview)',
+      (tester) async {
+        final terminal = Terminal(maxLines: 0)..resize(80, 100);
+        terminal.write(
+          List.generate(100, (i) => 'history row $i').join('\r\n'),
+        );
+        final zoom = ValueNotifier<double?>(null);
+        var requests = 0;
+        addTearDown(terminal.dispose);
+        addTearDown(zoom.dispose);
+        await tester.pumpWidget(
+          _harness(
+            child: ValueListenableBuilder<double?>(
+              valueListenable: zoom,
+              builder: (context, size, child) => TerminalViewWidget(
+                palette: AppColor.dark,
+                phase: TerminalGridPhase.live,
+                terminal: terminal,
+                overview: overview,
+                customTextSize: size,
+                onPinchTextSize: (value) => zoom.value = value,
+                historyVisible: true,
+                historyCanLoadMore: true,
+                maxScrollOffsetFromBottom: 1000,
+                onRequestScrollback: () => requests++,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        final view = tester.widget<TerminalView>(find.byType(TerminalView));
+        final originalSize = view.textStyle.fontSize;
+        final scroll = view.scrollController!;
+        scroll.jumpTo(200);
+        await tester.pump();
+        final center = tester.getCenter(
+          find.byKey(const ValueKey('terminalGridArea')),
+        );
+        final a = await tester.startGesture(center - const Offset(50, 0));
+        final b = await tester.startGesture(center + const Offset(50, 0));
+        for (var i = 0; i < 5; i++) {
+          await a.moveBy(const Offset(0, 20));
+          await b.moveBy(const Offset(0, 20));
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(scroll.offset, lessThan(150));
+        expect(requests, 1);
+        expect(
+          zoom.value,
+          isNull,
+          reason: 'a scroll preserves the starting preset',
+        );
+        expect(
+          tester
+              .widget<TerminalView>(find.byType(TerminalView))
+              .textStyle
+              .fontSize,
+          originalSize,
+        );
+        await a.up();
+        await b.up();
+        await tester.pump();
+        final beforeSingleDrag = scroll.offset;
+        await tester.drag(
+          find.byKey(const ValueKey('terminalGridArea')),
+          const Offset(0, -80),
+        );
+        await tester.pump();
+        expect(scroll.offset, greaterThan(beforeSingleDrag));
+      },
+    );
+  }
+
+  for (final existingSelection in [false, true]) {
+    testWidgets(
+      'a slow fine pinch preserves selection state (selected: $existingSelection)',
+      (tester) async {
+        final terminal = Terminal(maxLines: 0)..resize(80, 100);
+        terminal.write(
+          List.generate(
+            100,
+            (i) => 'terminal row $i with selectable words',
+          ).join('\r\n'),
+        );
+        final controller = TerminalController();
+        addTearDown(terminal.dispose);
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          _harness(
+            child: TerminalViewWidget(
+              palette: AppColor.dark,
+              phase: TerminalGridPhase.live,
+              terminal: terminal,
+              controller: controller,
+              onPinchTextSize: (_) {},
+            ),
+          ),
+        );
+        await tester.pump();
+        if (existingSelection) {
+          controller.setSelection(
+            terminal.buffer.createAnchorFromOffset(const CellOffset(0, 85)),
+            terminal.buffer.createAnchorFromOffset(const CellOffset(8, 85)),
+          );
+          await tester.pump();
+        }
+        final before = controller.selection;
+        final center = tester.getCenter(
+          find.byKey(const ValueKey('terminalGridArea')),
+        );
+        final a = await tester.startGesture(center - const Offset(50, 0));
+        final b = await tester.startGesture(center + const Offset(50, 0));
+        await a.moveBy(const Offset(-1, 0));
+        await b.moveBy(const Offset(1, 0));
+        // Past both the app's 400ms and xterm's 500ms long-press deadlines.
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(controller.selection, before);
+        await a.up();
+        await b.up();
+        await tester.pump();
+        expect(controller.selection, before);
+      },
+    );
+  }
+
   testWidgets(
     'scrolling history preserves the renderer theme and bounds accessibility work',
     (tester) async {

@@ -356,11 +356,11 @@ tokens with their exact size, line height, weight and letter spacing.
   bundle size for a difference nobody reads at the smallest token size.
 - **R-30-210** `type.mono.terminal` is the only token whose size the user can change. `R-32-208`
   fixes the permitted sizes and the default, and this document keeps ownership of the rule that
-  there is one changeable token and one closed list. The line height comes from the ratio that
-  `docs/21-terminal-rendering.md` fixes in `R-21-010`, applied as `R-32-209` states, and this
-  document MUST NOT restate that ratio.
-- **R-30-211** The app MUST NOT offer a continuous font size slider. A closed list covers every
-  real need and keeps the grid measurement testable.
+  Settings uses one changeable token with a closed list. Temporary pinch zoom follows R-21-008.
+  The line height comes from the ratio in `docs/21-terminal-rendering.md` R-21-010, applied as
+  R-32-209 states, and this document MUST NOT restate that ratio.
+- **R-30-211** Settings MUST use the closed list for its font size slider. Temporary terminal
+  zoom is continuous under R-21-008 and MUST NOT change the saved Settings value.
 - **R-30-212** A monospace token MUST NOT be used for a sentence, and a sans token MUST NOT be
   used for a path, an id, a raw error, or terminal content.
 - **R-30-213** Letter spacing is 0 on every token except the upper case section header token, as
@@ -555,7 +555,7 @@ easiest thing to trigger by accident in a pocket.
 | Scroll by a page | Two finger vertical drag | no |
 | Jump to the bottom | Tap the `to bottom` pill, or drag to the bottom, which resumes the live follow on its own | no |
 | Pan the columns | One finger horizontal drag, only when the grid is wider than the screen | no |
-| Change the terminal font size | Two finger pinch. It steps through the seven sizes in `R-30-210` and never lands between them | no |
+| Change the terminal font size | Two finger pinch. It scales continuously from the current painted size, per `R-21-008` | no |
 | Zoom the QR camera | Multiply the gesture-start factor by the cumulative two-finger pinch scale; clamp to the device range, per `R-31-02-13` | no |
 | Force a read | Pull down from the top of the grid while already at the bottom | no |
 | Move the cursor | The arrow keys in the key row. There is no gesture for this | yes |
@@ -586,9 +586,11 @@ easiest thing to trigger by accident in a pocket.
   phone keyboard's own symbol pages, so no key of this row types a character).
 - **R-30-301** A long press MUST be 400 ms. A double tap window MUST be 300 ms. A triple tap
   window MUST be 300 ms between the second and the third tap.
-- **R-30-302** A pinch MUST step to the next permitted size when the scale factor passes 1.15,
-  and to the previous size when it passes 0.87. It MUST fire `haptic.select` on each step and MUST
-  show the new size in the status strip for `motion.duration.slow`.
+- **R-30-302** A pinch MUST multiply the gesture-start painted font size by the cumulative
+  two-finger scale, under R-21-008. It MUST NOT snap to Settings presets or produce haptic ticks.
+  The portrait status strip MUST show the current size, rounded to one decimal for display only,
+  for `motion.duration.slow` after the last change. The stored custom size MUST retain its precision.
+  A pinch MUST NOT also trigger a tap, text selection, horizontal pan, or a force-read request.
 - **R-30-303** A three finger gesture MUST be unbound. It is reserved and MUST do nothing.
 - **R-30-304** The grid MUST NOT accept a paste. The grid is read-only output rendered from the
   workstation, and the write path is the native composer. Its native paste sends the edit to the

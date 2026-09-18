@@ -10,9 +10,10 @@
 /// [Terminal.viewWidth] columns wide, set from the outside by whoever owns the [Terminal] instance,
 /// and this file only ever *reads* that size, through `autoResize: false` and
 /// `textScaler: TextScaler.noScaling` (R-21-038). The readable view uses
-/// [TerminalViewWidget.textSize], including the default 13 logical pixels. Only explicit
-/// [TerminalViewWidget.overview] shrinks cells until every Host column fits (R-21-008, latest correction 2026-09-08).
-/// Both modes adopt the render object's exact cell metrics. A wide readable grid supports pan.
+/// [TerminalViewWidget.textSize], including the default 13 logical pixels.
+/// [TerminalViewWidget.overview] fits every Host column; [TerminalViewWidget.customTextSize]
+/// retains a continuous pinch zoom between or beyond the presets (R-21-008).
+/// Every zoom adopts the render object's exact cell metrics. A wide grid supports pan.
 /// The pannable grid rectangle carries the `terminalGridCells` key, the viewport Stack carries
 /// `terminalGridArea`. A caller — `terminal.dart`, or the screen that
 /// composes it with this widget — owns calling `Terminal.write` and `Terminal.resize`; this file
@@ -46,10 +47,14 @@ import 'dart:ui'
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart'
     show
+        Drag,
+        GestureDisposition,
         HorizontalDragGestureRecognizer,
         LongPressGestureRecognizer,
         LongPressMoveUpdateDetails,
-        LongPressStartDetails;
+        LongPressStartDetails,
+        OneSequenceGestureRecognizer,
+        kTouchSlop;
 import 'package:flutter/material.dart'
     show
         AdaptiveTextSelectionToolbar,
@@ -89,11 +94,9 @@ import 'treatments.dart';
 /// for `opacity.disabled`.
 const double _opacityDim = 0.60;
 
-/// R-30-302's pinch thresholds: the terminal text size steps up the
-/// R-21-010 ladder when the gesture's scale passes 1.15, and down when it
-/// passes 0.87. The gesture never lands between ladder sizes.
-const double _pinchUpThreshold = 1.15;
-const double _pinchDownThreshold = 0.87;
+/// R-32-208: temporary pinch zoom is continuous; Settings still uses its presets.
+const double _minimumZoomTextSize = 1;
+const double _maximumZoomTextSize = 36;
 
 /// The measured cell metrics of the bundled terminal font, per logical
 /// pixel of font size: the maximum printable-ASCII advance and line height
@@ -107,7 +110,7 @@ const double _pinchDownThreshold = 0.87;
 final Size _cellMetricsPerPt = _measureCellMetricsPerPt();
 
 /// The estimate of one cell at [fontSize], linear from the reference
-/// measurement. The first layout of a fit or a size step sizes the grid
+/// measurement. The first layout of a fit or a size change sizes the grid
 /// box with this; the post-frame adoption replaces it with the painted
 /// cell, which hint quantization can shift off the linear value at a
 /// fractional point size.
@@ -288,6 +291,7 @@ class TerminalViewWidget extends StatefulWidget {
     this.controller,
     this.textSize = AppType.monoTerminalDefaultSize,
     this.overview = false,
+    this.customTextSize,
     this.revision,
     this.hostName,
     this.captureTime,
@@ -307,7 +311,7 @@ class TerminalViewWidget extends StatefulWidget {
     this.onSelectionLiveChanged,
     this.onScrollOffsetChanged,
     this.onVisibleColumnsChanged,
-    this.onPinchSizeStep,
+    this.onPinchTextSize,
     this.onForceRead,
   }) : assert(
          phase == TerminalGridPhase.loadingFirstPaint || terminal != null,
@@ -345,6 +349,9 @@ class TerminalViewWidget extends StatefulWidget {
   /// Fits every Host column into the viewport without changing the readable [textSize].
   /// The screen owns this temporary mode. It starts false on each pane visit.
   final bool overview;
+
+  /// A route-local pinch size. Overrides either preset without changing [textSize].
+  final double? customTextSize;
 
   /// `pane.revision`, shown by `app/lib/widgets/status_strip.dart`
   /// (`WP-16-c`), not this file; kept here only so a caller has one place to
@@ -426,13 +433,10 @@ class TerminalViewWidget extends StatefulWidget {
   /// `StatusStrip.firstVisibleColumn`/`lastVisibleColumn`.
   final ValueChanged<({int first, int last})?>? onVisibleColumnsChanged;
 
-  /// Fires when a two-finger pinch crosses one of R-30-302's thresholds:
-  /// `true` for one step up the R-21-010 ladder, `false` for one step
-  /// down. This file owns no ladder: the caller holds the current size,
-  /// steps it, fires `haptic.select`, and rebuilds this widget with the
-  /// new [textSize] — a pinch moves the text size, never the column
-  /// count (R-21-008).
-  final ValueChanged<bool>? onPinchSizeStep;
+  /// R-30-302: reports the gesture-start painted size times the cumulative scale.
+  /// The caller retains it in [customTextSize]; null restores the starting preset
+  /// when the gesture becomes a two-finger scroll. Host geometry never changes.
+  final ValueChanged<double?>? onPinchTextSize;
 
   /// Fires on the force-read gesture of `docs/30-ux-spec.md`'s gesture
   /// table: a pull down that starts at the top of the grid while the
@@ -443,6 +447,24 @@ class TerminalViewWidget extends StatefulWidget {
 
   @override
   State<TerminalViewWidget> createState() => _TerminalViewWidgetState();
+}
+
+/// Claims a two-pointer gesture before tap/long-press deadlines, including tiny
+/// pinches below Flutter's scale slop. The Listener still supplies exact spans.
+/// Single-pointer gestures remain available to the terminal's native recognizers.
+class _PinchGestureRecognizer extends OneSequenceGestureRecognizer {
+  void claim() => resolve(GestureDisposition.accepted);
+
+  @override
+  void handleEvent(PointerEvent event) =>
+      stopTrackingIfPointerNoLongerDown(event);
+
+  @override
+  void didStopTrackingLastPointer(int pointer) =>
+      resolve(GestureDisposition.rejected);
+
+  @override
+  String get debugDescription => 'terminal pinch';
 }
 
 class _TerminalViewWidgetState extends State<TerminalViewWidget> {
@@ -475,7 +497,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   double _viewportColumns = 0;
   double _viewportHeight = 0;
 
-  /// The readable [TerminalViewWidget.textSize], or the corrected fit size in overview.
+  /// The current custom size, readable preset, or corrected Overview fit.
   /// A width, column count, readable size, or mode change recomputes this value.
   double _fontSize = AppType.monoTerminalDefaultSize.toDouble();
 
@@ -493,25 +515,23 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
 
   /// The current fit inputs and the width the last correction targeted.
   /// At most two corrections use the painted cell ratio to prevent oscillation.
-  (double, int, int, bool)? _fitKey;
+  (double, int, int, bool, double?)? _fitKey;
   double _lastAvailableWidth = 0;
   int _fitCorrections = 0;
   bool _metricsAdoptionScheduled = false;
 
-  // The pinch's two tracked pointers, read straight off the `Listener`:
-  // a `ScaleGestureRecognizer` shares the gesture arena with `xterm2`'s
-  // own tap, long-press and scroll recognizers plus this file's pan
-  // recognizer, and in that arena it never reaches its scale slop, so
-  // the pinch is tracked here without entering the arena at all — the
-  // same pattern the force-read pull uses below. R-30-303: a third
-  // pointer keeps the gesture unbound.
+  // Raw positions retain sub-slop precision. The recognizer claims two fingers
+  // immediately to suppress taps and selection. Coordinated vertical movement
+  // still drives the platform's scroll activity. A third finger stays unbound.
   final Map<int, Offset> _pinchPointers = <int, Offset>{};
+  final _pinchRecognizer = _PinchGestureRecognizer();
   double? _pinchStartSpan;
-
-  /// The scale value at which the last pinch step fired, so one gesture
-  /// can step the R-21-010 ladder more than once (R-30-302). Reset to 1
-  /// when the second pointer lands.
-  double _pinchReferenceScale = 1;
+  List<Offset> _pinchStartPoints = const [];
+  Offset _twoFingerScrollCenter = Offset.zero;
+  Drag? _twoFingerScroll;
+  bool _twoFingerScrolling = false;
+  double _pinchStartTextSize = 0;
+  double? _pinchStartCustomTextSize;
 
   // The force-read pull's one tracked pointer: a second finger never
   // joins this gesture (R-30-303 leaves multi-finger unbound beyond the
@@ -593,6 +613,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   void dispose() {
     _firstPaintTimer?.cancel();
     widget.terminal?.removeListener(_onTerminalContentChanged);
+    _twoFingerScroll?.cancel();
     _verticalScroll
       ..removeListener(_onVerticalScroll)
       ..dispose();
@@ -600,6 +621,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     if (_ownsController) _controller.dispose();
     _panRecognizer?.dispose();
     _longPressRecognizer?.dispose();
+    _pinchRecognizer.dispose();
     super.dispose();
   }
 
@@ -633,10 +655,13 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     final position = _verticalScroll.position;
     if (!position.hasContentDimensions) return;
     _viewportTopRows = position.pixels / _cellHeight;
-    final double offset = (_liveBottom - position.pixels).clamp(
-      0.0,
-      double.infinity,
-    );
+    double offset = (_liveBottom - position.pixels).clamp(0.0, double.infinity);
+    // A native spring-back is not a request to leave history. Retain a row of
+    // scroll intent while this two-finger gesture waits for its first reply.
+    // A new gesture or the explicit bottom action clears the latch.
+    if (_twoFingerScrolling && _historyRequested && !widget.historyVisible) {
+      offset = _max(offset, _cellHeight);
+    }
     if (offset == _verticalOffsetFromBottom) return;
     setState(() => _verticalOffsetFromBottom = offset);
     widget.onScrollOffsetChanged?.call((offset / _cellHeight).round());
@@ -695,6 +720,14 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// Restore the content viewport after layout without reporting a user scroll.
   void _syncVerticalViewport() {
     if (!_verticalScroll.hasClients) return;
+    // Let a two-finger drag and its native bounce finish without snapping an
+    // overscroll back to zero, cancelling the drag and its pending history read.
+    // A new history window still restores its row anchor immediately.
+    if (_twoFingerScrolling &&
+        _userScrollInProgress &&
+        !_historyViewportPending) {
+      return;
+    }
     final position = _verticalScroll.position;
     if (!position.hasContentDimensions) return;
     if (_historyViewportPending) {
@@ -746,6 +779,8 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// into the unobscured width and never enlarges the selected size (R-21-008).
   /// The painted cell replaces this estimate after layout. Host geometry never changes.
   double _candidateFontSize(double availableWidth) {
+    final custom = widget.customTextSize;
+    if (custom != null) return custom;
     final int textSize = widget.textSize;
     if (!widget.overview) {
       return textSize.toDouble();
@@ -773,6 +808,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
       double? corrected;
       final int columns = _gridColumns;
       if (widget.overview &&
+          widget.customTextSize == null &&
           _fitCorrections < 2 &&
           columns > 0 &&
           columns * cell.width > _lastAvailableWidth + 0.5) {
@@ -826,54 +862,103 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
+    if (_pinchPointers.length >= 2) return;
     setState(() {
       _horizontalOffsetColumns -= details.delta.dx / _cellWidth;
       _clampHorizontalOffset();
     });
   }
 
-  /// R-30-302: one step per threshold crossing, re-baselined at each
-  /// crossing so a long pinch walks the ladder; the size itself is the
-  /// caller's state (this widget never holds it past [textSize]). The
-  /// span is the distance between the two tracked pointers.
+  /// Scale from the actual painted size, including Overview's fractional fit.
+  /// Repeated updates use the same baseline, so they never compound or snap.
   void _onPinchMove() {
-    final callback = widget.onPinchSizeStep;
+    final callback = widget.onPinchTextSize;
     final start = _pinchStartSpan;
-    if (callback == null || start == null || _pinchPointers.length != 2) {
+    if (callback == null ||
+        start == null ||
+        start <= 0 ||
+        _pinchPointers.length != 2) {
       return;
     }
     final points = _pinchPointers.values.toList();
     final double span = (points[0] - points[1]).distance;
     if (span <= 0) return;
-    final double scale = span / start;
-    if (scale > _pinchReferenceScale * _pinchUpThreshold) {
-      _pinchReferenceScale = scale;
-      callback(true);
-    } else if (scale < _pinchReferenceScale * _pinchDownThreshold) {
-      _pinchReferenceScale = scale;
-      callback(false);
+    final center = (points[0] + points[1]) / 2;
+    if (!_twoFingerScrolling && _verticalScroll.hasClients) {
+      final first = points[0].dy - _pinchStartPoints[0].dy;
+      final second = points[1].dy - _pinchStartPoints[1].dy;
+      // Both fingers must travel together; moving only one finger remains a
+      // pinch even when its midpoint moves. Use Flutter's drag slop only for
+      // scrolling, never as a threshold for fine zoom adjustments.
+      if (first * second > 0 &&
+          first.abs() > kTouchSlop &&
+          second.abs() > kTouchSlop &&
+          (span - start).abs() < kTouchSlop) {
+        _twoFingerScrolling = true;
+        callback(_pinchStartCustomTextSize);
+      }
     }
+    if (_twoFingerScrolling && _verticalScroll.hasClients) {
+      _twoFingerScroll ??= _verticalScroll.position.drag(
+        DragStartDetails(globalPosition: center),
+        () => _twoFingerScroll = null,
+      );
+    }
+    final scroll = _twoFingerScroll;
+    if (scroll != null) {
+      final delta = center.dy - _twoFingerScrollCenter.dy;
+      _twoFingerScrollCenter = center;
+      scroll.update(
+        DragUpdateDetails(
+          delta: Offset(0, delta),
+          primaryDelta: delta,
+          globalPosition: center,
+        ),
+      );
+      return;
+    }
+    // A very wide Overview may already fit below the normal minimum. Do not
+    // jump on the first movement in that case; it remains the gesture's floor.
+    final minimum = _pinchStartTextSize < _minimumZoomTextSize
+        ? _pinchStartTextSize
+        : _minimumZoomTextSize;
+    final size = (_pinchStartTextSize * span / start).clamp(
+      minimum,
+      _maximumZoomTextSize,
+    );
+    if (size != widget.customTextSize) callback(size);
   }
 
   void _onPinchPointerDown(PointerDownEvent event) {
-    if (widget.onPinchSizeStep == null) return;
-    _pinchPointers[event.pointer] = event.localPosition;
+    if (widget.onPinchTextSize == null) return;
+    if (_pinchPointers.isEmpty) _twoFingerScrolling = false;
+    _pinchRecognizer.addPointer(event);
+    _pinchPointers[event.pointer] = event.position;
+    if (_pinchPointers.length >= 2) _pinchRecognizer.claim();
     if (_pinchPointers.length == 2) {
       final points = _pinchPointers.values.toList();
+      _pinchStartPoints = points;
+      _twoFingerScrollCenter = (points[0] + points[1]) / 2;
       _pinchStartSpan = (points[0] - points[1]).distance;
-      _pinchReferenceScale = 1;
+      _pinchStartTextSize = _fontSize;
+      _pinchStartCustomTextSize = widget.customTextSize;
+      _forceReadPointer = null;
+    } else if (_pinchPointers.length > 2) {
+      _pinchStartSpan = null;
+      _twoFingerScroll?.cancel();
     }
   }
 
   void _onPinchPointerMove(PointerMoveEvent event) {
     if (!_pinchPointers.containsKey(event.pointer)) return;
-    _pinchPointers[event.pointer] = event.localPosition;
+    _pinchPointers[event.pointer] = event.position;
     _onPinchMove();
   }
 
   void _onPinchPointerEnd(int pointer) {
     if (_pinchPointers.remove(pointer) != null && _pinchPointers.length < 2) {
       _pinchStartSpan = null;
+      _twoFingerScroll?.end(DragEndDetails(primaryVelocity: 0));
     }
   }
 
@@ -886,6 +971,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// drag without entering the gesture arena, so the scrollback drag of
   /// R-30-306 keeps working beside it.
   void _onForceReadPointerDown(PointerDownEvent event, double topInset) {
+    if (_pinchPointers.length >= 2) return;
     if (widget.onForceRead == null || _forceReadPointer != null) return;
     if (_verticalOffsetFromBottom > 0) return; // not at the live bottom
     if (event.localPosition.dy > _forceReadSlop + topInset) return;
@@ -958,6 +1044,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// `RenderTerminal.selectWord` (reached via [_terminalViewKey]) — this
   /// file never reimplements word-boundary detection.
   void _onLongPressStart(LongPressStartDetails details) {
+    if (_pinchPointers.length >= 2) return;
     _lastLongPressStart = details.localPosition;
     _terminalViewKey.currentState?.renderTerminal.selectWord(
       details.localPosition,
@@ -968,6 +1055,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// own long-press-then-drag behaviour (`docs/30-ux-spec.md`'s gesture
   /// table, "Start a free selection").
   void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+    if (_pinchPointers.length >= 2) return;
     final start = _lastLongPressStart;
     if (start == null) return;
     _terminalViewKey.currentState?.renderTerminal.selectWord(
@@ -981,6 +1069,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// perceptible scroll.
   void _jumpToBottom() {
     _userScrollInProgress = false;
+    _twoFingerScrolling = false;
     if (!_verticalScroll.hasClients) return;
     final double bottom = _liveBottom;
     if (MediaQuery.disableAnimationsOf(context)) {
@@ -1095,6 +1184,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
           _gridColumns,
           widget.textSize,
           widget.overview,
+          widget.customTextSize,
         );
         if (fitKey != _fitKey) {
           _fitKey = fitKey;
@@ -1398,6 +1488,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
                     _ => false,
                   };
                   if (movingUp &&
+                      (_pinchPointers.length < 2 || _twoFingerScroll != null) &&
                       _userScrollInProgress &&
                       !_adjustingViewport &&
                       interactive &&

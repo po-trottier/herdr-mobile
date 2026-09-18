@@ -534,9 +534,11 @@ string; the token itself carries no transform.
   one exception the table names: it is a label, not a sentence (amended 2026-09-09 by the product
   owner, per `R-03-104`: the button label was the second exception until a button label became the
   platform's own sans style).
-- **R-32-208** The permitted `type.mono.terminal` sizes are exactly 10, 11, 12, 13, 14, 16 and 18,
-  and the default is 13. This is the value side of `R-30-210`, which `docs/21-terminal-rendering.md`
-  cites in `R-21-010`. There is no eighth size and no continuous slider, per `R-30-211`.
+- **R-32-208** The saved `type.mono.terminal` sizes are exactly 10, 11, 12, 13, 14, 16 and 18,
+  and the default is 13. This is the value side of R-30-210 and R-21-010. Settings uses the
+  discrete slider of R-30-211. Per the 2026-09-17 user correction, temporary pinch zoom permits
+  continuous sizes from 1 to 36 logical pixels. If Overview already paints below that minimum,
+  its painted size is the gesture's lower bound so the first movement cannot jump upward.
 - **R-32-209** The `type.mono.terminal` line height MUST be the size times the ratio `R-21-010`
   fixes, rounded to one decimal. This document MUST NOT restate that ratio.
 - **R-32-210** Every interface token MUST scale with `MediaQuery.textScalerOf(context)` and MUST
@@ -1463,9 +1465,10 @@ This surface follows R-03-133. `docs/31-mockups/09-key-row.md` owns its behaviou
   (`R-32-208`'s default 13 until the person changes it). The strip carries one labelled control:
   `Overview` while the grid is readable, `Readable` while it is in overview. `Overview` shrinks
   the whole Host grid to fit the viewport, however small that makes the glyphs, and `Readable`
-  restores the saved size. A pinch also leaves overview for the saved size. The control MUST be a
-  native labelled control of at least `size.target.min` in both orientations; in landscape the
-  merged bar is at least 56 high, the row range sits above the revision beside the mode action,
+  restores the saved size. A pinch chooses a custom size under R-21-008. During custom zoom,
+  the button retains its labeled preset destination and clears custom zoom when pressed. The button
+  MUST be a native labelled control of at least `size.target.min` in both orientations. In landscape
+  the merged bar is at least 56 high, the row range sits above the revision beside the mode action,
   and the grid size stays in the key row's trailing slot. Neither mode resizes the Host, per
   `docs/21-terminal-rendering.md`, which owns the cell metrics and the pan.
 

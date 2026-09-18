@@ -294,6 +294,9 @@ class TerminalViewWidget extends StatefulWidget {
     this.reconnectAttempt,
     this.errorText,
     this.truncatedAtTop = false,
+    this.historyVisible = false,
+    this.historyTruncated = false,
+    this.onRequestScrollback,
     this.maxScrollOffsetFromBottom = 0,
     this.onGridTap,
     this.onDismissTruncated,
@@ -362,6 +365,13 @@ class TerminalViewWidget extends StatefulWidget {
   /// `true` when the person reached the top of the fetched scrollback and
   /// `scroll_response` reported `truncated: true` (R-31-08-19).
   final bool truncatedAtTop;
+
+  /// The grid currently holds an independent fetched history window.
+  final bool historyVisible;
+  final bool historyTruncated;
+
+  /// Load older output when a drag approaches the first currently available row.
+  final VoidCallback? onRequestScrollback;
 
   /// Host-reported `scroll.max_offset_from_bottom` from `watch_ack`
   /// (`TerminalService.state.scroll`, `WP-16-a`). Gates the scrollback
@@ -436,6 +446,12 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   int _liveContentRows = 1;
   bool _terminalContentDirty = true;
   bool _adjustingViewport = false;
+  bool _historyViewportPending = false;
+  bool _historyRequested = false;
+  bool _userScrollInProgress = false;
+  bool _truncatedDismissed = false;
+  ScrollPhysics? _nativeScrollPhysics;
+  ScrollPhysics? _historyScrollPhysics;
 
   late final ScrollController _verticalScroll;
   late final TerminalController _controller;
@@ -522,6 +538,20 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   @override
   void didUpdateWidget(TerminalViewWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.historyVisible != widget.historyVisible) {
+      _truncatedDismissed = false;
+      _historyViewportPending = widget.historyVisible;
+      if (widget.historyVisible) {
+        _verticalOffsetFromBottom = _max(
+          _verticalOffsetFromBottom,
+          _cellHeight,
+        );
+      } else {
+        _verticalOffsetFromBottom = 0;
+        _viewportTopRows = 0;
+        _historyRequested = false;
+      }
+    }
     if (oldWidget.terminal != widget.terminal) {
       oldWidget.terminal?.removeListener(_onTerminalContentChanged);
       widget.terminal?.addListener(_onTerminalContentChanged);
@@ -637,6 +667,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// (measured live 2026-09-11).
   double get _liveBottom {
     final position = _verticalScroll.position;
+    if (widget.historyVisible) return position.maxScrollExtent;
     final double viewport = position.viewportDimension;
     final double inkBottom = _liveContentRows * _cellHeight;
     final double current = position.pixels;
@@ -652,6 +683,15 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     if (!_verticalScroll.hasClients) return;
     final position = _verticalScroll.position;
     if (!position.hasContentDimensions) return;
+    if (_historyViewportPending) {
+      _historyViewportPending = false;
+      _viewportTopRows =
+          (position.maxScrollExtent - _verticalOffsetFromBottom).clamp(
+            0.0,
+            position.maxScrollExtent,
+          ) /
+          _cellHeight;
+    }
     final bool follow = !_isScrolledBack && !_hasSelection;
     final double target = follow
         ? _liveBottom
@@ -923,6 +963,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// and every `motion.curve.*` becomes linear — an instant swap, not a
   /// perceptible scroll.
   void _jumpToBottom() {
+    _userScrollInProgress = false;
     if (!_verticalScroll.hasClients) return;
     final double bottom = _liveBottom;
     if (MediaQuery.disableAnimationsOf(context)) {
@@ -958,10 +999,17 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     final double pixels = _verticalScroll.hasClients
         ? _verticalScroll.position.pixels
         : 0.0;
-    final top = (pixels / _cellHeight).round();
+    final height = _verticalScroll.hasClients
+        ? _verticalScroll.position.viewportDimension
+        : terminal.viewHeight * _cellHeight;
+    final lastRow = terminal.buffer.lines.length - 1;
+    final top = (pixels / _cellHeight).floor().clamp(0, lastRow);
+    final bottom =
+        ((pixels + height) / _cellHeight).ceil().clamp(top + 1, lastRow + 1) -
+        1;
     final base = terminal.buffer.createAnchorFromOffset(CellOffset(0, top));
     final extent = terminal.buffer.createAnchorFromOffset(
-      CellOffset(terminal.viewWidth - 1, top + terminal.viewHeight - 1),
+      CellOffset(terminal.viewWidth - 1, bottom),
     );
     _controller.setSelection(base, extent);
   }
@@ -1042,7 +1090,12 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
                   _buildJumpToBottomPill(color),
                 if (_hasSelection && widget.terminal != null)
                   _buildSelectionToolbar(context, color),
-                if (widget.truncatedAtTop) _buildTruncatedStrip(color),
+                if (widget.truncatedAtTop ||
+                    (widget.historyVisible &&
+                        widget.historyTruncated &&
+                        _viewportTopRows <= 0.01 &&
+                        !_truncatedDismissed))
+                  _buildTruncatedStrip(color),
               ],
             ),
           ),
@@ -1240,6 +1293,14 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
       );
     }
 
+    final behavior = ScrollConfiguration.of(context);
+    final nativePhysics = behavior.getScrollPhysics(context);
+    if (_nativeScrollPhysics != nativePhysics) {
+      _nativeScrollPhysics = nativePhysics;
+      _historyScrollPhysics = AlwaysScrollableScrollPhysics(
+        parent: nativePhysics,
+      );
+    }
     final theme = terminalThemeFrom(color, widget.hostTheme?.value);
     final cutoutInset = _cutoutSafeInset(context);
     final label = _semanticsLabel(terminal);
@@ -1275,44 +1336,78 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
               // Flutter's `ScrollViewKeyboardDismissBehavior.onDrag`). Only a drag with
               // pointer details counts: the widget's own `jumpTo`/`animateTo` and a
               // Host-driven resync raise no `dragDetails` and leave focus alone.
-              child: NotificationListener<ScrollStartNotification>(
-                onNotification: (ScrollStartNotification notification) {
-                  if (notification.dragDetails != null) {
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (ScrollNotification notification) {
+                  if (notification is ScrollStartNotification) {
+                    _userScrollInProgress = notification.dragDetails != null;
+                  } else if (notification is ScrollEndNotification) {
+                    _userScrollInProgress = false;
+                  }
+                  if (notification is ScrollStartNotification &&
+                      notification.dragDetails != null) {
                     FocusManager.instance.primaryFocus?.unfocus();
+                    _historyRequested = false;
+                  }
+                  final movingUp = switch (notification) {
+                    ScrollUpdateNotification(:final scrollDelta) =>
+                      (scrollDelta ?? 0) < 0,
+                    OverscrollNotification(:final overscroll) => overscroll < 0,
+                    _ => false,
+                  };
+                  if (movingUp &&
+                      _userScrollInProgress &&
+                      !_adjustingViewport &&
+                      interactive &&
+                      !_hasSelection &&
+                      widget.phase == TerminalGridPhase.live &&
+                      widget.maxScrollOffsetFromBottom > 0 &&
+                      !widget.historyVisible &&
+                      !_historyRequested &&
+                      notification.metrics.pixels <=
+                          notification.metrics.viewportDimension) {
+                    _historyRequested = true;
+                    widget.onRequestScrollback?.call();
                   }
                   return false;
                 },
-                child: TerminalView(
-                  terminal,
-                  key: _terminalViewKey,
-                  controller: interactive ? _controller : null,
-                  theme: theme,
-                  // The readable size or the explicit overview fit reaches the painter.
-                  // Glyphs, pan offsets, and pointer-to-cell mappings share the measured
-                  // cell size. The line height stays fixed at the R-21-010 token.
-                  textStyle: TerminalStyle(
-                    fontSize: _fontSize,
-                    height: AppType.monoTerminal().height!,
-                    fontFamily: AppType.monoFontFamily,
-                    fontFamilyFallback: _fallbackFontFamilies,
+                child: ScrollConfiguration(
+                  behavior: behavior.copyWith(
+                    physics: widget.maxScrollOffsetFromBottom > 0
+                        ? _historyScrollPhysics
+                        : nativePhysics,
                   ),
-                  // R-21-038: both differ from the xterm2 default. autoResize
-                  // false keeps the emulator at rect.width, set from the
-                  // outside, never from this widget's own measured size.
-                  // textScaler noScaling keeps the cell advance off the system
-                  // text-scale setting.
-                  autoResize: false,
-                  textScaler: TextScaler.noScaling,
-                  padding: EdgeInsets.zero,
-                  scrollController: _verticalScroll,
-                  cursorType: TerminalCursorType.block,
-                  // R-31-08-08: a single tap on the grid MUST NOT send
-                  // anything to the pane. readOnly stops every keystroke this
-                  // widget could otherwise forward.
-                  readOnly: true,
-                  onTapUp: interactive
-                      ? (_, _) => widget.onGridTap?.call()
-                      : null,
+                  child: TerminalView(
+                    terminal,
+                    key: _terminalViewKey,
+                    controller: interactive ? _controller : null,
+                    theme: theme,
+                    // The readable size or the explicit overview fit reaches the painter.
+                    // Glyphs, pan offsets, and pointer-to-cell mappings share the measured
+                    // cell size. The line height stays fixed at the R-21-010 token.
+                    textStyle: TerminalStyle(
+                      fontSize: _fontSize,
+                      height: AppType.monoTerminal().height!,
+                      fontFamily: AppType.monoFontFamily,
+                      fontFamilyFallback: _fallbackFontFamilies,
+                    ),
+                    // R-21-038: both differ from the xterm2 default. autoResize
+                    // false keeps the emulator at rect.width, set from the
+                    // outside, never from this widget's own measured size.
+                    // textScaler noScaling keeps the cell advance off the system
+                    // text-scale setting.
+                    autoResize: false,
+                    textScaler: TextScaler.noScaling,
+                    padding: EdgeInsets.zero,
+                    scrollController: _verticalScroll,
+                    cursorType: TerminalCursorType.block,
+                    // R-31-08-08: a single tap on the grid MUST NOT send
+                    // anything to the pane. readOnly stops every keystroke this
+                    // widget could otherwise forward.
+                    readOnly: true,
+                    onTapUp: interactive
+                        ? (_, _) => widget.onGridTap?.call()
+                        : null,
+                  ),
                 ),
               ),
             ),
@@ -1411,7 +1506,10 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
       right: 0,
       child: _buildStrip(
         color,
-        onTap: widget.onDismissTruncated,
+        onTap: () {
+          setState(() => _truncatedDismissed = true);
+          widget.onDismissTruncated?.call();
+        },
         child: const Treatment.warning(
           label:
               'This is the most recent output. '

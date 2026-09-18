@@ -102,7 +102,10 @@ regions, or OSC handling, those bugs are unreachable.
 
 **R-21-002.** Before each feed, the Device MUST emit `ESC[2JESC[H` to the emulator. This clears the
 screen and homes the cursor. The emulator's scrollback does not grow because the clear wipes it.
-With `maxLines: 0` (no scrollback), the clear is a trivial grid reset.
+With `maxLines: 0` (no scrollback), the clear is a trivial grid reset. After a fetched history
+window shrinks back to live geometry, the Device MUST also clear the emulator's scrollback after
+each live feed. `xterm2` retains its expanded capacity after a resize; clear-and-home alone does
+not remove rows above the viewport (verified 2026-09-17).
 
 **R-21-002a.** The bridge MUST use `source: "visible"` when calling `pane.read` on behalf of the
 Device, per R-11-051 and R-10-021. `source: "detection"` silently ignores `strip_ansi: false` and
@@ -531,7 +534,10 @@ cites it and keeps only what the screen draws.
 differ, the Device MUST render at `rect.width` and MUST NOT reflow, because the Host pads every row
 with styled spaces to its own width. The row count comes from `scroll.viewport_rows` in the
 `pane_frame` relay message, never from `rect.height`, which carries a conditional chrome offset
-(R-10-024).
+(R-10-024). A fetched `scroll_response` is an independent window: the Device MUST retain all
+returned rows in the local emulator at the Host's column count. It MUST restore the live row
+count on return to live output. This temporary local window MUST NOT change Host geometry or
+the grid dimensions reported in the status strip.
 
 The bridge MUST call `pane.layout` once when a Device attaches to a pane, and again on any
 `layout.updated` or `pane.updated` event whose pane reports a changed `viewport_rows` (R-10-025). It
@@ -1126,6 +1132,19 @@ high-frequency stream. The measured `pane.read` round-trip p50 is 1 ms and p95 i
 
 ### 10.5 Scrollback
 
+**R-21-045.** A normal upward drag MUST request the most recent history window when the reader
+approaches the first available row. The gesture MUST work when the live grid fits the phone, on
+both platforms.
+Only one fetch may be in flight. A fetched window MUST replace the grid as one independent
+snapshot; it MUST NOT be stitched to a live frame. Its columns stay fixed and all returned rows
+remain available. Preserve the reader's distance from the bottom when the window opens.
+
+Live frames MUST wait during the fetch and while the reader uses the history window. A selection
+MUST prevent a fetched reply from replacing its source grid. Returning to the bottom or leaving
+the pane MUST invalidate an in-flight fetch, including its later error. A cancelled request MUST
+NOT put a healthy live pane into the read-failed state. Select visible screen MUST clamp both
+anchors to the rows visible in the phone's viewport. The truncated strip follows R-31-08-19.
+
 **R-21-035**: The scrollback already held by the emulator MUST repaint from the same new payload.
 After the forced `pane.read` completes, the emulator repaints the entire visible viewport from the
 new payload under the new palette. Scrollback content retrieved on demand via `scroll_request`
@@ -1154,7 +1173,7 @@ frames per second (R-10-030). So a selection made at one revision, copied at the
 text that now sits at those anchors. The person copies text they never selected. This is a
 correctness defect in the one feature that moves terminal content off the phone.
 
-**R-21-041.** The Device MUST NOT write to the emulator while either condition holds:
+**R-21-041.** The Device MUST NOT feed live frames to the emulator while either condition holds:
 
 1. A selection is live.
 2. The Device's own scroll offset is greater than zero, per `R-31-08-18`.
@@ -1163,9 +1182,10 @@ While either holds, the Device MUST keep exactly one pending frame. A newly arri
 the pending frame; frames are never queued in order, because every frame is a full repaint of the
 same viewport (R-10-018) and only the newest is worth painting. When both conditions clear, the
 Device feeds the pending frame through the normal clear-and-feed cycle of R-21-002 and R-21-021 step
-5. If no frame arrived, nothing is painted and nothing is lost.
+5. If no frame arrived, the Device MUST restore the last live frame when leaving a fetched history
+window. A selection in a live frame needs no repaint.
 
-**The freeze is exactly "do not write".** It needs no immutable snapshot object and no second
+**The freeze stops live-frame writes.** It needs no immutable snapshot object and no second
 emulator. The buffer that `xterm2` reads at Copy time is correct by construction, because the buffer
 did not change. This is the whole fix.
 
@@ -1248,3 +1268,10 @@ Apply the initial palette from `host_info`. Apply each later `host_theme`
 through the terminal widget's theme property. Do not clear or feed the grid
 when the palette changes. Keep all chrome outside the grid in the app's
 own colours.
+
+## Open questions
+
+The current Host ANSI-read API limits this window to R-10-019's 1000 rows and has no paging offset.
+The product owner's 2026-09-17 request to read arbitrarily old output therefore needs a Host API
+extension. Owner: Host integration (`WP-6`). Fallback: show every row the current API returns and
+state the boundary accurately; do not move the workstation's scroll position to bypass it.

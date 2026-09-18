@@ -580,6 +580,128 @@ void main() {
   });
 
   group('scroll_request/scroll_response (R-11-053)', () {
+    for (final cancel in ['bottom', 'detach', 'selection']) {
+      test('history reply does not replace the grid after $cancel', () async {
+        final harness = _Harness();
+        final service = harness.build();
+        addTearDown(service.dispose);
+        addTearDown(harness.dispose);
+        final attached = service.attach('w1:p1');
+        harness.push(Message.watchAck(_ack()));
+        await attached;
+        harness.push(
+          Message.paneFrame(_frame(revision: 101, text: 'visible live')),
+        );
+        service.setScrollOffset(3);
+        final fetched = service.requestScrollback(lines: 1000);
+        if (cancel == 'bottom') service.setScrollOffset(0);
+        if (cancel == 'detach') service.detach();
+        if (cancel == 'selection') service.setSelectionLive(live: true);
+        harness.push(
+          const Message.scrollResponse(
+            ScrollResponse(
+              paneId: 'w1:p1',
+              text: 'old response',
+              lines: 1,
+              truncated: false,
+            ),
+          ),
+        );
+        await fetched;
+        expect(service.xterm.buffer.getText(), isNot(contains('old response')));
+      });
+    }
+
+    test('concurrent history gestures share one request and resume without a newer frame', () async {
+      final harness = _Harness();
+      final service = harness.build();
+      addTearDown(service.dispose);
+      addTearDown(harness.dispose);
+      final attached = service.attach('w1:p1');
+      harness.push(Message.watchAck(_ack()));
+      await attached;
+      harness.push(
+        Message.paneFrame(_frame(revision: 101, text: 'same live prompt')),
+      );
+      final first = service.requestScrollback(lines: 1000);
+      final second = service.requestScrollback(lines: 1000);
+      expect(
+        harness.sent.whereType<_SentMessage>().where(
+          (s) => s.message is MessageScrollRequest,
+        ),
+        hasLength(1),
+      );
+      harness.push(
+        Message.scrollResponse(
+          ScrollResponse(
+            paneId: 'w1:p1',
+            text: List.generate(1000, (i) => 'old row $i').join('\r\n'),
+            lines: 1000,
+            truncated: false,
+          ),
+        ),
+      );
+      await Future.wait([first, second]);
+      service.setScrollOffset(0);
+      expect(service.xterm.buffer.getText(), contains('same live prompt'));
+      expect(service.xterm.buffer.lines.length, 10);
+      for (var i = 0; i < 3; i++) {
+        harness.push(
+          Message.paneFrame(
+            _frame(
+              revision: 102 + i,
+              text:
+                  "${List.generate(10, (n) => 'live row $n').join('\r\n')}\r\n",
+            ),
+          ),
+        );
+        expect(service.xterm.buffer.lines.length, 10);
+        expect(service.xterm.buffer.scrollBack, 0);
+      }
+    });
+
+    test(
+      'scrollback paints every fetched row and restores the live frame',
+      () async {
+        final harness = _Harness();
+        final service = harness.build();
+        addTearDown(service.dispose);
+        addTearDown(harness.dispose);
+        final attached = service.attach('w1:p1');
+        harness.push(Message.watchAck(_ack(viewportRows: 10)));
+        await attached;
+        harness.push(
+          Message.paneFrame(_frame(revision: 101, text: 'live prompt')),
+        );
+        service.setScrollOffset(5);
+        final fetched = service.requestScrollback(lines: 1000);
+        harness.push(
+          Message.scrollResponse(
+            ScrollResponse(
+              paneId: 'w1:p1',
+              text: List.generate(1000, (i) => 'history row $i').join('\r\n'),
+              lines: 1000,
+              truncated: true,
+            ),
+          ),
+        );
+        await fetched;
+        // A ten-row live emulator must not discard 990 fetched rows.
+        expect(service.xterm.buffer.getText(), contains('history row 0'));
+        expect(service.xterm.buffer.getText(), contains('history row 500'));
+        expect(service.xterm.buffer.getText(), contains('history row 999'));
+        expect(service.state.rows, 10, reason: 'Host geometry stays unchanged');
+        harness.push(
+          Message.paneFrame(_frame(revision: 102, text: 'new live prompt')),
+        );
+        expect(service.xterm.buffer.getText(), contains('history row 0'));
+        service.setScrollOffset(0);
+        expect(service.xterm.buffer.getText(), contains('new live prompt'));
+        expect(service.xterm.buffer.getText(), isNot(contains('history row')));
+        expect(service.xterm.viewHeight, 10);
+      },
+    );
+
     test('requestScrollback sends scroll_request capped at 1000 lines and resolves on '
         'scroll_response (R-10-019)', () async {
       final harness = _Harness();

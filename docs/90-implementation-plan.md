@@ -939,7 +939,9 @@ The five integration steps:
   as explicit gestures) also lands here: it edits `WP-16-b`'s `terminal_view_widget.dart`,
   `app/test/widgets/terminal_isolated_test.dart`, `app/test/widgets/terminal_view_widget_golden_test.dart`
   and `WP-16-c`'s `app/test/screens/terminal_screen_test.dart`, all `WP-16`-owned paths, so no
-  other package is involved.
+  other package is involved. The 2026-09-17 scrollback repair also lands here: the terminal
+  service, grid widget, screen, and their existing service/widget/screen tests stay with these
+  owners. It implements history rendering and ordinary-drag loading without a wire change.
 - **`INT-25-host`** — `WP-25` writes `crates/herdr-relay/src/bridge.rs`, `src/control.rs`,
   `src/main.rs`, `src/pairing.rs`, `src/popup.rs`, `src/store.rs`, `tests/popup_once.rs` and the
   two `relayctl` shims once, after `WP-0-a`, `WP-6`, `WP-10-a`, `WP-10-b`, `WP-10-c` and `WP-11`

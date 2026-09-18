@@ -638,7 +638,9 @@ hard-cap flag alone.
 and 190001 bytes.
 
 **R-10-019**: The bridge MUST NOT request more than 1000 lines. The server silently clamps, so a larger
-number wastes nothing but misleads the reader.
+number wastes nothing but misleads the reader. Source audit on 2026-09-17 confirms the same cap
+in upstream `read_terminal_snapshot`; `PaneReadParams` still has no history offset. The read-only
+selection API accepts ranges but returns plain text, so it cannot page the ANSI grid unchanged.
 
 ### 4.6 `revision` in a read result is always zero
 
@@ -1786,3 +1788,7 @@ Direct socket probes over `\\.\pipe\C:\Users\<user>\AppData\Roaming\herdr\herdr.
 Upstream reference:
 
 - Herdr home: https://herdr.dev
+
+- Herdr upstream source, audited 2026-09-17 at `da6bcd5969779bfe0396bcf89a8025d4375d611e`:
+  [ANSI read cap](https://github.com/herdrdev/herdr/blob/da6bcd5969779bfe0396bcf89a8025d4375d611e/src/app/api_helpers.rs)
+  and [read parameters](https://github.com/herdrdev/herdr/blob/da6bcd5969779bfe0396bcf89a8025d4375d611e/src/api/schema/panes.rs).

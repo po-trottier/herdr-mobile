@@ -84,6 +84,54 @@ Terminal _terminal({String? feed}) {
 }
 
 void main() {
+  testWidgets('Select visible screen stays inside a fetched history window', (
+    tester,
+  ) async {
+    final terminal = Terminal(maxLines: 0)..resize(80, 1000);
+    terminal.write(List.generate(1000, (i) => 'history row $i').join('\r\n'));
+    final controller = TerminalController();
+    addTearDown(controller.dispose);
+    addTearDown(terminal.dispose);
+    await tester.pumpWidget(
+      _harness(
+        child: TerminalViewWidget(
+          palette: AppColor.dark,
+          phase: TerminalGridPhase.live,
+          terminal: terminal,
+          controller: controller,
+          historyVisible: true,
+        ),
+      ),
+    );
+    await tester.pump();
+    final view = tester.widget<TerminalView>(find.byType(TerminalView));
+    final cell = tester
+        .state<TerminalViewState>(find.byType(TerminalView))
+        .renderTerminal
+        .cellSize;
+    view.scrollController!.jumpTo(950 * cell.height);
+    await tester.pump();
+    controller.setSelection(
+      terminal.buffer.createAnchorFromOffset(const CellOffset(0, 950)),
+      terminal.buffer.createAnchorFromOffset(const CellOffset(10, 951)),
+    );
+    await tester.pump();
+    final toolbar = tester.widget<AdaptiveTextSelectionToolbar>(
+      find.byType(AdaptiveTextSelectionToolbar),
+    );
+    toolbar.buttonItems!
+        .singleWhere((item) => item.label == 'Select visible screen')
+        .onPressed!();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    final selected = terminal.buffer.getText(
+      controller.selectionFor(terminal.buffer)!,
+    );
+    expect(selected, contains('history row 950'));
+    expect(selected, isNot(contains('history row 999')));
+    expect(selected.split('\n').length, lessThan(50));
+  });
+
   final reset = ThemePalette.fromJson({
     'name': '',
     for (final key in [

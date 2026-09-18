@@ -128,6 +128,7 @@ import '../services/relay.dart'
 import '../services/terminal.dart'
     show
         TerminalAttachException,
+        TerminalScrollbackException,
         TerminalFrameState,
         TerminalMessageSender,
         TerminalPaneStatus,
@@ -780,12 +781,22 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   /// The force-read gesture of `docs/30-ux-spec.md`'s gesture table: ask
-  /// the Host for the pane's scrollback (R-11-053). A dropped reply
-  /// leaves the live grid untouched, so the outcome is not surfaced.
-  void _onForceRead() {
-    unawaited(
-      _service.requestScrollback(lines: _frame.scroll.maxOffsetFromBottom),
-    );
+  /// the Host for the pane's scrollback (R-11-053). Ordinary upward scrolling
+  /// uses the same request; cancelled replies leave the live grid untouched.
+  void _onForceRead() => unawaited(_loadScrollback());
+
+  Future<void> _loadScrollback() async {
+    if (_phase != TerminalGridPhase.live) return;
+    final result = await _service.requestScrollback(lines: 1000);
+    if (!mounted) return;
+    if (result case Err(:final message, :final cause)) {
+      if (cause is TerminalScrollbackException && cause.cancelled) return;
+      setState(() {
+        _attachError = cause is TerminalScrollbackException
+            ? '$message: ${cause.message}'
+            : message;
+      });
+    }
   }
 
   /// One SGR/CSI escape sequence — `pane_actions_sheet.dart`'s own
@@ -1089,7 +1100,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
       captureTime: _lastFrameAt,
       reconnectAttempt: _reconnectAttempt,
       errorText: _offlineReason,
-      maxScrollOffsetFromBottom: frame.scroll.maxOffsetFromBottom,
+      maxScrollOffsetFromBottom:
+          _treePane?.scroll.maxOffsetFromBottom ??
+          frame.scroll.maxOffsetFromBottom,
+      historyVisible: _service.showingScrollback,
+      historyTruncated: _service.scrollbackTruncated,
+      onRequestScrollback: () => unawaited(_loadScrollback()),
       onDiagnostics: widget.onDiagnostics,
       onRevoked: widget.onRevoked,
       onGridTap: _onGridTap,

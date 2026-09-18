@@ -63,6 +63,8 @@ import 'package:herdr_mobile/models/messages/scroll_offsets.dart'
     show ScrollOffsets;
 import 'package:herdr_mobile/models/messages/scroll_request.dart'
     show ScrollRequest;
+import 'package:herdr_mobile/models/messages/scroll_response.dart'
+    show ScrollResponse;
 import 'package:herdr_mobile/models/messages/send_input.dart' show SendInput;
 import 'package:herdr_mobile/models/messages/send_input_ack.dart'
     show SendInputAck;
@@ -85,7 +87,7 @@ import 'package:herdr_mobile/widgets/key_row.dart' show KeyRow;
 import 'package:herdr_mobile/widgets/status_bar.dart' show BarState, StatusBar;
 import 'package:herdr_mobile/widgets/status_strip.dart' show StatusStrip;
 import 'package:herdr_mobile/widgets/terminal_view_widget.dart'
-    show TerminalViewWidget;
+    show TerminalGridPhase, TerminalViewWidget;
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:herdr_mobile/widgets/theme/chrome_icon_action.dart'
     show ChromeIconAction;
@@ -527,6 +529,134 @@ Future<void> _toggleOverview(WidgetTester tester) async {
 }
 
 void main() {
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets(
+      'short live grid still loads history on an ordinary drag on ${platform.name}',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final harness = _Harness();
+        await _pumpScreen(tester, harness);
+        await _attachLive(tester, harness, rows: 10);
+        await tester.dragFrom(
+          tester.getCenter(find.byKey(_gridKey)),
+          const Offset(0, 120),
+        );
+        await tester.pump();
+        expect(harness.scrollRequests, hasLength(1));
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
+
+  testWidgets('returning live before a history timeout keeps the pane usable', (
+    tester,
+  ) async {
+    final harness = _Harness();
+    await _pumpScreen(tester, harness);
+    await _attachLive(tester, harness, rows: 50);
+    harness.emit(
+      Message.paneFrame(
+        PaneFrame(
+          paneId: _paneId,
+          revision: 3,
+          viewportRows: 50,
+          width: 144,
+          text: List.generate(50, (i) => 'live row $i').join('\r\n'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.dragFrom(
+      tester.getCenter(find.byKey(_gridKey)),
+      const Offset(0, 650),
+    );
+    await tester.pumpAndSettle();
+    expect(harness.scrollRequests, hasLength(1));
+    await tester.tap(find.text('to bottom'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pump();
+    expect(find.text('Could not read this pane.'), findsNothing);
+    expect(
+      tester.widget<TerminalViewWidget>(find.byType(TerminalViewWidget)).phase,
+      TerminalGridPhase.live,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'ordinary upward scrolling loads history beyond the live viewport',
+    (tester) async {
+      final harness = _Harness();
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness, columns: 80, rows: 50);
+      harness.emit(
+        Message.paneFrame(
+          PaneFrame(
+            paneId: _paneId,
+            revision: 3,
+            viewportRows: 50,
+            width: 80,
+            text: List.generate(50, (i) => 'live row $i').join('\r\n'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      // Start well away from the special pull-to-read region at the top.
+      await tester.dragFrom(
+        tester.getCenter(find.byKey(_gridKey)),
+        const Offset(0, 650),
+      );
+      await tester.pumpAndSettle();
+      expect(harness.scrollRequests, hasLength(1));
+      expect(harness.scrollRequests.single.lines, 1000);
+      harness.emit(
+        Message.scrollResponse(
+          ScrollResponse(
+            paneId: _paneId,
+            text: List.generate(1000, (i) => 'history row $i').join('\r\n'),
+            lines: 1000,
+            truncated: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      expect(view.terminal.buffer.getText(), contains('history row 0'));
+      // Real scroll extent must extend far past one phone screen.
+      expect(
+        view.scrollController!.position.maxScrollExtent,
+        greaterThan(10000),
+      );
+      view.scrollController!.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'This is the most recent output. Older lines stay on the computer.',
+        ),
+        findsOneWidget,
+      );
+      expect(harness.scrollRequests, hasLength(1));
+      await tester.tap(find.text('to bottom'));
+      // The native terminal cursor keeps animating after the button receives focus.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      final live = tester.widget<TerminalView>(find.byType(TerminalView));
+      expect(live.terminal.buffer.getText(), contains('live row 49'));
+      expect(live.terminal.buffer.getText(), isNot(contains('history row')));
+      expect(harness.sendInputs, isEmpty);
+      expect(harness.sent.whereType<MessageHostAction>(), isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   setUpAll(loadAppFonts);
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
@@ -1346,7 +1476,7 @@ void main() {
 
     expect(harness.scrollRequests, hasLength(1));
     expect(harness.scrollRequests.single.paneId, _paneId);
-    expect(harness.scrollRequests.single.lines, 240);
+    expect(harness.scrollRequests.single.lines, 1000);
 
     // A pull that starts below the top edge is a scrollback drag, not a
     // force read.

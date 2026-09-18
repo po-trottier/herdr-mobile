@@ -207,9 +207,14 @@ final class TerminalAttachException implements Exception {
 
 /// Set as an [Err.cause] when [TerminalService.requestScrollback] fails.
 final class TerminalScrollbackException implements Exception {
-  const TerminalScrollbackException(this.message, {this.errorCode});
+  const TerminalScrollbackException(
+    this.message, {
+    this.errorCode,
+    this.cancelled = false,
+  });
   final String message;
   final ErrorCode? errorCode;
+  final bool cancelled;
 
   @override
   String toString() => 'TerminalScrollbackException: $message';
@@ -302,6 +307,16 @@ final class TerminalService {
   // always replaces it rather than queuing (R-10-018 — every frame is a full repaint, so
   // only the newest is ever worth painting).
   PaneFrame? _pendingFrame;
+  PaneFrame? _lastLiveFrame;
+  bool _readingScrollback = false;
+  bool _showingScrollback = false;
+  bool _scrollbackTruncated = false;
+  int _scrollEpoch = 0;
+  Future<Result<ScrollResponse>>? _scrollFuture;
+
+  /// A fetched window replaces the live grid in memory until the reader returns.
+  bool get showingScrollback => _showingScrollback;
+  bool get scrollbackTruncated => _scrollbackTruncated;
   DateTime? _pendingFrameReceivedAt;
   Timer? _coalesceTimer;
   bool _flushingFrame = false;
@@ -348,6 +363,10 @@ final class TerminalService {
     _pendingFrameReceivedAt = null;
     _consecutiveSlowFrames = 0;
     _lastAppliedRevision = null;
+    _lastLiveFrame = null;
+    _cancelScrollback();
+    _scrollOffset = 0;
+    _selectionLive = false;
     _sgrCounter.reset();
     _attachingPaneId = paneId;
     final completer = Completer<Result<WatchAck>>();
@@ -401,6 +420,10 @@ final class TerminalService {
     _pendingFrameReceivedAt = null;
     _consecutiveSlowFrames = 0;
     _lastAppliedRevision = null;
+    _lastLiveFrame = null;
+    _cancelScrollback();
+    _scrollOffset = 0;
+    _selectionLive = false;
     _sgrCounter.reset();
     if (paneId != null) {
       _unwatchPaneFn(paneId);
@@ -441,11 +464,17 @@ final class TerminalService {
     final wasLive = _scrollOffset <= 0;
     final isLive = offsetAboveBottom <= 0;
     _scrollOffset = offsetAboveBottom;
+    if (isLive && _readingScrollback) {
+      _readingScrollback = false;
+      _scrollEpoch++;
+      _onFreezeConditionChanged();
+      return;
+    }
     if (wasLive == isLive) return;
     _onFreezeConditionChanged();
   }
 
-  bool get _frozen => _selectionLive || _scrollOffset > 0;
+  bool get _frozen => _selectionLive || _scrollOffset > 0 || _readingScrollback;
 
   void _onFreezeConditionChanged() {
     if (_frozen) {
@@ -458,6 +487,13 @@ final class TerminalService {
     // normal clear-and-feed cycle — never queued, and never waiting for a fresh timer tick.
     _coalesceTimer?.cancel();
     _coalesceTimer = null;
+    if (_showingScrollback) {
+      _showingScrollback = false;
+      _scrollbackTruncated = false;
+      // The Host may have sent no newer frame while history was open.
+      _pendingFrame ??= _lastLiveFrame;
+      _pendingFrameReceivedAt ??= _now();
+    }
     if (_pendingFrame != null) {
       _flushPendingFrame();
     } else {
@@ -467,7 +503,13 @@ final class TerminalService {
 
   /// Requests scrollback above the visible viewport (R-11-053, `docs/31-mockups/08-terminal.md`
   /// callout 10), capping [lines] to the wire's 1-1000 range (R-10-019).
-  Future<Result<ScrollResponse>> requestScrollback({required int lines}) async {
+  Future<Result<ScrollResponse>> requestScrollback({required int lines}) {
+    return _scrollFuture ??= _fetchScrollback(lines: lines).whenComplete(() {
+      _scrollFuture = null;
+    });
+  }
+
+  Future<Result<ScrollResponse>> _fetchScrollback({required int lines}) async {
     final paneId = _state.paneId;
     if (paneId == null) {
       return const Err(
@@ -476,6 +518,9 @@ final class TerminalService {
       );
     }
     final cappedLines = lines.clamp(1, 1000);
+    final epoch = ++_scrollEpoch;
+    _readingScrollback = true;
+    _onFreezeConditionChanged();
     final completer = Completer<Result<ScrollResponse>>();
     _scrollCompleter = completer;
     _send(
@@ -493,7 +538,41 @@ final class TerminalService {
     if (identical(_scrollCompleter, completer)) {
       _scrollCompleter = null;
     }
+    if (epoch != _scrollEpoch || paneId != _state.paneId) {
+      return const Err(
+        'scrollback request cancelled',
+        cause: TerminalScrollbackException(
+          'reader left history',
+          cancelled: true,
+        ),
+      );
+    }
+    if (result case Ok(:final value) when !_selectionLive) {
+      // Each reply is an independent snapshot, never appended to a live frame.
+      // Keep every returned row in one temporary grid, without local scrollback.
+      final rows = value.text.split('\n').length.clamp(1, 1001);
+      xterm.resize(_state.columns, rows);
+      xterm.write('\x1b[2J\x1b[H${value.text}');
+      _showingScrollback = true;
+      _scrollbackTruncated = value.truncated;
+      _publish(_state.copyWith(status: TerminalPaneStatus.paused));
+    } else {
+      _readingScrollback = false;
+      _onFreezeConditionChanged();
+    }
     return result;
+  }
+
+  void _cancelScrollback() {
+    _scrollEpoch++;
+    _readingScrollback = false;
+    _showingScrollback = false;
+    _scrollbackTruncated = false;
+    final pending = _scrollCompleter;
+    _scrollCompleter = null;
+    if (pending != null && !pending.isCompleted) {
+      pending.complete(const Err('scrollback request cancelled'));
+    }
   }
 
   void _onMessage(Message message) {
@@ -600,17 +679,23 @@ final class TerminalService {
       _pendingFrame = null;
       _pendingFrameReceivedAt = null;
       _lastAppliedRevision = frame.revision;
+      _lastLiveFrame = frame;
 
-      if (frame.width != _state.columns || frame.viewportRows != _state.rows) {
+      if (frame.width != xterm.viewWidth ||
+          frame.viewportRows != xterm.viewHeight) {
         // R-21-009, R-10-025: resize on every Host-reported layout change, never on the
         // widget's own measured size.
         xterm.resize(frame.width, frame.viewportRows);
+        // Shrinking a fetched history grid moves rows into xterm's buffer.
+        // They are not live scrollback and must not survive the restoration.
+        xterm.buffer.clearScrollback();
       }
       // R-21-001, R-21-002: clear and home before every feed, then replace the whole grid —
       // never append, never patch (R-10-018, R-31-08-11). One `write`, one parse, one listener
       // notification per frame; the 2026-09-08 flicker was the widget's follow anchor, not
       // this feed (R-21-021).
       xterm.write('\x1b[2J\x1b[H${frame.text}');
+      xterm.buffer.clearScrollback();
       // R-01-008, R-31-08-12, R-31-13-08/09/10: scan and measure this applied frame's raw
       // text, once, alongside the feed above — never in place of it (`sgr_counter.dart`'s own
       // header comment).
@@ -721,6 +806,9 @@ final class TerminalService {
   /// Releases every resource this service holds (R-41-100). Does not send `unwatch_pane`; a
   /// caller navigating away calls [detach] first if it wants that sent.
   Future<void> dispose() async {
+    _cancelScrollback();
+    _lastLiveFrame = null;
+    _pendingFrame = null;
     _coalesceTimer?.cancel();
     await _subscription.cancel();
     await _stateController.close();

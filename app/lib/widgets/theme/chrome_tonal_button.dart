@@ -2,7 +2,8 @@ import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoButton;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
-import 'package:material_ui/material_ui.dart' show FilledButton;
+import 'package:material_ui/material_ui.dart'
+    show ButtonStyle, ColorScheme, FilledButton, Theme, WidgetStatePropertyAll;
 
 import 'app_color.dart';
 import 'app_radius.dart';
@@ -57,9 +58,21 @@ class ChromeTonalButton extends StatelessWidget {
         ),
       );
     }
+    // `filledButtonTheme` (the accent fill of docs/32 section 7.8) also
+    // applies to `FilledButton.tonal`, so the tonal roles are set here:
+    // `secondaryContainer` / `onSecondaryContainer` are `bgHigh` /
+    // `fgPrimary` in `chrome_scheme.dart` (docs/33 section 4).
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final ButtonStyle tonal = ButtonStyle(
+      backgroundColor: WidgetStatePropertyAll<Color>(scheme.secondaryContainer),
+      foregroundColor: WidgetStatePropertyAll<Color>(
+        scheme.onSecondaryContainer,
+      ),
+    );
     return glyph == null
-        ? FilledButton.tonal(onPressed: onPressed, child: child)
+        ? FilledButton.tonal(style: tonal, onPressed: onPressed, child: child)
         : FilledButton.tonalIcon(
+            style: tonal,
             onPressed: onPressed,
             icon: glyph,
             label: child,

@@ -1,5 +1,5 @@
 /// `send_input` (`docs/11-relay-protocol.md` §4.12). Sender: Device. Reply:
-/// no. Correlation: no. Mirrors `SendInput` in
+/// `send_input_ack`. Correlation: yes. Mirrors `SendInput` in
 /// `crates/herdr-relay-proto/src/messages/input.rs:6-19`
 /// (`docs/90-implementation-plan.md` §5.2 `WP-5-c`). The bridge resolves the
 /// four-step key order of R-11-054 and maps to the correct Herdr method
@@ -16,12 +16,16 @@ abstract class SendInput with _$SendInput {
   const factory SendInput({
     @JsonKey(name: 'pane_id') required String paneId,
 
+    /// Complete composer text, including an empty line.
+    @JsonKey(includeIfNull: false) String? line,
+
     /// Literal text: printable characters and the six unnamed keys as raw
     /// sequences (R-10-036).
     @JsonKey(includeIfNull: false) String? text,
 
     /// Named keys, for example `["Enter"]` or `["ctrl+c"]`
     /// (R-10-036 to R-10-039).
+    @JsonKey(includeIfNull: false) String? defer,
     @JsonKey(includeIfNull: false) List<String>? keys,
   }) = _SendInput;
 

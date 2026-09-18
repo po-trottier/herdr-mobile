@@ -55,6 +55,8 @@ const List<String> documentedMessageTypes = [
   'disconnect',
   'action_list_request',
   'action_list',
+  'ping',
+  'pong',
 ];
 
 void main() {

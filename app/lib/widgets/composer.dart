@@ -2,16 +2,31 @@
 library;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoButton, CupertinoTextField;
+    show
+        CupertinoActionSheet,
+        CupertinoActionSheetAction,
+        CupertinoActivityIndicator,
+        CupertinoButton,
+        CupertinoTextField,
+        showCupertinoModalPopup;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show IconButton, InputDecoration, OutlineInputBorder, TextField, Theme;
+    show
+        CircularProgressIndicator,
+        IconButton,
+        InputDecoration,
+        ListTile,
+        OutlineInputBorder,
+        TextField,
+        Theme,
+        showModalBottomSheet;
 
 import '../app.dart' show appFilledIconButtonStyle, appTonalIconButtonStyle;
+import '../models/messages/send_input.dart';
 import 'theme/app_color.dart';
 import 'theme/app_radius.dart';
 import 'theme/app_size.dart';
@@ -21,19 +36,28 @@ import 'theme/app_type.dart';
 class Composer extends StatefulWidget {
   const Composer({
     super.key,
-    required this.onText,
-    required this.onDelete,
+    required this.onLine,
     required this.onSubmit,
     required this.focusNode,
     this.inputFormatters,
     this.enabled = true,
     this.panelOpen = false,
     this.onTogglePanel,
+    this.initialLine = '',
+    this.queued = false,
+    this.onCancelQueued,
+    this.onSendQueuedNow,
   });
 
-  final ValueChanged<String> onText;
-  final ValueChanged<int> onDelete;
-  final VoidCallback onSubmit;
+  final ValueChanged<String> onLine;
+
+  /// Called with the text the person submits. The field is already empty when
+  /// this runs (R-31-09-34): typing continues while the Enter is in flight.
+  final Future<bool> Function(String line, {bool whenIdle}) onSubmit;
+  final bool queued;
+  final VoidCallback? onCancelQueued;
+  final VoidCallback? onSendQueuedNow;
+  final String initialLine;
   final FocusNode focusNode;
   final List<TextInputFormatter>? inputFormatters;
   final bool enabled;
@@ -41,38 +65,150 @@ class Composer extends StatefulWidget {
   final VoidCallback? onTogglePanel;
 
   @override
-  State<Composer> createState() => _ComposerState();
+  ComposerState createState() => ComposerState();
 }
 
-class _ComposerState extends State<Composer> {
-  final TextEditingController _controller = TextEditingController();
-  String _sent = '';
+class ComposerState extends State<Composer> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialLine,
+  );
+  bool _edited = false;
+  bool _submitting = false;
 
-  void _changed(String text) {
-    if (!widget.enabled) return;
-    // R-03-130: Send only the edit. The native field owns its selection.
-    final List<String> before = _sent.characters.toList();
-    final List<String> after = text.characters.toList();
-    int prefix = 0;
-    while (prefix < before.length &&
-        prefix < after.length &&
-        before[prefix] == after[prefix]) {
-      prefix++;
-    }
-    // R-03-130: The Host cursor stays at the end. Replace its tail after a middle edit.
-    final int deleted = before.length - prefix;
-    final String inserted = after.skip(prefix).join();
-    _sent = text;
-    if (deleted > 0) widget.onDelete(deleted);
-    if (inserted.isNotEmpty) widget.onText(inserted);
+  String get currentLine => _controller.text;
+
+  /// Seed the Host line only before the first local edit.
+  void seedLine(String line) {
+    if (_edited || _submitting || currentLine.isNotEmpty) return;
+    _controller.value = TextEditingValue(
+      text: line,
+      selection: TextSelection.collapsed(offset: line.length),
+    );
   }
 
-  void _submit() {
-    if (!widget.enabled) return;
-    widget.onSubmit();
-    _sent = '';
-    _controller.clear();
-    widget.focusNode.requestFocus();
+  /// Mirror accepted key controls without another Host update.
+  void applyAcceptedInput(SendInput input) {
+    String line = currentLine;
+    if (input.text case final String text) {
+      if (!const <String>{
+        '\x1b[2~',
+        '\x1b[3~',
+        '\x1b[H',
+        '\x1b[F',
+        '\x1b[5~',
+        '\x1b[6~',
+      }.contains(text)) {
+        line += text;
+      }
+    }
+    for (final String key in input.keys ?? const <String>[]) {
+      switch (key.toLowerCase()) {
+        case 'enter':
+        case 'ctrl+c':
+          line = '';
+        case 'backspace':
+          line = line.characters.skipLast(1).toString();
+      }
+    }
+    if (line == currentLine) return;
+    _edited = true;
+    _controller.value = TextEditingValue(
+      text: line,
+      selection: TextSelection.collapsed(offset: line.length),
+    );
+  }
+
+  void _changed(String text) {
+    _edited = true;
+    if (!widget.enabled || widget.queued) return;
+    widget.onLine(_controller.text);
+  }
+
+  Future<void> _submit({bool whenIdle = false}) async {
+    if (!widget.enabled || _submitting || widget.queued) return;
+    final String line = _controller.text;
+    // Clear before the round trip: the wire is ordered, so a line frame typed
+    // now reaches the Host after the Enter and starts a fresh console line.
+    // A held submit (whenIdle) keeps the text: the console line is not
+    // submitted yet, and the field goes read-only through `queued`.
+    if (!whenIdle) _controller.clear();
+    setState(() => _submitting = true);
+    try {
+      final bool accepted = await widget.onSubmit(line, whenIdle: whenIdle);
+      if (!mounted) return;
+      if (accepted) {
+        if (whenIdle) _controller.clear();
+        widget.focusNode.requestFocus();
+      } else if (!whenIdle && _controller.text.isEmpty) {
+        // The console still holds the line (the Host shadow kept it). Put it
+        // back so the field and the console agree again.
+        _controller.value = TextEditingValue(
+          text: line,
+          selection: TextSelection.collapsed(offset: line.length),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _showSendOptions() async {
+    final bool ios = defaultTargetPlatform == TargetPlatform.iOS;
+    final bool canSubmit = widget.enabled && !_submitting && !widget.queued;
+    final Map<String, String> actions = <String, String>{
+      if (canSubmit) 'now': 'Send now',
+      if (widget.queued && widget.onSendQueuedNow != null)
+        'queuedNow': 'Send now',
+      if (canSubmit) 'idle': 'Send when the agent is done',
+      if (widget.queued && widget.onCancelQueued != null)
+        'cancel': 'Cancel queued send',
+    };
+    if (actions.isEmpty) return;
+    final String? choice = ios
+        ? await showCupertinoModalPopup<String>(
+            context: context,
+            builder: (BuildContext sheetContext) => CupertinoActionSheet(
+              actions: <Widget>[
+                for (final MapEntry<String, String> action in actions.entries)
+                  CupertinoActionSheetAction(
+                    onPressed: () => Navigator.of(sheetContext).pop(action.key),
+                    child: Text(
+                      action.value,
+                      style: const TextStyle(
+                        fontFamily: AppType.interfaceFontFamily,
+                      ),
+                    ),
+                  ),
+              ],
+              cancelButton: CupertinoActionSheetAction(
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                child: const Text('Cancel'),
+              ),
+            ),
+          )
+        : await showModalBottomSheet<String>(
+            context: context,
+            builder: (BuildContext sheetContext) => SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  for (final MapEntry<String, String> action in actions.entries)
+                    ListTile(
+                      title: Text(action.value),
+                      onTap: () => Navigator.of(sheetContext).pop(action.key),
+                    ),
+                ],
+              ),
+            ),
+          );
+    if (!mounted) return;
+    if (choice == 'queuedNow') {
+      widget.onSendQueuedNow?.call();
+    } else if (choice == 'cancel') {
+      widget.onCancelQueued?.call();
+    } else if (choice != null) {
+      await _submit(whenIdle: choice == 'idle');
+    }
   }
 
   @override
@@ -80,6 +216,24 @@ class _ComposerState extends State<Composer> {
     _controller.dispose();
     super.dispose();
   }
+
+  Widget _queuedIcon(bool ios, AppColor color) => SizedBox.square(
+    dimension: AppSize.iconMd,
+    child: Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        CircularProgressIndicator(
+          strokeWidth: 2,
+          color: ios ? color.fgOnAccent : null,
+        ),
+        Icon(
+          Symbols.schedule_rounded,
+          size: AppSize.iconMd - 6,
+          color: ios ? color.fgOnAccent : null,
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +245,7 @@ class _ComposerState extends State<Composer> {
     final double height = ios ? AppSize.inputIos : AppSize.field;
     // R-32-537: growing the field must not grow its corner arcs into a pill.
     final BorderRadius fieldRadius = BorderRadius.circular(height / 2);
-    final Widget send = ios
+    final Widget sendButton = ios
         ? Semantics(
             label: 'Send',
             child: CupertinoButton(
@@ -100,20 +254,53 @@ class _ComposerState extends State<Composer> {
               borderRadius: BorderRadius.circular(AppRadius.full),
               minimumSize: const Size.square(30),
               padding: EdgeInsets.zero,
-              onPressed: widget.enabled ? _submit : null,
-              child: Icon(
-                Symbols.arrow_upward_rounded,
-                size: AppSize.iconMd,
-                color: color.fgOnAccent,
-              ),
+              onPressed: widget.queued
+                  ? _showSendOptions
+                  : widget.enabled && !_submitting
+                  ? _submit
+                  : null,
+              child: widget.queued
+                  ? _queuedIcon(ios, color)
+                  : _submitting
+                  ? SizedBox.square(
+                      dimension: AppSize.iconMd,
+                      child: CupertinoActivityIndicator(
+                        radius: AppSize.iconMd / 2,
+                        color: color.fgOnAccent,
+                      ),
+                    )
+                  : Icon(
+                      Symbols.arrow_upward_rounded,
+                      size: AppSize.iconMd,
+                      color: color.fgOnAccent,
+                    ),
             ),
           )
         : IconButton.filled(
-            tooltip: 'Send',
             style: appFilledIconButtonStyle(context),
-            onPressed: widget.enabled ? _submit : null,
-            icon: const Icon(Symbols.send_rounded, size: AppSize.iconMd),
+            onPressed: widget.queued
+                ? _showSendOptions
+                : widget.enabled && !_submitting
+                ? _submit
+                : null,
+            icon: widget.queued
+                ? _queuedIcon(ios, color)
+                : _submitting
+                ? const SizedBox.square(
+                    dimension: AppSize.iconMd,
+                    child: CircularProgressIndicator(),
+                  )
+                : const Icon(Symbols.send_rounded, size: AppSize.iconMd),
           );
+    final Widget send = Semantics(
+      label: ios ? null : 'Send',
+      child: GestureDetector(
+        onLongPress: widget.queued || (widget.enabled && !_submitting)
+            ? _showSendOptions
+            : null,
+        child: sendButton,
+      ),
+    );
     final OutlineInputBorder border = OutlineInputBorder(
       borderRadius: fieldRadius,
       borderSide: BorderSide(
@@ -139,6 +326,7 @@ class _ComposerState extends State<Composer> {
               child: send,
             ),
             enabled: widget.enabled,
+            readOnly: widget.queued,
             inputFormatters: widget.inputFormatters,
             focusNode: widget.focusNode,
             style: style,
@@ -158,9 +346,8 @@ class _ComposerState extends State<Composer> {
             textCapitalization: TextCapitalization.sentences,
             smartDashesType: SmartDashesType.disabled,
             smartQuotesType: SmartQuotesType.disabled,
-            textInputAction: TextInputAction.send,
+            textInputAction: TextInputAction.newline,
             onChanged: _changed,
-            onSubmitted: (_) => _submit(),
             decoration: BoxDecoration(
               color: color.bgHigh,
               borderRadius: fieldRadius,
@@ -174,6 +361,7 @@ class _ComposerState extends State<Composer> {
             key: const ValueKey<String>('composerField'),
             controller: _controller,
             enabled: widget.enabled,
+            readOnly: widget.queued,
             inputFormatters: widget.inputFormatters,
             focusNode: widget.focusNode,
             style: style,
@@ -186,9 +374,8 @@ class _ComposerState extends State<Composer> {
             textCapitalization: TextCapitalization.sentences,
             smartDashesType: SmartDashesType.disabled,
             smartQuotesType: SmartQuotesType.disabled,
-            textInputAction: TextInputAction.send,
+            textInputAction: TextInputAction.newline,
             onChanged: _changed,
-            onSubmitted: (_) => _submit(),
             decoration: InputDecoration(
               filled: true,
               fillColor: color.bgHigh,
@@ -211,51 +398,62 @@ class _ComposerState extends State<Composer> {
               ),
             ),
           );
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        SizedBox.square(
-          key: const ValueKey<String>('composerMore'),
-          dimension: height,
-          child: ios
-              ? Semantics(
-                  label: widget.panelOpen ? 'Fewer keys' : 'More keys',
-                  child: CupertinoButton(
-                    color: color.bgHigh,
-                    borderRadius: BorderRadius.circular(AppRadius.full),
-                    minimumSize: const Size.square(AppSize.inputIos),
-                    padding: EdgeInsets.zero,
-                    onPressed: widget.onTogglePanel,
-                    child: Icon(
-                      widget.panelOpen
-                          ? Symbols.close_rounded
-                          : Symbols.add_rounded,
-                      color: color.accentText,
-                      size: AppSize.iconMd,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: <Widget>[
+            SizedBox.square(
+              key: const ValueKey<String>('composerMore'),
+              dimension: height,
+              child: ios
+                  ? Semantics(
+                      label: widget.panelOpen ? 'Fewer keys' : 'More keys',
+                      child: CupertinoButton(
+                        color: color.bgHigh,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        minimumSize: const Size.square(AppSize.inputIos),
+                        padding: EdgeInsets.zero,
+                        onPressed: widget.onTogglePanel,
+                        child: Icon(
+                          widget.panelOpen
+                              ? Symbols.close_rounded
+                              : Symbols.add_rounded,
+                          color: color.accentText,
+                          size: AppSize.iconMd,
+                        ),
+                      ),
+                    )
+                  : IconButton.filledTonal(
+                      tooltip: widget.panelOpen ? 'Fewer keys' : 'More keys',
+                      style: appTonalIconButtonStyle(context),
+                      onPressed: widget.onTogglePanel,
+                      icon: Icon(
+                        widget.panelOpen
+                            ? Symbols.close_rounded
+                            : Symbols.add_rounded,
+                      ),
                     ),
-                  ),
-                )
-              : IconButton.filledTonal(
-                  tooltip: widget.panelOpen ? 'Fewer keys' : 'More keys',
-                  style: appTonalIconButtonStyle(context),
-                  onPressed: widget.onTogglePanel,
-                  icon: Icon(
-                    widget.panelOpen
-                        ? Symbols.close_rounded
-                        : Symbols.add_rounded,
-                  ),
-                ),
+            ),
+            const SizedBox(width: AppSpace.space2),
+            Expanded(child: field),
+            if (!ios) ...<Widget>[
+              const SizedBox(width: AppSpace.space2),
+              SizedBox.square(
+                key: const ValueKey<String>('composerSend'),
+                dimension: height,
+                child: send,
+              ),
+            ],
+          ],
         ),
-        const SizedBox(width: AppSpace.space2),
-        Expanded(child: field),
-        if (!ios) ...<Widget>[
-          const SizedBox(width: AppSpace.space2),
-          SizedBox.square(
-            key: const ValueKey<String>('composerSend'),
-            dimension: height,
-            child: send,
+        if (widget.queued)
+          const Text(
+            'Queued. Sends when the agent is done.',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-        ],
       ],
     );
   }

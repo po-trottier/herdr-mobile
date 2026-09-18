@@ -63,6 +63,10 @@ impl HerdrCalls for StubHerdr {
         Ok(json!({ "text": "hello", "truncated": false }))
     }
 
+    fn pane_send_text(&self, _pane_id: &str, _text: &str) -> Result<(), IpcError> {
+        unimplemented!("not exercised by this test")
+    }
+
     fn pane_send_input(
         &self,
         _pane_id: &str,

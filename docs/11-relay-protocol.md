@@ -241,9 +241,9 @@ Rationale: detect a stale connection without application-level traffic.
 **R-11-023**: Each peer MUST respond with a WebSocket pong within 10 seconds. If no pong arrives,
 the relay MUST close the WebSocket with close code `1001` (going away).
 
-**R-11-024**: The Host and Device MUST respond to WebSocket pings from the relay. They MUST NOT send
-their own pings; the relay owns the keepalive. Rationale: one side owns the heartbeat, so two
-independent timers cannot desynchronise.
+**R-11-024**: The Host and Device MUST respond to WebSocket pings from the relay.
+They MUST NOT send application pings for keepalive. The relay owns keepalive.
+The Device MAY send the round-trip-time probe in R-11-250.
 
 ### 2.6 Close codes
 
@@ -542,8 +542,8 @@ or per fragment.
 
 ## 4. Application messages
 
-Every message has a `type`, a sender, and a reply policy. The table below lists all messages.
-Sections 4.1 through 4.27 specify each one.
+The table contains 30 message rows. Each row specifies the sender, reply policy,
+and correlation requirement. Sections 4.1 through 4.29 specify each message.
 
 | # | `type` | Sender | Reply | Correlation | Description |
 |---|--------|--------|-------|-------------|-------------|
@@ -558,7 +558,7 @@ Sections 4.1 through 4.27 specify each one.
 | 9 | `pane_frame` | Host | No | No | ANSI pane content with revision, viewport rows, width |
 | 10 | `scroll_request` | Device | Host sends `scroll_response` | Yes | Request scrollback content |
 | 11 | `scroll_response` | Host | No (reply) | Yes | Scrollback content from `source:"recent"` |
-| 12 | `send_input` | Device | Host sends `send_input_ack` | Yes | Send text and/or named keys to a pane |
+| 12 | `send_input` | Device | Host sends `send_input_ack` | Yes | Set the full composer line or send text/keys |
 | 12a | `send_input_ack` | Host | No (reply) | Yes | Confirm the bridge accepted the input; carry no pane content |
 | 13 | `agent_status` | Host | No | No | Agent status change, the local-notification trigger |
 | 14 | `agent_prompt` | Device | Host sends `agent_prompt_ack` | Yes | Send a prompt to an agent |
@@ -573,7 +573,10 @@ Sections 4.1 through 4.27 specify each one.
 | 23 | `disconnect` | Device | No | No | Deliberate disconnect; keeps the pairing and the key |
 | 24 | `action_list_request` | Device | Host sends `action_list` | Yes | Request the Host's plugin action list |
 | 25 | `action_list` | Host | No (reply) | Yes | Projected action list: id, title, description, contexts only |
+| 26 | `mark_seen` | Device | No (`error` on failure) | No | Mark an agent pane as seen |
 | 27 | `host_theme` | Host | No | No | Resolved palette change for the terminal grid |
+| 28 | `ping` | Device | Host sends `pong` | Yes | Measure round-trip time |
+| 29 | `pong` | Host | No (reply) | Yes | Return the probe correlation id |
 
 `pane_action` and `pane_action_ack` are retired. They are replaced by `host_action` and
 `host_action_ack`.
@@ -770,10 +773,15 @@ viewport row count, the column width, and the scroll state.
 | `viewport_rows` | integer | Yes | From `scroll.viewport_rows` (R-10-024). |
 | `width` | integer | Yes | From `pane.layout` `rect.width`, in character cells (R-10-024). |
 | `scroll` | object | Yes | `offset_from_bottom` (integer), `max_offset_from_bottom` (integer). |
+| `line` | string | No | Host line shadow for this pane. Defaults to an empty string. |
 
 **R-11-049**: The bridge MUST call `session.snapshot` and `pane.layout` before sending `watch_ack`,
 to populate `revision`, `viewport_rows`, `width`, and `scroll` (R-10-028, R-10-025). Rationale: the
 Device needs the grid size before the first `pane_frame` arrives.
+
+**R-11-249**: The Host MUST include its per-pane line shadow in `watch_ack.line`.
+The Device MUST seed the composer from this value. An absent `line` defaults to
+an empty string. This value follows the lifecycle in R-10-076.
 
 ### 4.8 unwatch_pane
 
@@ -812,6 +820,10 @@ The Host sends the ANSI pane content. This is the payload the terminal emulator 
 unchanged, so two frames MAY share a revision when the text moved and the revision did not
 (R-02-026; corrected 2026-09-03).
 
+**R-11-251**: The Host MUST coalesce queued `pane_frame` messages per pane.
+A newer frame MUST replace an older unsent frame for the same pane.
+The Host MUST NOT drop non-frame messages during this coalescing.
+
 ### 4.10 scroll_request
 
 Sender: Device. Reply: `scroll_response`. Correlation: yes.
@@ -841,63 +853,126 @@ Sender: Host. Reply: no (reply to `scroll_request`). Correlation: yes.
 
 ### 4.12 send_input
 
-Sender: Device. Reply: no. Correlation: no.
+Sender: Device. Reply: `send_input_ack`. Correlation: yes.
 
-The Device sends input to a pane. This carries text and/or named keys. The bridge maps this to the
-correct Herdr method (R-10-044).
+The Device sends the full composer text or an explicit text/key operation to a pane.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `pane_id` | string | Yes | The target pane. |
-| `text` | string | No | Literal text to send. Used for printable characters and for the six unnamed keys as raw sequences (R-10-036). |
-| `keys` | array of strings | No | Named keys, for example `["Enter"]` or `["ctrl+c"]` (R-10-036 to R-10-039). |
+| `pane_id` | string | Yes | Target pane. |
+| `line` | string | No | Full composer text, including an empty string. Excludes `text` and `keys`. |
+| `text` | string | No | Literal text or a raw sequence for an unnamed key (R-10-036). |
+| `keys` | array of strings | No | Named keys, such as `["Enter"]` or `["ctrl+c"]` (R-10-036 through R-10-039). |
+| `defer` | string | No | `until_idle` holds an Enter submit while the agent works. `cancel` cancels a held submit. |
 
-**R-11-054**: The Device MUST resolve a key press in this order and stop at the first match
-(R-10-044):
+**R-11-248**: Except for a standalone `defer: "cancel"` (R-11-253), each
+`send_input` MUST contain exactly one shape: `line`, or `text`
+and/or `keys`. The Device MUST send the full current composer text in `line`,
+not a text delta. The Host MUST reconcile its per-pane line shadow with this value
+according to R-10-075 and R-10-076. A `line` frame is idempotent and MAY be resent.
+After reconnect, the Device MUST resend its current line. This replaces the Device
+text-delta model.
 
-1. Printable character, no modifier other than shift: send `text`.
-2. One of the six unnamed keys (`Home`, `End`, `PageUp`, `PageDown`, `Delete`, `Insert`): send the
-   raw sequence in `text` (R-10-036).
-3. Named key, with or without modifiers: send `keys`.
-4. A committed multi-character string on an agent pane: use `agent_prompt` (section 4.14).
+**R-11-054**: The Device MUST send composer changes through `line` (R-11-248).
+For explicit key operations, it MUST use the mapping in R-10-044:
 
-**R-11-055**: The bridge MUST validate every `send_input` request against the schema before
-forwarding it to Herdr (R-10-013, R-02-009). A malformed request costs the Herdr connection and
-returns an error with an empty `id` that cannot be correlated.
+1. Send literal key-row text and raw sequences for unnamed keys in `text`.
+2. Send named keys and control chords in `keys`.
+3. Use `agent_prompt` for the separate agent prompt operation (section 4.14).
 
-**R-11-056**: The bridge MUST map `send_input` to the correct Herdr method:
+**R-11-055**: The Host MUST validate each `send_input` schema before it forwards
+input to Herdr (R-10-013, R-02-009). It MUST reject a frame that mixes `line` with
+`text` or `keys`, or contains neither shape nor standalone `defer: "cancel"`.
+A `line` frame MAY be resent.
+The Device MUST NOT resend a `text` or `keys` operation.
 
-- If `PaneInfo.agent` is non-null and the input is a committed multi-character string: use
-  `agent.prompt` (R-10-040).
-- If `PaneInfo.agent` is non-null and the input is a single key press or control chord: use
-  `pane.send_input` (R-10-041).
-- If `PaneInfo.agent` is null: use `pane.send_input` for all input (R-10-042).
-- The bridge MUST NOT pass `wait` in `agent.prompt` (R-10-043).
+**R-11-056**: The Host MUST reconcile `line` according to R-10-075.
+It MUST send typed `text` through `pane.send_text` and named `keys` through
+`pane.send_input` (R-10-077). The newline exception follows R-10-075.
+Only `line` frames MAY be resent. The Host MUST NOT retry `text` or `keys` operations.
+The separate `agent_prompt` operation uses `agent.prompt` without `wait` (R-10-043).
+
+**R-11-252**: The Host MUST coalesce unapplied `line` frames per pane and apply only
+the newest line. It MUST acknowledge every correlation id, including those of
+superseded lines. It MUST NOT coalesce `text` or `keys` operations.
+
+Example:
+
+```json
+{
+  "v": 1,
+  "type": "send_input",
+  "seq": 8,
+  "corr": "req-005",
+  "payload": {"pane_id":"w3:p2","line":"hello, world"}
+}
+```
+
+**R-11-253**: The Device MAY request a held submit with `defer: "until_idle"`.
+This value is valid only with `keys` that contains `Enter`, without `line` or `text`.
+If the pane's agent status is not `working`, the Host MUST forward the Enter at once.
+Otherwise, it MUST hold exactly one pending submit per pane.
+A newer held submit MUST replace the older one. The Host MUST acknowledge the
+older correlation id with `accepted: false` and `queued: false`.
+
+The Host MUST acknowledge a held submit first with `accepted: true, queued: true`.
+When the status leaves `working`, it MUST forward the held submit and send a final
+acknowledgement with the same correlation id, the final `accepted` result, and
+`queued: false`. A queued acknowledgement does not mean that Herdr received Enter.
+
+The Device MAY send `defer: "cancel"` with only `pane_id` to cancel a held submit.
+The Host MUST drop that submit and acknowledge its correlation id with `accepted: false`.
+It MUST acknowledge the cancel correlation id with `accepted: true`.
+These final acknowledgements have `queued: false`.
+The Host MUST drop held submits at unwatch or session end.
+
+Herdr exposes no queue-versus-steer primitive. Agent status is the only signal
+that every agent shares, so the Device never needs an agent-specific keybind.
+
+```json
+{
+  "v": 1,
+  "type": "send_input",
+  "seq": 11,
+  "corr": "req-007",
+  "payload": {"pane_id":"w3:p2","keys":["Enter"],"defer":"until_idle"}
+}
+```
+
+```json
+{
+  "v": 1,
+  "type": "send_input_ack",
+  "seq": 12,
+  "corr": "req-007",
+  "payload": {"pane_id":"w3:p2","accepted":true,"queued":true}
+}
+```
 
 ### 4.12a send_input_ack
 
 Sender: Host. Reply: no (reply to `send_input`). Correlation: yes.
 
-The Host confirms that the bridge accepted the input and passed it to Herdr. The acknowledgement
-carries no pane content. The Device drives its send-state transitions only from this reply.
+The Host reports whether it accepted the operation. The acknowledgement carries
+no pane content. A held submit receives a queued acknowledgement and then a final
+acknowledgement (R-11-253). The Device matches acknowledgements by correlation id.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `pane_id` | string | Yes | The pane the input was sent to. |
-| `accepted` | boolean | Yes | `true` when the bridge accepted the input and forwarded it to Herdr. |
+| `accepted` | boolean | Yes | `true` when the Host accepted the operation. See `queued` for a held submit. |
+| `queued` | boolean | No | `true` when the Host holds the submit. Defaults to `false` and is omitted when false. |
 
-**R-11-227**: The Host MUST reply with `send_input_ack` for every `send_input` it receives. The
-`corr` field MUST echo the correlation id of the `send_input` request (R-11-034). The reply proves
-the bridge passed the input to Herdr. It cannot prove the program in the pane acted on it. A control
-key can produce no visible change, and a later snapshot cannot distinguish a no-op from an
-undelivered send. The acknowledgement is the only signal the Device has.
+**R-11-227**: The Host MUST reply with `send_input_ack` for every `send_input`.
+It MUST echo the request correlation id (R-11-034). For a held submit, it MUST
+send both acknowledgements specified by R-11-253. `queued` defaults to `false`
+and MUST be omitted when false. The Device MUST treat only a final acknowledgement
+as the completed result.
 
-**R-11-228**: The Device MUST NOT automatically retry an unacknowledged `send_input`. A person MAY
-retype; the app MAY NOT re-send. After a lost acknowledgement the Device enters the outcome-unknown
-state of R-30-518. The one-tap-retry prohibition of R-30-518 applies: the Device MUST NOT offer
-`Try again` and MUST NOT re-send the same input until it reconciles the outcome. Rationale: a retry
-on an unacknowledged send can repeat a command in a live shell, which is worse than dropping one
-keystroke.
+**R-11-228**: The Device MAY resend a full `line` frame (R-11-248).
+It MUST NOT resend an unacknowledged `text` or `keys` operation, automatically or
+through a retry button. A lost acknowledgement for those operations leaves the
+outcome unknown (R-30-518). A retry could repeat a command in a live shell.
 
 ### 4.13 agent_status
 
@@ -1317,6 +1392,32 @@ It MUST NOT apply the palette to the app chrome or composer.
 **R-11-243**: Each palette colour MUST be a `#RRGGBB` string or the literal `reset`.
 The Device MUST interpret `reset` as no Host override for that colour.
 It MUST use the app's own grid colour instead.
+
+### 4.28 ping
+
+Sender: Device. Reply: `pong`. Correlation: yes.
+
+The payload is an empty object.
+
+**R-11-250**: The Device MAY send at most one `ping` per 10 seconds, and only while
+a terminal screen is visible. Each `ping` MUST carry a correlation id.
+The Host MUST reply with `pong` and echo that id without a call to Herdr.
+Both payloads MUST be empty objects. This probe measures round-trip time.
+It MUST NOT replace the WebSocket keepalive.
+
+```json
+{"v":1,"type":"ping","seq":9,"corr":"req-006","payload":{}}
+```
+
+### 4.29 pong
+
+Sender: Host. Reply: no (reply to `ping`). Correlation: yes.
+
+The payload is an empty object. The Host echoes the `ping` correlation id (R-11-250).
+
+```json
+{"v":1,"type":"pong","seq":10,"corr":"req-006","payload":{}}
+```
 
 ## 5. Pane watch and render loop
 
@@ -1769,6 +1870,7 @@ The Device sends a Control-C.
   "v": 1,
   "type": "send_input",
   "seq": 4,
+  "corr": "req-004",
   "payload": {
     "pane_id": "w3:p2",
     "keys": ["ctrl+c"]
@@ -1777,7 +1879,8 @@ The Device sends a Control-C.
 ```
 
 The bridge validates the request, opens a fresh Herdr connection, and calls `pane.send_input` with
-`keys: ["ctrl+c"]` (R-10-038, R-10-041). No reply is sent to the Device.
+`keys: ["ctrl+c"]` (R-10-038, R-10-041). The Host replies with `send_input_ack`
+and echoes the request correlation id.
 
 ### 8.9 Agent reaches done
 
@@ -2147,6 +2250,11 @@ WebSocket library implements `permessage-deflate`, so it MUST NOT be used at all
 specify the real compression and fragmentation design (R-11-229 to R-11-239).
 
 ## Sources
+
+- 2026-09-18 live Windows Herdr and OMP 18.2.5 measurement: a Rust client at
+  1500 requests/s delivered input without loss, including Backspace, emoji graphemes,
+  and newlines. Per-character bracketed paste caused OMP to insert paste spaces.
+  Raw `pane.send_text` preserved the input.
 
 - `docs/02-herdr-probe-results.md` — rules R-02-001 to R-02-019 (measured Herdr socket facts).
 - `docs/03-product-decisions.md` — rules R-03-001 to R-03-012 (product policy, no-default-origin,

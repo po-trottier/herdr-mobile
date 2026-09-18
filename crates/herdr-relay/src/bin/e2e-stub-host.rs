@@ -209,6 +209,17 @@ impl HerdrCalls for StubHerdr {
         Ok(json!({ "text": CANNED_SCROLLBACK, "truncated": true }))
     }
 
+    fn pane_send_text(&self, pane_id: &str, text: &str) -> Result<(), IpcError> {
+        emit_stdout(&json!({
+            "event": "send_input_received",
+            "pane_id": pane_id,
+            "text_len": text.len(),
+            "text_matches_expected": EXPECTED_SEND_INPUT_TEXTS.contains(&text),
+            "keys_len": 0,
+        }));
+        Ok(())
+    }
+
     fn pane_send_input(
         &self,
         pane_id: &str,

@@ -38,6 +38,7 @@ mod bridge;
 mod devices;
 mod error_map;
 mod events;
+mod held_input;
 mod herdr_calls;
 mod incoming;
 mod input;

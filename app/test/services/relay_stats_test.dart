@@ -16,7 +16,9 @@ import 'package:herdr_mobile/models/frame.dart';
 import 'package:herdr_mobile/models/message.dart';
 import 'package:herdr_mobile/models/messages/device_info.dart';
 import 'package:herdr_mobile/models/messages/host_info.dart';
+import 'package:herdr_mobile/models/messages/ping.dart';
 import 'package:herdr_mobile/models/messages/platform.dart' as wire;
+import 'package:herdr_mobile/models/messages/pong.dart';
 import 'package:herdr_mobile/models/messages/tree_request.dart';
 import 'package:herdr_mobile/models/messages/tree_snapshot.dart';
 import 'package:herdr_mobile/services/biometric_gate.dart';
@@ -148,7 +150,9 @@ void main() {
       'http://127.0.0.1:${server.port}',
     ) as Ok<RelayOrigin>).value;
 
+    var now = DateTime(2026);
     final relay = RelayConnection(
+      now: () => now,
       handshaker: _fakeHandshaker,
       connectivityWatcher: _noOpConnectivityWatcher(),
     );
@@ -188,6 +192,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(relay.framesOut, 2, reason: 'device_info, then tree_request');
 
+    now = now.add(const Duration(milliseconds: 10));
     await _sendHostMessage(
       ws,
       hostSend,
@@ -208,6 +213,33 @@ void main() {
       reason: 'tree_snapshot echoed c1, the corr tree_request was sent with',
     );
     expect(relay.lastRoundTrip! >= Duration.zero, isTrue);
+    final firstRtt = relay.lastRoundTrip;
+    relay.send(const Message.ping(Ping()), corr: 'expired');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    now = now.add(const Duration(minutes: 1));
+    relay.send(const Message.ping(Ping()), corr: 'fresh');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final expiredReply = relay.messages.first;
+    await _sendHostMessage(
+      ws,
+      hostSend,
+      const Message.pong(Pong()),
+      3,
+      corr: 'expired',
+    );
+    expect((await expiredReply as MessagePong).corr, 'expired');
+    expect(relay.lastRoundTrip, firstRtt);
+    now = now.add(const Duration(milliseconds: 23));
+    final freshReply = relay.messages.first;
+    await _sendHostMessage(
+      ws,
+      hostSend,
+      const Message.pong(Pong()),
+      4,
+      corr: 'fresh',
+    );
+    expect((await freshReply as MessagePong).corr, 'fresh');
+    expect(relay.lastRoundTrip, const Duration(milliseconds: 23));
   }, timeout: const Timeout(Duration(seconds: 30)));
 
   test('a non-revoked mid-session close threads the raw close code and reason onto '

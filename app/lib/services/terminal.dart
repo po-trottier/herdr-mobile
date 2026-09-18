@@ -39,6 +39,7 @@ import '../core/result/result.dart' show Err, Ok, Result;
 import '../models/codes.dart' show ErrorCode;
 import '../models/message.dart';
 import '../models/messages/pane_frame.dart';
+import '../models/messages/ping.dart';
 import '../models/messages/scroll_offsets.dart';
 import '../models/messages/scroll_request.dart';
 import '../models/messages/scroll_response.dart';
@@ -297,6 +298,13 @@ final class TerminalService {
 
   /// R-03-131: the latest Host palette, including updates after this pane opens.
   final ValueNotifier<ThemePalette?> hostTheme;
+  final ValueNotifier<Duration?> latestRtt = ValueNotifier(null);
+  final _pendingReplies =
+      <String, ({DateTime? sentAt, String? paneId, Timer timer})>{};
+  final _submits = <String, Completer<bool>>{};
+  Timer? _rttProbeTimer;
+  bool _disposed = false;
+  int _connectionGeneration = 0;
   late final StreamSubscription<Message> _subscription;
 
   TerminalFrameState _state;
@@ -615,7 +623,38 @@ final class TerminalService {
             payload.paneId == _state.paneId) {
           completer.complete(Ok(payload));
         }
-      case MessageError(:final payload):
+      case MessageSendInputAck(:final payload, :final corr):
+        if (corr != null && _pendingReplies[corr]?.paneId == payload.paneId) {
+          if (payload.accepted && (payload.queued ?? false)) {
+            final pending = _pendingReplies[corr]!;
+            if (pending.sentAt != null) {
+              latestRtt.value = _now().difference(pending.sentAt!);
+            }
+            if (_submits.containsKey(corr)) {
+              pending.timer.cancel();
+              _pendingReplies[corr] = (
+                sentAt: null,
+                paneId: pending.paneId,
+                timer: pending.timer,
+              );
+              _queuedCorr = corr;
+              composerQueued.value = true;
+            }
+          } else {
+            _finishReply(corr, payload.accepted, measure: true);
+          }
+        }
+      case MessagePong(:final corr):
+        if (corr != null &&
+            _pendingReplies.containsKey(corr) &&
+            _pendingReplies[corr]!.paneId == null) {
+          _finishReply(corr, true, measure: true);
+        }
+      case MessageError(:final payload, :final corr):
+        if (corr != null && _pendingReplies.containsKey(corr)) {
+          _finishReply(corr, false);
+          return;
+        }
         final attachCompleter = _attachCompleter;
         if (attachCompleter != null && !attachCompleter.isCompleted) {
           attachCompleter.complete(
@@ -773,29 +812,137 @@ final class TerminalService {
     }
   }
 
-  /// R-03-130: composer edits use the existing raw-text input message.
-  void sendComposerText(String text) {
-    final paneId = _state.paneId;
-    if (paneId == null || text.isEmpty) return;
-    _send(Message.sendInput(SendInput(paneId: paneId, text: text)));
+  /// Sends a correlated input or probe and measures its reply time.
+  void send(Message message, {String? corr}) {
+    if (_disposed) return;
+    if (message is! MessageSendInput && message is! MessagePing) {
+      _send(message, corr: corr);
+      return;
+    }
+    corr ??= _freshCorr();
+    final id = corr;
+    final paneId = message is MessageSendInput ? message.payload.paneId : null;
+    final timer = Timer(_replyTimeout, () => _finishReply(id, false));
+    _pendingReplies[id] = (sentAt: _now(), paneId: paneId, timer: timer);
+    try {
+      _send(message, corr: id);
+    } on Object {
+      _finishReply(id, false);
+      rethrow;
+    }
   }
 
-  /// R-31-09-27, R-10-037: Herdr resolves each named Backspace for the pane.
-  void sendComposerDeletions(int count) {
-    final paneId = _state.paneId;
-    if (paneId == null || count <= 0) return;
-    _send(
-      Message.sendInput(
-        SendInput(paneId: paneId, keys: List.filled(count, 'Backspace')),
+  static int _corrSequence = 0;
+  String _freshCorr() =>
+      'terminal-${_now().microsecondsSinceEpoch}-${_corrSequence++}';
+
+  void _finishReply(String corr, bool accepted, {bool measure = false}) {
+    final pending = _pendingReplies.remove(corr);
+    if (pending == null) return;
+    pending.timer.cancel();
+    if (_queuedCorr == corr) {
+      _queuedCorr = null;
+      composerQueued.value = false;
+    }
+    if (measure && pending.sentAt != null) {
+      latestRtt.value = _now().difference(pending.sentAt!);
+    }
+    _submits.remove(corr)?.complete(accepted);
+  }
+
+  /// Replaces the Host composer text, including an empty line.
+  void sendComposerLine(String paneId, String line) {
+    send(Message.sendInput(SendInput(paneId: paneId, line: line)));
+  }
+
+  /// Sends Enter only after the Host accepts the complete line.
+  Future<bool> sendComposerSubmit(
+    String paneId,
+    String line, {
+    bool whenIdle = false,
+  }) async {
+    final generation = _connectionGeneration;
+    if (line.isNotEmpty &&
+        !await _sendAndWait(SendInput(paneId: paneId, line: line))) {
+      return false;
+    }
+    if (generation != _connectionGeneration) return false;
+    return _sendAndWait(
+      SendInput(
+        paneId: paneId,
+        keys: const ['Enter'],
+        defer: whenIdle ? 'until_idle' : null,
       ),
     );
   }
 
-  /// R-03-130: submit uses the same named key as the key row.
-  void sendComposerSubmit() {
-    final paneId = _state.paneId;
-    if (paneId == null) return;
-    _send(Message.sendInput(SendInput(paneId: paneId, keys: const ['Enter'])));
+  final ValueNotifier<bool> composerQueued = ValueNotifier(false);
+  String? _queuedCorr;
+
+  /// Sends the held Enter now without replacing the line again.
+  void sendQueuedComposerNow(String paneId) {
+    final previous = _queuedCorr;
+    final pending = _pendingReplies[previous];
+    if (_disposed || previous == null || pending?.paneId != paneId) return;
+    final completer = _submits.remove(previous);
+    if (completer == null) return;
+    _queuedCorr = null;
+    composerQueued.value = false;
+    _pendingReplies[previous] = (
+      sentAt: pending!.sentAt,
+      paneId: paneId,
+      timer: Timer(_replyTimeout, () => _finishReply(previous, false)),
+    );
+    final corr = _freshCorr();
+    _submits[corr] = completer;
+    try {
+      send(
+        Message.sendInput(SendInput(paneId: paneId, keys: const ['Enter'])),
+        corr: corr,
+      );
+    } on Object {
+      // send already completed the transferred request with false.
+    }
+  }
+
+  /// Cancels the Host-held Enter with a separate correlation ID.
+  Future<bool> cancelComposerSubmit(String paneId) =>
+      _sendAndWait(SendInput(paneId: paneId, defer: 'cancel'));
+
+  /// Releases requests whose replies cannot arrive after a disconnect.
+  void disconnect() {
+    _connectionGeneration++;
+    for (final corr in _pendingReplies.keys.toList()) {
+      _finishReply(corr, false);
+    }
+  }
+
+  Future<bool> _sendAndWait(SendInput input) {
+    if (_disposed) return Future.value(false);
+    final corr = _freshCorr();
+    final completer = Completer<bool>();
+    _submits[corr] = completer;
+    try {
+      send(Message.sendInput(input), corr: corr);
+    } on Object {
+      return Future.value(false);
+    }
+    return completer.future;
+  }
+
+  /// Probes only while the terminal screen is visible and the link is live.
+  void setRttProbeEnabled({required bool enabled}) {
+    if (enabled && _rttProbeTimer != null) return;
+    _rttProbeTimer?.cancel();
+    _rttProbeTimer = null;
+    if (!enabled || _disposed) return;
+    _rttProbeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      try {
+        send(const Message.ping(Ping()));
+      } on Object catch (error) {
+        _log.fine('RTT probe failed: $error');
+      }
+    });
   }
 
   /// One `CSI ... m` SGR sequence — the only escape sequence the Host payload ever contains
@@ -827,6 +974,11 @@ final class TerminalService {
     _cancelScrollback();
     _lastLiveFrame = null;
     _pendingFrame = null;
+    _disposed = true;
+    setRttProbeEnabled(enabled: false);
+    disconnect();
+    composerQueued.dispose();
+    latestRtt.dispose();
     _coalesceTimer?.cancel();
     await _subscription.cancel();
     await _stateController.close();

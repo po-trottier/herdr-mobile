@@ -32,6 +32,8 @@ import 'messages/host_info.dart';
 import 'messages/host_theme.dart';
 import 'messages/mark_seen.dart';
 import 'messages/pane_frame.dart';
+import 'messages/ping.dart';
+import 'messages/pong.dart';
 import 'messages/revoke_device.dart';
 import 'messages/revoke_result.dart';
 import 'messages/scroll_request.dart';
@@ -68,7 +70,7 @@ sealed class Message with _$Message {
   const factory Message.scrollResponse(ScrollResponse payload) =
       MessageScrollResponse;
   const factory Message.sendInput(SendInput payload) = MessageSendInput;
-  const factory Message.sendInputAck(SendInputAck payload) =
+  const factory Message.sendInputAck(SendInputAck payload, {String? corr}) =
       MessageSendInputAck;
   const factory Message.agentStatus(AgentStatus payload) = MessageAgentStatus;
   const factory Message.markSeen(MarkSeen payload) = MessageMarkSeen;
@@ -85,7 +87,10 @@ sealed class Message with _$Message {
       MessageRevokeDevice;
   const factory Message.revokeResult(RevokeResult payload) =
       MessageRevokeResult;
-  const factory Message.error(ErrorMessage payload) = MessageError;
+  const factory Message.error(ErrorMessage payload, {String? corr}) =
+      MessageError;
+  const factory Message.ping(Ping payload) = MessagePing;
+  const factory Message.pong(Pong payload, {String? corr}) = MessagePong;
   const factory Message.disconnect(Disconnect payload) = MessageDisconnect;
   const factory Message.actionListRequest(ActionListRequest payload) =
       MessageActionListRequest;
@@ -98,7 +103,11 @@ sealed class Message with _$Message {
 ///
 /// Throws a [FormatException] for an unknown `type`, per R-41-037: a
 /// validation failure MUST produce a typed error, never a silent default.
-Message messageFromTypeAndPayload(String type, Map<String, dynamic> payload) {
+Message messageFromTypeAndPayload(
+  String type,
+  Map<String, dynamic> payload, {
+  String? corr,
+}) {
   return switch (type) {
     'host_info' => Message.hostInfo(HostInfo.fromJson(payload)),
     'host_theme' => Message.hostTheme(HostTheme.fromJson(payload)),
@@ -115,7 +124,12 @@ Message messageFromTypeAndPayload(String type, Map<String, dynamic> payload) {
       ScrollResponse.fromJson(payload),
     ),
     'send_input' => Message.sendInput(SendInput.fromJson(payload)),
-    'send_input_ack' => Message.sendInputAck(SendInputAck.fromJson(payload)),
+    'send_input_ack' => Message.sendInputAck(
+      SendInputAck.fromJson(payload),
+      corr: corr,
+    ),
+    'ping' => Message.ping(Ping.fromJson(payload)),
+    'pong' => Message.pong(Pong.fromJson(payload), corr: corr),
     'agent_status' => Message.agentStatus(AgentStatus.fromJson(payload)),
     'mark_seen' => Message.markSeen(MarkSeen.fromJson(payload)),
     'agent_prompt' => Message.agentPrompt(AgentPrompt.fromJson(payload)),
@@ -130,7 +144,7 @@ Message messageFromTypeAndPayload(String type, Map<String, dynamic> payload) {
     'device_list' => Message.deviceList(DeviceList.fromJson(payload)),
     'revoke_device' => Message.revokeDevice(RevokeDevice.fromJson(payload)),
     'revoke_result' => Message.revokeResult(RevokeResult.fromJson(payload)),
-    'error' => Message.error(ErrorMessage.fromJson(payload)),
+    'error' => Message.error(ErrorMessage.fromJson(payload), corr: corr),
     'disconnect' => Message.disconnect(Disconnect.fromJson(payload)),
     'action_list_request' => Message.actionListRequest(
       ActionListRequest.fromJson(payload),
@@ -162,6 +176,8 @@ extension MessageWire on Message {
     MessageScrollResponse() => 'scroll_response',
     MessageSendInput() => 'send_input',
     MessageSendInputAck() => 'send_input_ack',
+    MessagePing() => 'ping',
+    MessagePong() => 'pong',
     MessageAgentStatus() => 'agent_status',
     MessageAgentPrompt() => 'agent_prompt',
     MessageMarkSeen() => 'mark_seen',
@@ -195,6 +211,8 @@ extension MessageWire on Message {
     MessageScrollResponse(:final payload) => payload.toJson(),
     MessageSendInput(:final payload) => payload.toJson(),
     MessageSendInputAck(:final payload) => payload.toJson(),
+    MessagePing(:final payload) => payload.toJson(),
+    MessagePong(:final payload) => payload.toJson(),
     MessageAgentStatus(:final payload) => payload.toJson(),
     MessageAgentPrompt(:final payload) => payload.toJson(),
     MessageMarkSeen(:final payload) => payload.toJson(),

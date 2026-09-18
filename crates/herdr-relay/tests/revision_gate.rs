@@ -87,6 +87,10 @@ impl HerdrCalls for StubHerdr {
         Ok(json!({ "text": "hello", "truncated": false, "revision": 999_999 }))
     }
 
+    fn pane_send_text(&self, _pane_id: &str, _text: &str) -> Result<(), IpcError> {
+        unimplemented!("not exercised by this test")
+    }
+
     fn pane_send_input(
         &self,
         _pane_id: &str,
@@ -356,6 +360,10 @@ impl HerdrCalls for StubHerdrClosablePane {
 
     fn pane_read_recent(&self, _pane_id: &str, _lines: u32) -> Result<Value, IpcError> {
         Ok(json!({ "text": "hello", "truncated": false }))
+    }
+
+    fn pane_send_text(&self, _pane_id: &str, _text: &str) -> Result<(), IpcError> {
+        unimplemented!("not exercised by this test")
     }
 
     fn pane_send_input(

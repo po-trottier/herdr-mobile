@@ -28,7 +28,8 @@ List<String> _loadRealWords() =>
         .where((line) => line.isNotEmpty)
         .toList();
 
-Stream<SendInputAck> _noAcks() => const Stream<SendInputAck>.empty();
+Stream<({String corr, SendInputAck ack})> _noAcks() =>
+    const Stream<({String corr, SendInputAck ack})>.empty();
 
 void _noSend(Message message, {String? corr}) {}
 

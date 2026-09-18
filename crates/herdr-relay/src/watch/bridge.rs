@@ -115,6 +115,8 @@ pub struct Bridge<H: HerdrCalls> {
     /// while a bridge restart still clears it — R-11-224's own "predates the
     /// bridge start" case.
     pub(crate) agent_status_observed: Arc<Mutex<HashMap<String, String>>>,
+    /// R-10-075: shared across Device sessions and watch changes.
+    pub(crate) input_lines: Arc<Mutex<HashMap<String, String>>>,
     /// pane_id -> `Instant` of the last `agent_status` message actually sent for
     /// that pane's agent (R-11-059: the 30-second settle window). Separate from
     /// `agent_status_observed` above, which records every observed change
@@ -122,10 +124,14 @@ pub struct Bridge<H: HerdrCalls> {
     /// tracks only sends, gating whether the next `blocked`/`done` event fires
     /// one.
     pub(super) agent_status_settled: HashMap<String, Instant>,
+    pub(super) pending_input: Option<super::held_input::PendingInput>,
+    /// R-10-078: the transport clears this flag before the session thread ends.
+    pub(crate) session_active: Option<Arc<std::sync::atomic::AtomicBool>>,
+    pub(super) input_replies: Vec<(herdr_relay_proto::messages::Message, Option<String>)>,
 }
 
-/// Locks the shared observed-stamp map, recovering from a poisoned lock the
-/// same way `crate::bridge::lock` does.
+/// Locks a shared pane map and recovers a poisoned lock.
+/// This follows the policy of `crate::bridge::lock`.
 pub(super) fn lock_observed(
     map: &Arc<Mutex<HashMap<String, String>>>,
 ) -> MutexGuard<'_, HashMap<String, String>> {
@@ -149,7 +155,11 @@ impl<H: HerdrCalls> Bridge<H> {
             watched: None,
             scheduler: None,
             agent_status_observed: Arc::new(Mutex::new(HashMap::new())),
+            input_lines: Arc::new(Mutex::new(HashMap::new())),
             agent_status_settled: HashMap::new(),
+            pending_input: None,
+            session_active: None,
+            input_replies: Vec::new(),
         }
     }
 

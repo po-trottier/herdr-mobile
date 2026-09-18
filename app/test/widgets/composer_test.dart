@@ -1,162 +1,24 @@
-/// Composer edits and raw chords follow R-03-130.
-library;
-
 import 'dart:async';
 
-import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoTextField;
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugDefaultTargetPlatformOverride;
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoActivityIndicator, CupertinoTextField;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:herdr_mobile/models/message.dart';
-import 'package:herdr_mobile/models/messages/pane_frame.dart';
-import 'package:herdr_mobile/models/messages/scroll_offsets.dart';
-import 'package:herdr_mobile/models/messages/send_input_ack.dart';
-import 'package:herdr_mobile/models/messages/watch_ack.dart';
-import 'package:herdr_mobile/services/terminal.dart';
+import 'package:herdr_mobile/models/messages/send_input.dart';
 import 'package:herdr_mobile/widgets/composer.dart';
-import 'package:herdr_mobile/widgets/key_row.dart';
+import 'package:herdr_mobile/widgets/theme/app_size.dart';
+import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show MaterialApp, OutlineInputBorder, Scaffold, TextField;
+    show
+        CircularProgressIndicator,
+        MaterialApp,
+        OutlineInputBorder,
+        Scaffold,
+        TextField;
 
 void main() {
-  testWidgets('native edits never write to the Host grid (R-31-09-30)', (
-    WidgetTester tester,
-  ) async {
-    final StreamController<Message> messages =
-        StreamController<Message>.broadcast(sync: true);
-    final FocusNode focus = FocusNode();
-    final List<Message> sent = <Message>[];
-    final TerminalService service = TerminalService(
-      messages: messages.stream,
-      send: (Message message, {String? corr}) => sent.add(message),
-      watchPane: (String paneId, {String? corr}) {},
-      unwatchPane: (String paneId, {String? corr}) {},
-    );
-    addTearDown(messages.close);
-    addTearDown(service.dispose);
-    addTearDown(focus.dispose);
-    final Future<void> attached = service.attach('w1:p1');
-    messages.add(
-      const Message.watchAck(
-        WatchAck(
-          paneId: 'w1:p1',
-          revision: 1,
-          viewportRows: 10,
-          width: 40,
-          scroll: ScrollOffsets(offsetFromBottom: 0, maxOffsetFromBottom: 0),
-        ),
-      ),
-    );
-    await attached;
-    messages.add(
-      const Message.paneFrame(
-        PaneFrame(
-          paneId: 'w1:p1',
-          revision: 2,
-          viewportRows: 10,
-          width: 40,
-          text: 'HOST',
-        ),
-      ),
-    );
-    final List<int> before = List<int>.generate(
-      40,
-      service.xterm.buffer.lines[0].getCodePoint,
-    );
-    int gridWrites = 0;
-    service.xterm.addListener(() => gridWrites++);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Composer(
-            focusNode: focus,
-            onText: service.sendComposerText,
-            onDelete: service.sendComposerDeletions,
-            onSubmit: service.sendComposerSubmit,
-          ),
-        ),
-      ),
-    );
-    final Finder field = find.byType(EditableText);
-    await tester.enterText(field, 'a');
-    await tester.enterText(field, 'ab');
-    await tester.enterText(field, 'ac');
-    await tester.enterText(field, 'a');
-    await tester.testTextInput.receiveAction(TextInputAction.send);
-    await tester.pump(const Duration(seconds: 2));
-    expect(tester.widget<EditableText>(field).controller.text, '');
-    expect(
-      List<int>.generate(40, service.xterm.buffer.lines[0].getCodePoint),
-      before,
-    );
-    expect(gridWrites, 0);
-    expect(
-      sent
-          .whereType<MessageSendInput>()
-          .where(
-            (MessageSendInput message) =>
-                message.payload.keys?.contains('Backspace') ?? false,
-          )
-          .map((MessageSendInput message) => message.payload.keys),
-      <List<String>>[
-        <String>['Backspace'],
-        <String>['Backspace'],
-      ],
-    );
-    messages.add(
-      const Message.paneFrame(
-        PaneFrame(
-          paneId: 'w1:p1',
-          revision: 3,
-          viewportRows: 10,
-          width: 40,
-          text: 'HOST a',
-        ),
-      ),
-    );
-    expect(gridWrites, 1);
-    expect(
-      List<int>.generate(6, service.xterm.buffer.lines[0].getCodePoint),
-      'HOST a'.codeUnits,
-    );
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-  testWidgets('disabled Composer does not send or request keyboard', (
-    WidgetTester tester,
-  ) async {
-    final FocusNode focus = FocusNode();
-    addTearDown(focus.dispose);
-    final List<String> sent = <String>[];
-    int submits = 0;
-    int panelToggles = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Composer(
-            enabled: false,
-            focusNode: focus,
-            onText: sent.add,
-            onDelete: (int count) => sent.add('\b' * count),
-            onSubmit: () => submits++,
-            onTogglePanel: () => panelToggles++,
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.byType(TextField));
-    await tester.pump();
-    await tester.tap(find.byTooltip('Send'), warnIfMissed: false);
-    await tester.pump();
-    await tester.tap(find.byTooltip('More keys'));
-    await tester.pump();
-    expect(panelToggles, 1);
-    expect(focus.hasFocus, isFalse);
-    expect(sent, isEmpty);
-    expect(submits, 0);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
   for (final TargetPlatform platform in <TargetPlatform>[
     TargetPlatform.android,
     TargetPlatform.iOS,
@@ -173,9 +35,8 @@ void main() {
             home: Scaffold(
               body: Composer(
                 focusNode: focus,
-                onText: (_) {},
-                onDelete: (_) {},
-                onSubmit: () {},
+                onLine: (_) {},
+                onSubmit: (String line, {bool whenIdle = false}) async => true,
                 onTogglePanel: () {},
               ),
             ),
@@ -235,265 +96,343 @@ void main() {
         debugDefaultTargetPlatformOverride = null;
       },
     );
-    testWidgets(
-      'rapid native edits preserve the complete field on ${platform.name}',
-      (tester) async {
-        debugDefaultTargetPlatformOverride = platform;
-        addTearDown(() => debugDefaultTargetPlatformOverride = null);
-        final focus = FocusNode();
-        addTearDown(focus.dispose);
-        var received = '';
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: Composer(
-                focusNode: focus,
-                onText: (text) => received += text,
-                onDelete: (count) => received = received.characters
-                    .take(received.characters.length - count)
-                    .join(),
-                onSubmit: () {},
-              ),
-            ),
-          ),
-        );
-        await tester.showKeyboard(find.byType(EditableText));
-        const text =
-            'Fast typing keeps  every space, repeated letter, é, 中, and 🧑‍💻.';
-        var typed = '';
-        for (final char in text.characters) {
-          typed += char;
-          tester.testTextInput.updateEditingValue(
-            TextEditingValue(
-              text: typed,
-              selection: TextSelection.collapsed(offset: typed.length),
-            ),
-          );
-        }
-        await tester.pump();
-        expect(received, text);
-        expect(
-          tester
-              .widget<EditableText>(find.byType(EditableText))
-              .controller
-              .text,
-          text,
-        );
-        await tester.pumpWidget(const SizedBox.shrink());
-        debugDefaultTargetPlatformOverride = null;
-      },
-    );
-    testWidgets(
-      'native edits, replacement, selection and submit on ${platform.name}',
-      (WidgetTester tester) async {
-        debugDefaultTargetPlatformOverride = platform;
-        addTearDown(() => debugDefaultTargetPlatformOverride = null);
-        final FocusNode focus = FocusNode();
-        addTearDown(focus.dispose);
-        final List<String> sent = <String>[];
-        int submitted = 0;
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: Composer(
-                focusNode: focus,
-                onText: sent.add,
-                onDelete: (int count) => sent.add('\b' * count),
-                onSubmit: () => submitted++,
-              ),
-            ),
-          ),
-        );
-        expect(
-          find.byType(
-            platform == TargetPlatform.iOS ? CupertinoTextField : TextField,
-          ),
-          findsOneWidget,
-        );
-        final Finder field = find.byType(EditableText);
-        await tester.enterText(field, 'a');
-        await tester.enterText(field, 'ab');
-        expect(sent, <String>['a', 'b']);
-        await tester.enterText(field, 'ac');
-        expect(sent.sublist(2), <String>['\b', 'c']);
-        await tester.enterText(field, 'a');
-        expect(sent.last, '\b');
-        await tester.enterText(field, 'abc');
-        await tester.enterText(field, 'axbc');
-        expect(sent.sublist(sent.length - 2), <String>['\b\b', 'xbc']);
-        await tester.enterText(field, 'a');
-        final int sends = sent.length;
-        tester.testTextInput.updateEditingValue(
-          const TextEditingValue(
-            text: 'a',
-            selection: TextSelection(baseOffset: 0, extentOffset: 1),
-          ),
-        );
-        await tester.pump();
-        expect(sent.length, sends);
-        expect(
-          tester.widget<EditableText>(field).controller.selection,
-          const TextSelection(baseOffset: 0, extentOffset: 1),
-        );
-        await tester.testTextInput.receiveAction(TextInputAction.send);
-        await tester.pump();
-        expect(submitted, 1);
-        expect(tester.widget<EditableText>(field).controller.text, '');
-        expect(sent.length, sends);
-        await tester.enterText(field, 'z');
-        expect(sent.last, 'z');
-        // An autocorrect replacement ("helo " -> "hello ") arrives as one edit: the
-        // Host sees one Backspace and the tail, never a cleared and retyped word.
-        await tester.enterText(field, 'helo');
-        await tester.enterText(field, 'hello ');
-        expect(sent.sublist(sent.length - 2), <String>['\b', 'lo ']);
-        await tester.pumpWidget(const SizedBox.shrink());
-        debugDefaultTargetPlatformOverride = null;
-      },
-    );
-    testWidgets(
-      'native field grows, stays bounded, and submits empty on ${platform.name}',
-      (WidgetTester tester) async {
-        debugDefaultTargetPlatformOverride = platform;
-        addTearDown(() => debugDefaultTargetPlatformOverride = null);
-        final FocusNode focus = FocusNode();
-        addTearDown(focus.dispose);
-        int submits = 0;
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: Composer(
-                focusNode: focus,
-                onText: (_) {},
-                onDelete: (_) {},
-                onSubmit: () => submits++,
-              ),
-            ),
-          ),
-        );
-        final Finder field = find.byType(EditableText);
-        final double initialHeight = tester.getSize(field).height;
-        final SemanticsHandle semantics = tester.ensureSemantics();
-        await tester.tap(
-          platform == TargetPlatform.iOS
-              ? find.bySemanticsLabel('Send')
-              : find.byTooltip('Send'),
-        );
-        await tester.pump();
-        expect(submits, 1);
-        await tester.enterText(field, 'one\ntwo\nthree');
-        await tester.pump();
-        expect(tester.getSize(field).height, greaterThan(initialHeight));
-        await tester.enterText(field, '1\n2\n3\n4\n5');
-        await tester.pump();
-        final double maximumHeight = tester.getSize(field).height;
-        await tester.enterText(field, '1\n2\n3\n4\n5\n6\n7');
-        await tester.pump();
-        expect(tester.getSize(field).height, maximumHeight);
-        await tester.testTextInput.receiveAction(TextInputAction.send);
-        await tester.pump();
-        expect(submits, 2);
-        expect(tester.widget<EditableText>(field).controller.text, isEmpty);
-        expect(tester.getSize(field).height, initialHeight);
-        await tester.pumpWidget(const SizedBox.shrink());
-        semantics.dispose();
-        debugDefaultTargetPlatformOverride = null;
-      },
-    );
-
-    testWidgets('ctrl+c bypass preserves native field on ${platform.name}', (
+    testWidgets('send choices and queued cancellation on $platform', (
       WidgetTester tester,
     ) async {
       debugDefaultTargetPlatformOverride = platform;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
       final FocusNode focus = FocusNode();
       addTearDown(focus.dispose);
-      final GlobalKey<KeyRowState> row = GlobalKey<KeyRowState>();
-      final List<String> text = <String>[];
-      final List<Message> sent = <Message>[];
+      final List<bool> submissions = <bool>[];
+      Completer<bool> result = Completer<bool>();
+      bool queued = false;
+      int cancellations = 0;
+      int immediateSends = 0;
+      late StateSetter rebuild;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: KeyRow(
-              panelOpen: true,
-              composer: Composer(
-                focusNode: focus,
-                onText: text.add,
-                onDelete: (int count) => text.add('\b' * count),
-                onSubmit: () {},
-                inputFormatters: <TextInputFormatter>[
-                  TextInputFormatter.withFunction(
-                    (TextEditingValue before, TextEditingValue after) =>
-                        row.currentState!.formatComposerEdit(before, after),
-                  ),
-                ],
-              ),
-              key: row,
-              focusNode: focus,
-              paneId: 'w1:p1',
-              send: (Message message, {String? corr}) => sent.add(message),
-              sendInputAcks: const Stream<SendInputAck>.empty(),
+            body: StatefulBuilder(
+              builder: (BuildContext context, StateSetter setState) {
+                rebuild = setState;
+                return Composer(
+                  focusNode: focus,
+                  queued: queued,
+                  onLine: (_) {},
+                  onSubmit: (String line, {bool whenIdle = false}) {
+                    submissions.add(whenIdle);
+                    return whenIdle ? result.future : Future<bool>.value(true);
+                  },
+                  onSendQueuedNow: () {
+                    immediateSends++;
+                    rebuild(() => queued = false);
+                  },
+                  onCancelQueued: () {
+                    cancellations++;
+                    rebuild(() => queued = false);
+                    result.complete(false);
+                  },
+                );
+              },
             ),
           ),
         ),
       );
+      final Finder send = find.byKey(const ValueKey<String>('composerSend'));
       final Finder field = find.byType(EditableText);
-      await tester.enterText(field, 'ab');
-      final TextEditingValue before = tester
-          .widget<EditableText>(field)
-          .controller
-          .value;
-      await tester.tap(find.byKey(const ValueKey<String>('keyRowCtrl')));
+      // An empty draft still submits Enter.
+      await tester.tap(send);
       await tester.pump();
-      tester.testTextInput.updateEditingValue(
-        const TextEditingValue(
-          text: 'abc',
-          selection: TextSelection.collapsed(offset: 3),
-        ),
-      );
+      expect(submissions, <bool>[false]);
+      await tester.enterText(field, 'send this later');
+      await tester.longPress(send);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send now'));
+      await tester.pumpAndSettle();
+      expect(submissions, <bool>[false, false]);
+      expect(tester.widget<EditableText>(field).controller.text, '');
+      await tester.enterText(field, 'retain queued draft');
+      await tester.longPress(send);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send when the agent is done'));
       await tester.pump();
-      expect(text, <String>['ab']);
-      expect(tester.widget<EditableText>(field).controller.value, before);
-      expect((sent.single as MessageSendInput).payload.keys, <String>[
-        'ctrl+c',
-      ]);
+      rebuild(() => queued = true);
       await tester.pump(const Duration(seconds: 1));
-      await tester.tap(find.byKey(const ValueKey<String>('keyRowCtrl')));
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey<String>('keyRowAlt')));
-      await tester.pump();
-      tester.testTextInput.updateEditingValue(
-        const TextEditingValue(
-          text: 'abx',
-          selection: TextSelection.collapsed(offset: 3),
-        ),
+      expect(submissions, <bool>[false, false, true]);
+      expect(tester.widget<EditableText>(field).readOnly, isTrue);
+      expect(
+        tester.widget<EditableText>(field).controller.text,
+        'retain queued draft',
       );
-      await tester.pump();
-      expect((sent.last as MessageSendInput).payload.keys, <String>[
-        'ctrl+alt+x',
-      ]);
-      expect(tester.widget<EditableText>(field).controller.value, before);
+      expect(
+        find.text('Queued. Sends when the agent is done.'),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Symbols.schedule_rounded), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      await tester.longPress(send);
       await tester.pump(const Duration(seconds: 1));
-      await tester.tap(find.byKey(const ValueKey<String>('keyRowCtrl')));
+      expect(find.text('Send now'), findsOneWidget);
+      expect(find.text('Send when the agent is done'), findsNothing);
+      await tester.tap(find.text('Cancel queued send'));
+      await tester.pumpAndSettle();
+      expect(cancellations, 1);
+      expect(tester.widget<EditableText>(field).readOnly, isFalse);
+      expect(
+        tester.widget<EditableText>(field).controller.text,
+        'retain queued draft',
+      );
+      expect(submissions, <bool>[false, false, true]);
+      result = Completer<bool>();
+      await tester.longPress(send);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send when the agent is done'));
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey<String>('keyRowCtrl')));
-      await tester.pump();
-      for (final String char in <String>['c', 'd']) {
-        tester.testTextInput.updateEditingValue(
-          TextEditingValue(
-            text: 'ab$char',
-            selection: const TextSelection.collapsed(offset: 3),
+      rebuild(() => queued = true);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.longPress(send);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.tap(find.text('Send now'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(immediateSends, 1);
+      expect(submissions, <bool>[false, false, true, true]);
+      expect(tester.widget<EditableText>(field).readOnly, isFalse);
+      expect(
+        tester.widget<EditableText>(field).controller.text,
+        'retain queued draft',
+      );
+      result.complete(true);
+      await tester.pumpAndSettle();
+      expect(tester.widget<EditableText>(field).controller.text, '');
+      expect(tester.widget<EditableText>(field).readOnly, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('full-line edits survive async submission on $platform', (
+      WidgetTester tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final FocusNode focus = FocusNode();
+      addTearDown(focus.dispose);
+      final GlobalKey<ComposerState> key = GlobalKey<ComposerState>();
+      final List<String> lines = <String>[];
+      Completer<bool> result = Completer<bool>();
+      int submissions = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Composer(
+              key: key,
+              focusNode: focus,
+              onLine: lines.add,
+              onSubmit: (String line, {bool whenIdle = false}) {
+                submissions++;
+                return result.future;
+              },
+              inputFormatters: <TextInputFormatter>[
+                TextInputFormatter.withFunction(
+                  (before, after) =>
+                      after.copyWith(text: after.text.replaceAll('teh', 'the')),
+                ),
+              ],
+            ),
           ),
-        );
+        ),
+      );
+      key.currentState!.seedLine('host');
+      expect(key.currentState!.currentLine, 'host');
+      key.currentState!.seedLine('other');
+      expect(key.currentState!.currentLine, 'host');
+      expect(lines, isEmpty);
+      final Finder field = find.byType(EditableText);
+      await tester.enterText(field, 'teh');
+      await tester.enterText(field, 'the cat');
+      await tester.enterText(field, 'the bat');
+      await tester.enterText(field, 'the');
+      expect(lines, <String>['the', 'the cat', 'the bat', 'the']);
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'the',
+          selection: TextSelection(baseOffset: 0, extentOffset: 3),
+        ),
+      );
+      await tester.pump();
+      expect(lines.length, 4);
+      expect(
+        tester.widget<EditableText>(field).textInputAction,
+        TextInputAction.newline,
+      );
+      await tester.enterText(field, 'the\ncat');
+      await tester.testTextInput.receiveAction(TextInputAction.newline);
+      await tester.pump();
+      expect(submissions, 0);
+      expect(lines.last, 'the\ncat');
+      final Finder send = find.byKey(const ValueKey<String>('composerSend'));
+      await tester.tap(send);
+      await tester.pump();
+      expect(submissions, 1);
+      expect(tester.widget<EditableText>(field).readOnly, isFalse);
+      expect(key.currentState!.currentLine, '');
+      final Finder indicator = find.byType(
+        platform == TargetPlatform.iOS
+            ? CupertinoActivityIndicator
+            : CircularProgressIndicator,
+      );
+      expect(indicator, findsOneWidget);
+      expect(tester.getSize(indicator), const Size.square(AppSize.iconMd));
+      await tester.tap(send);
+      expect(submissions, 1);
+      result.complete(false);
+      await tester.pump();
+      expect(key.currentState!.currentLine, 'the\ncat');
+      expect(tester.widget<EditableText>(field).readOnly, isFalse);
+      expect(indicator, findsNothing);
+      for (final accepted in <bool>[false, true]) {
+        result = Completer<bool>();
+        await tester.tap(send);
         await tester.pump();
-        expect((sent.last as MessageSendInput).payload.keys, <String>[
-          'ctrl+$char',
-        ]);
-        expect(tester.widget<EditableText>(field).controller.value, before);
+        expect(key.currentState!.currentLine, '');
+        expect(tester.widget<EditableText>(field).readOnly, isFalse);
+        await tester.enterText(field, 'next draft');
+        await tester.pump();
+        expect(lines.last, 'next draft');
+        expect(key.currentState!.currentLine, 'next draft');
+        expect(indicator, findsOneWidget);
+        result.complete(accepted);
+        await tester.pump();
+        expect(key.currentState!.currentLine, 'next draft');
+        expect(indicator, findsNothing);
       }
-      expect(text, <String>['ab']);
+      result = Completer<bool>();
+      await tester.tap(send);
+      await tester.pump();
+      result.complete(true);
+      await tester.pump();
+      expect(key.currentState!.currentLine, '');
+      expect(focus.hasFocus, isTrue);
+      key.currentState!.seedLine('stale');
+      expect(key.currentState!.currentLine, '');
       await tester.pumpWidget(const SizedBox.shrink());
       debugDefaultTargetPlatformOverride = null;
     });
   }
+
+  testWidgets(
+    'initial line and local deletion cannot be overwritten by a seed',
+    (WidgetTester tester) async {
+      final FocusNode focus = FocusNode();
+      addTearDown(focus.dispose);
+      final GlobalKey<ComposerState> key = GlobalKey<ComposerState>();
+      final List<String> lines = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Composer(
+              key: key,
+              focusNode: focus,
+              initialLine: 'initial',
+              onLine: lines.add,
+              onSubmit: (String line, {bool whenIdle = false}) async => true,
+            ),
+          ),
+        ),
+      );
+      expect(key.currentState!.currentLine, 'initial');
+      await tester.enterText(find.byType(EditableText), '');
+      key.currentState!.seedLine('late host line');
+      expect(key.currentState!.currentLine, '');
+      expect(lines, <String>['']);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('disabled Composer keeps its draft and cannot submit', (
+    tester,
+  ) async {
+    final FocusNode focus = FocusNode();
+    addTearDown(focus.dispose);
+    int submitted = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Composer(
+            focusNode: focus,
+            enabled: false,
+            initialLine: 'draft',
+            onLine: (_) => fail('Disabled Composer emitted a line'),
+            onSubmit: (String line, {bool whenIdle = false}) async {
+              submitted++;
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
+    await tester.pump();
+    expect(submitted, 0);
+    expect(focus.hasFocus, isFalse);
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).controller.text,
+      'draft',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets('accepted key controls mirror the Host without line echoes', (
+    tester,
+  ) async {
+    final FocusNode focus = FocusNode();
+    addTearDown(focus.dispose);
+    final GlobalKey<ComposerState> key = GlobalKey<ComposerState>();
+    final List<String> lines = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Composer(
+            key: key,
+            focusNode: focus,
+            initialLine: 'a👨‍👩‍👧',
+            onLine: lines.add,
+            onSubmit: (String line, {bool whenIdle = false}) async => true,
+          ),
+        ),
+      ),
+    );
+    final ComposerState state = key.currentState!;
+    state.applyAcceptedInput(
+      const SendInput(paneId: 'p', keys: <String>['Backspace']),
+    );
+    expect(state.currentLine, 'a');
+    for (final String text in <String>[
+      '\x1b[2~',
+      '\x1b[3~',
+      '\x1b[H',
+      '\x1b[F',
+      '\x1b[5~',
+      '\x1b[6~',
+    ]) {
+      state.applyAcceptedInput(SendInput(paneId: 'p', text: text));
+    }
+    state.applyAcceptedInput(
+      const SendInput(paneId: 'p', keys: <String>['Up', 'Escape', 'ctrl+a']),
+    );
+    expect(state.currentLine, 'a');
+    state.applyAcceptedInput(
+      const SendInput(paneId: 'p', text: ' paste\ntext'),
+    );
+    expect(state.currentLine, 'a paste\ntext');
+    state.applyAcceptedInput(
+      const SendInput(paneId: 'p', keys: <String>['Enter']),
+    );
+    expect(state.currentLine, '');
+    state.applyAcceptedInput(const SendInput(paneId: 'p', text: 'draft'));
+    state.applyAcceptedInput(
+      const SendInput(paneId: 'p', keys: <String>['ctrl+c', 'Backspace']),
+    );
+    expect(state.currentLine, '');
+    expect(lines, isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }

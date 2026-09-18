@@ -23,7 +23,9 @@ pub use action::{
 };
 pub use control::{Disconnect, ErrorMessage};
 pub use device::{DeviceList, DeviceListEntry, DeviceListRequest, RevokeDevice, RevokeResult};
-pub use input::{AgentPrompt, AgentPromptAck, MarkSeen, SendInput, SendInputAck};
+pub use input::{
+    AgentPrompt, AgentPromptAck, Defer, MarkSeen, Ping, Pong, SendInput, SendInputAck,
+};
 pub use session::{DeviceInfo, HostInfo, HostTheme, Platform, ThemePalette};
 pub use status::{AgentStatus, AgentStatusKind};
 pub use tree::{
@@ -58,6 +60,8 @@ pub enum Message {
     ScrollRequest(ScrollRequest),
     ScrollResponse(ScrollResponse),
     SendInput(SendInput),
+    Ping(Ping),
+    Pong(Pong),
     SendInputAck(SendInputAck),
     AgentStatus(AgentStatus),
     AgentPrompt(AgentPrompt),
@@ -94,6 +98,8 @@ impl Message {
             Self::ScrollRequest(_) => "scroll_request",
             Self::ScrollResponse(_) => "scroll_response",
             Self::SendInput(_) => "send_input",
+            Self::Ping(_) => "ping",
+            Self::Pong(_) => "pong",
             Self::SendInputAck(_) => "send_input_ack",
             Self::AgentStatus(_) => "agent_status",
             Self::AgentPrompt(_) => "agent_prompt",

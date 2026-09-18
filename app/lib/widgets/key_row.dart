@@ -229,7 +229,14 @@ const _RawKey _keyPgdn = _RawKey(
 /// is its `terminalReplyTimeout` deadline. See `KeyRowState._onAck`'s doc comment for how it
 /// is matched to an incoming `SendInputAck`.
 final class _PendingSend {
-  const _PendingSend({required this.label, required this.timer});
+  const _PendingSend({
+    required this.label,
+    required this.timer,
+    required this.input,
+    required this.notifyAccepted,
+  });
+  final SendInput input;
+  final bool notifyAccepted;
   final String label;
   final Timer timer;
 }
@@ -241,6 +248,7 @@ class KeyRow extends StatefulWidget {
     required this.paneId,
     required this.send,
     required this.sendInputAcks,
+    this.onInputAccepted,
     this.linkState = KeyRowLinkState.live,
     this.offlineReason,
     this.onDiagnostics,
@@ -250,6 +258,7 @@ class KeyRow extends StatefulWidget {
     this.composer,
     this.grid,
     this.panelOpen = false,
+    this.answerMode = false,
   });
 
   final String paneId;
@@ -257,14 +266,17 @@ class KeyRow extends StatefulWidget {
   /// Shows every terminal key above the input bar.
   final bool panelOpen;
 
+  /// Selects Answer keys when this value changes to true.
+  final bool answerMode;
+
   /// Matches `RelayConnection.send`'s exact signature; a caller passes `connection.send`
   /// directly, mirroring `terminal.dart`'s `TerminalMessageSender` seam.
   final KeyRowSendFrame send;
+  final ValueChanged<SendInput>? onInputAccepted;
 
-  /// Every `send_input_ack` this pane's connection receives. A caller filters
-  /// `connection.messages` to `MessageSendInputAck` and unwraps the payload; this file
-  /// imports no `relay.dart` symbol.
-  final Stream<SendInputAck> sendInputAcks;
+  /// Acknowledgements with their envelope correlation. The caller filters
+  /// `MessageSendInputAck` messages without a correlation before this stream.
+  final Stream<({String corr, SendInputAck ack})> sendInputAcks;
 
   final KeyRowLinkState linkState;
 
@@ -299,20 +311,22 @@ class KeyRow extends StatefulWidget {
 class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
   late final ChordLatch _chordLatch = ChordLatch(lockWindow: kDoubleTapTimeout);
   late final StreamSubscription<void> _latchSub;
-  StreamSubscription<SendInputAck>? _ackSub;
+  StreamSubscription<({String corr, SendInputAck ack})>? _ackSub;
 
   int _corrSeq = 0;
   String _nextCorr() => 'key-row-${_corrSeq++}';
 
-  final List<_PendingSend> _pending = <_PendingSend>[];
+  final Map<String, _PendingSend> _pending = <String, _PendingSend>{};
 
   /// The label of the send whose acknowledgement never came (R-30-518), or `null`.
   String? _outcomeUnknownLabel;
   String? _errorMessage;
+  bool _answerMode = false;
 
   @override
   void initState() {
     super.initState();
+    _answerMode = widget.answerMode;
     WidgetsBinding.instance.addObserver(this);
     widget.focusNode?.addListener(_onFocusChanged);
     _latchSub = _chordLatch.changes.listen((_) {
@@ -324,6 +338,7 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(KeyRow oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.answerMode && !oldWidget.answerMode) _answerMode = true;
     if (oldWidget.focusNode != widget.focusNode) {
       oldWidget.focusNode?.removeListener(_onFocusChanged);
       widget.focusNode?.addListener(_onFocusChanged);
@@ -359,7 +374,7 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    for (final _PendingSend send in _pending) {
+    for (final _PendingSend send in _pending.values) {
       send.timer.cancel();
     }
     unawaited(_ackSub?.cancel());
@@ -429,16 +444,16 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     widget.focusNode?.requestFocus();
   }
 
-  /// Tracks Composer sends with the same acknowledgement states (R-03-130).
-  void sendInput(SendInput input, {required String label}) =>
-      _dispatch(input, label: label);
-
   // --- Sending ---
 
   /// One `send_input` frame, tracked until its acknowledgement or its deadline. A send that
   /// follows a failure clears the failure strip: the person typed again, which is the one
   /// recovery R-31-09-13 allows.
-  void _dispatch(SendInput input, {required String label}) {
+  void _dispatch(
+    SendInput input, {
+    required String label,
+    bool notifyAccepted = true,
+  }) {
     if (!_sendingEnabled) return;
     assert(
       input.keys?.every(
@@ -449,13 +464,16 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
       '${input.keys}',
     );
     if (_errorMessage != null) setState(() => _errorMessage = null);
+    final String corr = _nextCorr();
     late final _PendingSend send;
     send = _PendingSend(
+      input: input,
+      notifyAccepted: notifyAccepted,
       label: label,
       timer: Timer(terminalReplyTimeout, () => _onAckTimeout(send)),
     );
-    _pending.add(send);
-    widget.send(Message.sendInput(input), corr: _nextCorr());
+    _pending[corr] = send;
+    widget.send(Message.sendInput(input), corr: corr);
   }
 
   /// A key cap press: `haptic.select` (R-31-09-02), then one named-key frame.
@@ -479,20 +497,39 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     );
   }
 
-  /// Resolves the oldest still-pending send against an incoming `SendInputAck`. See this
-  /// file's top doc comment for why FIFO, not `corr`, is what is available to match with.
-  void _onAck(SendInputAck ack) {
-    if (_pending.isEmpty) return;
-    final _PendingSend send = _pending.removeAt(0);
+  /// Match acknowledgements by correlation, regardless of arrival order.
+  void _onAck(({String corr, SendInputAck ack}) reply) {
+    final _PendingSend? send = _pending[reply.corr];
+    if (send == null) return;
     send.timer.cancel();
-    if (ack.accepted) return;
+    if (reply.ack.queued ?? false) return;
+    _pending.remove(reply.corr);
+    if (reply.ack.accepted) {
+      if (send.notifyAccepted) widget.onInputAccepted?.call(send.input);
+      return;
+    }
     // R-31-09-13, R-11-228: nothing here ever re-sends.
     unawaited(AppHaptic.error());
     setState(() => _errorMessage = 'Not sent: ${send.label}');
   }
 
+  /// Clear the previous failure before a new Composer submission.
+  void clearInputFailure() {
+    if (_errorMessage == null && _outcomeUnknownLabel == null) return;
+    setState(() {
+      _errorMessage = null;
+      _outcomeUnknownLabel = null;
+    });
+  }
+
+  /// Show a rejected Composer submission without discarding its text.
+  void reportInputFailure() {
+    unawaited(AppHaptic.error());
+    setState(() => _errorMessage = 'Not sent: typing');
+  }
+
   void _onAckTimeout(_PendingSend send) {
-    if (_pending.contains(send)) _markOutcomeUnknown();
+    if (_pending.containsValue(send)) _markOutcomeUnknown();
   }
 
   /// R-30-518's outcome-unknown state for whatever is still in flight: the oldest send
@@ -501,8 +538,8 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
   /// The next `pane_frame` reconciles it: the grid is the record of what the pane received.
   void _markOutcomeUnknown() {
     if (_pending.isEmpty) return;
-    final String label = _pending.first.label;
-    for (final _PendingSend send in _pending) {
+    final String label = _pending.values.first.label;
+    for (final _PendingSend send in _pending.values) {
       send.timer.cancel();
     }
     _pending.clear();
@@ -737,26 +774,94 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
           return _capTheme(
             context,
             minWidth: module,
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                _buildLeadingColumn(),
-                const SizedBox(width: AppSpace.space2),
-                Expanded(
-                  child: SingleChildScrollView(
-                    key: const ValueKey<String>('keyRowScrollRegion'),
-                    scrollDirection: Axis.horizontal,
-                    child: _buildMiddleColumns(module),
-                  ),
+                _KeyCap(
+                  key: const ValueKey<String>('keyRowAnswer'),
+                  label: 'Answer',
+                  semanticLabel: 'Answer keys',
+                  latched: _answerMode,
+                  onTap: () => setState(() {
+                    _answerMode = !_answerMode;
+                    _chordLatch.clear();
+                  }),
                 ),
-                const SizedBox(width: AppSpace.space2),
-                _buildTrailingColumn(),
+                _rowGap,
+                if (_answerMode)
+                  _buildAnswerKeys()
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      _buildLeadingColumn(),
+                      const SizedBox(width: AppSpace.space2),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          key: const ValueKey<String>('keyRowScrollRegion'),
+                          scrollDirection: Axis.horizontal,
+                          child: _buildMiddleColumns(module),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpace.space2),
+                      _buildTrailingColumn(),
+                    ],
+                  ),
               ],
             ),
           );
         },
       ),
     ),
+  );
+
+  Widget _buildAnswerKeys() => Wrap(
+    spacing: AppSpace.space2,
+    runSpacing: AppSpace.space2,
+    children: <Widget>[
+      for (final String name in const <String>[
+        'Up',
+        'Down',
+        'Left',
+        'Right',
+        'Enter',
+        'Esc',
+        'Tab',
+        'Space',
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+        '6',
+        '7',
+        '8',
+        '9',
+        'y',
+        'n',
+      ])
+        _KeyCap(
+          key: ValueKey<String>('keyRowAnswer$name'),
+          label: name,
+          semanticLabel: name,
+          onTap: _sendingEnabled
+              ? () {
+                  unawaited(AppHaptic.select());
+                  _dispatch(
+                    name.length == 1
+                        ? SendInput(paneId: widget.paneId, text: name)
+                        : SendInput(
+                            paneId: widget.paneId,
+                            keys: <String>[name],
+                          ),
+                    label: name,
+                    notifyAccepted: false,
+                  );
+                }
+              : null,
+        ),
+    ],
   );
 
   /// One `space.2` between two rows of a column, and an empty cell where a column has no key

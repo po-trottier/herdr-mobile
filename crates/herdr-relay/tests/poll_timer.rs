@@ -62,6 +62,10 @@ impl HerdrCalls for StubHerdr {
         Ok(json!({ "text": text, "truncated": false }))
     }
 
+    fn pane_send_text(&self, _pane_id: &str, _text: &str) -> Result<(), IpcError> {
+        Ok(())
+    }
+
     fn pane_send_input(
         &self,
         _pane_id: &str,
@@ -249,6 +253,8 @@ fn send_input_arms_reads_that_carry_the_echo_of_a_keystroke() {
     let written_at = Instant::now();
     bridge
         .send_input(SendInput {
+            defer: None,
+            line: None,
             pane_id: "w1:p1".to_string(),
             text: Some("a".to_string()),
             keys: None,
@@ -310,6 +316,8 @@ fn input_with_unchanged_text_reads_but_sends_no_frame() {
 
     bridge
         .send_input(SendInput {
+            defer: None,
+            line: None,
             pane_id: "w1:p1".to_string(),
             keys: Some(vec!["ctrl+c".to_string()]),
             text: None,
@@ -353,6 +361,8 @@ fn refused_input_arms_no_reads() {
     read_at.lock().expect("read log").clear();
 
     let refused = bridge.send_input(SendInput {
+        defer: None,
+        line: None,
         pane_id: "w1:p2".to_string(), // not the watched pane
         text: Some("a".to_string()),
         keys: None,

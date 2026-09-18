@@ -23,6 +23,11 @@ pub struct WatchAck {
     /// From `pane.layout` `rect.width`, in character cells (R-10-024).
     pub width: u32,
     pub scroll: ScrollOffsets,
+    /// The Host's shadow of the console line for this pane: everything the Device
+    /// typed since the last submit (R-11-249). Empty when nothing is pending. The
+    /// Device seeds its composer from it when the terminal opens.
+    #[serde(default)]
+    pub line: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

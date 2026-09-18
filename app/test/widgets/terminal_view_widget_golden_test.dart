@@ -93,13 +93,12 @@ Widget _keyRow({
     enabled: enabled,
     panelOpen: panelOpen,
     onTogglePanel: onTogglePanel,
-    onText: (_) {},
-    onDelete: (_) {},
-    onSubmit: () {},
+    onLine: (_) {},
+    onSubmit: (String line, {bool whenIdle = false}) async => true,
   ),
   paneId: 'w3:p1',
   send: (message, {corr}) {},
-  sendInputAcks: const Stream<SendInputAck>.empty(),
+  sendInputAcks: const Stream<({String corr, SendInputAck ack})>.empty(),
   landscape: landscape,
 );
 

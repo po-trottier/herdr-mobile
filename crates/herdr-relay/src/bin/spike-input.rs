@@ -127,14 +127,9 @@ fn decckm_spike(client: &HerdrClient, workspace_id: &str) {
         summarize(&read_pane(client, &pane_id))
     );
 
-    // Insert mode, three distinguishable lines, back to normal mode. Each
-    // logical keystroke is its OWN `pane.send_input` call, matching how a real
-    // Device sends one message per key press (R-11-054) rather than a batch.
-    // Measured live: batching "iAAAA\rBBBB\rCCCC\u{1b}" into one `text` call made
-    // Herdr wrap the whole string in bracketed-paste markers (`ESC[200~...
-    // ESC[201~`), so the embedded Escape was inserted as literal text instead of
-    // switching vim back to normal mode. Sending Escape through the named `keys`
-    // path instead avoids that: `keys` is never paste-wrapped.
+    // Enter insert mode, type three lines, then restore normal mode.
+    // Text uses the raw method unless it contains a newline.
+    // Named keys use pane.send_input.
     send_text(client, &pane_id, "i");
     thread::sleep(Duration::from_millis(150));
     send_text(client, &pane_id, "AAAA\rBBBB\rCCCC");
@@ -169,12 +164,14 @@ fn decckm_spike(client: &HerdrClient, workspace_id: &str) {
 }
 
 fn send_text(client: &HerdrClient, pane_id: &str, text: &str) {
+    let method = if text.contains('\n') {
+        "pane.send_input"
+    } else {
+        "pane.send_text"
+    };
     client
-        .call(
-            "pane.send_input",
-            json!({ "pane_id": pane_id, "text": text }),
-        )
-        .expect("pane.send_input text");
+        .call(method, json!({ "pane_id": pane_id, "text": text }))
+        .expect("send text");
 }
 
 fn send_keys(client: &HerdrClient, pane_id: &str, keys: &[&str]) {
@@ -246,6 +243,8 @@ fn ctrl_c_manual_test(client: &HerdrClient, workspace_id: &str) {
         .expect("watch_pane for ctrl+c test");
     let ack = bridge
         .send_input(SendInput {
+            defer: None,
+            line: None,
             pane_id: pane_id.clone(),
             text: None,
             keys: Some(vec!["ctrl+c".to_string()]),

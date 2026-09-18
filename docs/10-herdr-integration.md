@@ -1004,7 +1004,7 @@ Names are case-insensitive. The modifier separator is `+`.
 
 `Home`, `End`, `PageUp`, `PageDown`, `Delete`, and `Insert` cannot be sent by name. They MUST be sent
 as raw bytes in `text`. Verified live: a raw CSI in the `text` field returns exit code 0; the probe
-used `pane.send_text`. `R-10-041` and `R-10-044` put that same text in `pane.send_input`.
+used `pane.send_text`. `R-10-041` and `R-10-044` preserve this raw text transport.
 
 **R-10-036**: For these six keys the Device MUST send the raw sequence in the `text` field:
 
@@ -1061,12 +1061,14 @@ MUST submit multi-line or multi-character text through the relay protocol
 (`docs/11-relay-protocol.md`); the bridge translates to `agent.prompt`. It MUST NOT use
 `pane.send_text` followed by an `Enter` key, which is not atomic and races the agent's composer.
 
-**R-10-041**: The Device sends `pane_input` relay messages for single key presses, control chords,
-and interactive keystrokes, on a pane with or without an agent (`docs/11-relay-protocol.md`); the
-bridge translates to `pane.send_input`.
+**R-10-041**: The Device sends `pane_input` messages for interactive input on panes with or
+without an agent.
+The bridge MUST send composer text through raw `pane.send_text` (R-10-075, R-10-077).
+It MUST send tails that contain a newline through `pane.send_input` text for bracketed paste.
+Named keys use `pane.send_input` keys. See R-11-248, R-11-249, R-11-251, and R-11-252.
 
 **R-10-042**: The Device sends `pane_input` relay messages for all input when `PaneInfo.agent` is
-null (`docs/11-relay-protocol.md`); the bridge translates to `pane.send_input`. `agent.prompt`
+null (`docs/11-relay-protocol.md`). The bridge MUST use the mapping in R-10-041. `agent.prompt`
 requires a registered agent and returns `agent_not_found` otherwise.
 
 **R-10-043**: The bridge MUST NOT pass `wait` in `agent.prompt` on behalf of a Device. A wait holds
@@ -1078,11 +1080,53 @@ request connection open for up to the timeout, and the Device already learns the
 
 **R-10-044**: The Device MUST resolve a key press in this order and stop at the first match.
 
-1. Printable character, no modifier other than shift: send `{pane_id, text: "<char>"}`.
+1. Printable character, no modifier other than shift: send `{pane_id, text: "<char>"}` through raw `pane.send_text`.
 2. One of the six unnamed keys: send `{pane_id, text: "<raw sequence>"}` from R-10-036.
 3. Named key, with or without modifiers: send `{pane_id, keys: ["<name>"]}`.
 4. A committed multi-character string on an agent pane: send through the relay protocol
    (`docs/11-relay-protocol.md`); the bridge translates to `agent.prompt`.
+The bridge MUST use raw `pane.send_text` for composer text.
+A tail that contains a newline MUST use `pane.send_input` text for bracketed paste.
+
+### 6.10 Composer line shadow
+
+**R-10-075**: The Host MUST reconcile each received composer line with its line shadow.
+It MUST find the longest common prefix at extended grapheme boundaries.
+It MUST remove the old tail with one Backspace per grapheme, in chunks within the key limit.
+It MUST then send the new tail through raw `pane.send_text`.
+If the new tail contains a newline, it MUST use `pane.send_input` text for bracketed paste instead.
+After each successful Backspace chunk, it MUST remove the corresponding graphemes from the shadow.
+After successful tail transmission, it MUST set the shadow to the received line.
+On failure, it MUST return `accepted: false` and retain the shadow from the last successful step.
+This state lets the next line retry the remaining changes safely.
+See R-11-248, R-11-249, and R-11-251.
+
+**R-10-076**: After successful forwarding, Enter or `ctrl+c` keys MUST clear the line shadow.
+Backspace MUST remove its last extended grapheme, if present.
+Text from the key row MUST append to the shadow.
+Other keys MUST leave the shadow unchanged. See R-11-252.
+
+**R-10-077**: The Host MUST send typed text through raw `pane.send_text`, not per-character
+`pane.send_input` text.
+The newline-tail exception in R-10-075 applies. See R-11-248 and R-11-251.
+
+### 6.11 Held submit
+
+**R-10-078**: The Host MUST handle held submits as specified in R-11-253.
+For `until_idle`, it MUST hold Enter keys only while the pane agent status is `working`.
+It MUST use the existing agent status stream, not a second subscription.
+Other statuses, an unknown status, or no agent MUST cause immediate forwarding.
+The Host MUST retain at most one held submit per pane in the Device session.
+Replacement MUST reject the previous submit before it acknowledges the new held submit.
+
+When the agent leaves `working`, the Host MUST forward the held keys through the normal input path.
+It MUST apply R-10-076 and return the final result with the original correlation.
+Cancellation MUST remove the held submit and reject its original correlation.
+The Host MUST acknowledge the cancel request separately.
+A plain Enter or `ctrl+c` MUST supersede a held submit for the same pane.
+The Host MUST forward the plain keys immediately and reject the held correlation.
+Unwatch, a watch switch, pane closure, and session end MUST discard held submits.
+If the session remains connected, the Host MUST send a final rejection for each discarded submit.
 
 ## 7. Packaging, install, and supervision
 
@@ -1743,6 +1787,10 @@ sequenceDiagram
 - [ ] Test named arrow keys against a `vim` pane in application cursor mode to close open question 1.
 
 ## Sources
+
+Probe on 2026-09-18: the Rust `HerdrClient` used live Herdr `0.9.0-preview` with OMP `18.2.5`.
+Per-character `pane.send_input` text produced `world .` and `a /b`.
+Raw `pane.send_text` preserved the exact text. The probe reached 1,500 requests/s without data loss.
 
 Local files read:
 

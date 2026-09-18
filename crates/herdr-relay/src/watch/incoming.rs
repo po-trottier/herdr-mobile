@@ -65,6 +65,13 @@ impl<H: HerdrCalls> Bridge<H> {
             // one fresh snapshot (the settle window bounds this to at most one
             // fetch per 30 s per pane). A pane missing from that snapshot is
             // gone: skip rather than notify with invented fields.
+            if let Some(status) = data
+                .and_then(|d| d.get("agent_status"))
+                .and_then(Value::as_str)
+                && status != "working"
+            {
+                self.release_pending_input(pane_id);
+            }
             let status = data
                 .and_then(|d| d.get("agent_status"))
                 .and_then(Value::as_str)
@@ -163,6 +170,7 @@ impl<H: HerdrCalls> Bridge<H> {
             && let Some(pane_id) = pane_id_of(data)
             && self.watched.as_ref().is_some_and(|w| w.pane_id == pane_id)
         {
+            self.cancel_pending_inputs();
             self.watched = None;
             self.scheduler = None;
         }

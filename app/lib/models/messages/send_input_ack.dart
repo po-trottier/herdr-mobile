@@ -15,6 +15,10 @@ abstract class SendInputAck with _$SendInputAck {
   const factory SendInputAck({
     @JsonKey(name: 'pane_id') required String paneId,
     required bool accepted,
+
+    /// True on the first of the two acks of a held submit (R-11-253). Absent
+    /// otherwise, like the Rust `skip_serializing_if` default.
+    @JsonKey(includeIfNull: false) bool? queued,
   }) = _SendInputAck;
 
   factory SendInputAck.fromJson(Map<String, dynamic> json) =>

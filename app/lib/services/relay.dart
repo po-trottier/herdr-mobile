@@ -566,8 +566,7 @@ final class RelayConnection {
   // R-31-13-06: every counter below resets to zero/empty/null on each successful connect()
   // (WP-21-a's connection screen). Sites: framesOut/bytesOut-adjacent tracking lives in
   // _sendFrame; framesIn/bytesInOnWire/bytesInUnpacked in _pumpIncoming;
-  // _outstandingCorr/_lastRoundTrip span both (R-31-13-19: one phone-measured round trip,
-  // paired by R-11-031's corr, never a dedicated ping — R-11-024).
+  // Correlated requests and visible-terminal probes supply RTT (R-11-250).
   int _framesIn = 0;
   int _framesOut = 0;
   int _bytesInOnWire = 0;
@@ -639,11 +638,8 @@ final class RelayConnection {
   /// `bytesInOnWire / bytesInUnpacked * 100`; this file publishes only the two counts.
   int get bytesInUnpacked => _bytesInUnpacked;
 
-  /// The most recent phone-measured round trip (R-31-13-19): an outgoing frame's `corr`
-  /// (R-11-031) timestamped in [_sendOn], matched against the next incoming frame that
-  /// echoes the same `corr`. Never a dedicated keep-alive — R-11-024 already forbids a
-  /// second network surface for this. `null` before the first correlated reply of a
-  /// session.
+  /// Latest correlated request or visible-terminal probe RTT (R-11-250).
+  /// Returns null until the first reply in this session.
   Duration? get lastRoundTrip => _lastRoundTrip;
 
   /// Opens the one relay socket, registers on `/device/<handle>` (R-11-114), runs the Noise
@@ -1300,7 +1296,11 @@ final class RelayConnection {
 
         final Message message;
         try {
-          message = messageFromTypeAndPayload(frame.type, frame.payload);
+          message = messageFromTypeAndPayload(
+            frame.type,
+            frame.payload,
+            corr: frame.corr,
+          );
         } on FormatException catch (error) {
           _log.warning(
             'unknown message type "${frame.type}": ${error.runtimeType}',
@@ -1396,6 +1396,10 @@ final class RelayConnection {
       allowClosing: allowClosing,
     );
     if (sent case Ok() when corr != null) {
+      _outstandingCorr.removeWhere(
+        (_, timestamp) =>
+            sentAt.difference(timestamp) >= const Duration(minutes: 1),
+      );
       _outstandingCorr[corr] = sentAt;
     }
     if (sent case Err()) {

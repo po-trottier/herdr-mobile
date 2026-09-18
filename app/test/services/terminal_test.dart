@@ -845,21 +845,19 @@ void main() {
     var paints = 0;
     service.xterm.addListener(() => paints++);
 
-    service.sendComposerText('a');
-    service.sendComposerText('b');
-    service.sendComposerDeletions(1);
-    service.sendComposerText('c');
-    service.sendComposerSubmit();
-    await tester.pump(const Duration(seconds: 2));
+    service.sendComposerLine('w1:p1', 'a');
+    service.sendComposerLine('w1:p1', 'ab');
+    service.sendComposerLine('w1:p1', 'a');
+    service.sendComposerLine('w1:p1', 'ac');
+    await tester.pump(terminalReplyTimeout);
 
     expect(_rowText(service.xterm, 10), '> ');
     expect(paints, 0);
     expect(harness.sent.whereType<_SentMessage>().map((sent) => sent.message), [
-      const Message.sendInput(SendInput(paneId: 'w1:p1', text: 'a')),
-      const Message.sendInput(SendInput(paneId: 'w1:p1', text: 'b')),
-      const Message.sendInput(SendInput(paneId: 'w1:p1', keys: ['Backspace'])),
-      const Message.sendInput(SendInput(paneId: 'w1:p1', text: 'c')),
-      const Message.sendInput(SendInput(paneId: 'w1:p1', keys: ['Enter'])),
+      const Message.sendInput(SendInput(paneId: 'w1:p1', line: 'a')),
+      const Message.sendInput(SendInput(paneId: 'w1:p1', line: 'ab')),
+      const Message.sendInput(SendInput(paneId: 'w1:p1', line: 'a')),
+      const Message.sendInput(SendInput(paneId: 'w1:p1', line: 'ac')),
     ]);
 
     harness.push(Message.paneFrame(_frame(revision: 102, text: '> ac')));

@@ -252,15 +252,15 @@ unreachable.
 - **R-31-09-10** Retired. There is no send control to keep enabled. The keyboard's return key is
   the one way to send `Enter` from the keyboard, and it MUST go as `keys: ["Enter"]` with no
   `text`, per step 3 of `R-10-044`; `R-31-09-04` carries that. See `## Retired rules`.
-- **R-31-09-11** Several keystrokes MAY be in flight at once. Each `send_input_ack` MUST settle
-  the oldest one.
-  An acknowledgement MUST NOT change composer text or settle a later keystroke. Typing MUST NOT
-  wait for the network.
+- **R-31-09-11** Several edits MAY be in flight at once. Each acknowledgement MUST settle only
+  its matching correlation. An edit acknowledgement MUST NOT change composer text. Typing MUST
+  NOT wait for the network.
 - **R-31-09-12** Retired by `R-03-130`. See `## Retired rules`.
 - **R-31-09-13** The app MUST NOT offer an action that resends input, per `R-11-228`.
   The person checks the grid and edits again. An unknown outcome MUST NOT trigger an automatic
   resend.
-- **R-31-09-14** A keystroke MUST NOT show progress of its own. One spinner per keystroke would
+- **R-31-09-14** Explicit Send progress follows `R-31-09-33`. A keystroke MUST NOT show progress
+  of its own. One spinner per keystroke would
   flicker the row constantly. `R-31-09-02` confirms a cap press, and the next `pane_frame` shows
   the effect. A keystroke whose acknowledgement reports `accepted: false` MUST raise the strip of
   the `Error, send refused` row, and one whose acknowledgement never arrives MUST raise the strip
@@ -379,19 +379,18 @@ unreachable.
   above the keyboard or system inset, per R-30-519. No permanent key row MUST appear below the
   field.
 
-- **R-31-09-27** Every composer edit MUST send `send_input` immediately, per `R-03-130`.
-  Insertion, deletion, replacement and native selection edits MUST reach the Host in order.
-  Deletion MUST send a `keys` array with one `Backspace` entry per removed grapheme,
-  through the named-key path in `R-10-037`. Insertion MUST then send raw text.
-  For a middle edit, the app MUST delete the old tail this way and then send its replacement.
-  It MUST NOT resend the unchanged entire field or wait for an acknowledgement before the next edit.
-- **R-31-09-28** The keyboard return action and trailing send control MUST each send `Enter`
-  once and clear the composer. Clearing after submission MUST NOT send deletion keys.
-  An empty composer MUST still submit `Enter`.
+- **R-31-09-27** Every composer edit MUST send the complete text immediately, per `R-03-137`.
+  The app MUST use `send_input.line`, including an empty string after deletion.
+  The app MUST NOT calculate deletion keys or replacement tails. `R-11-248` owns reconciliation.
+- **R-31-09-28** Keyboard Enter MUST insert a newline into the native composer.
+  Only the trailing Send control MUST submit `Enter`, including when the composer is empty.
+  The control MUST follow `R-31-09-33` and `R-31-09-34`.
 - **R-31-09-29** A named key or modifier chord MUST bypass the composer and use the raw-key
   path.
   It MUST NOT insert text into the field. The existing latch and lock rules remain in force.
-- **R-31-09-30** Before the Host echoes input, only the native composer MUST show the typed
+- **R-31-09-30** The composer MUST represent the complete editable text, including newlines.
+  It MUST use the Host seed under `R-31-09-32` and preserve failed submissions under `R-31-09-34`.
+   Before the Host echoes input, only the native composer MUST show the typed
   text.
   The grid MUST show only Host frames, per `R-03-130`. The app MUST NOT predict glyphs or a cursor.
   Native editing owns the cursor, selection and backspace. The composer MUST keep the platform
@@ -400,6 +399,63 @@ unreachable.
   found the field without autocorrect "super annoying"; until then this rule turned them off).
   Smart quotes and smart dashes MUST stay off: a curly quote or an en dash sent into a shell
   breaks the command, so the composer sends the ASCII character the person typed.
+
+- **R-31-09-31** The app MUST send full-line edits without waiting for each acknowledgement.
+  Each send MUST use the correlation contract in `R-11-248`.
+  `R-11-251` and `R-11-252` own Host queue behaviour, not the composer.
+- **R-31-09-32** The app MUST seed the composer from `watch_ack.line`, per `R-11-249`,
+  on each watch, including rewatch after reconnect. It MUST NOT infer input from the terminal grid.
+  Applying the seed MUST NOT send an edit.
+- **R-31-09-33** Send MUST show the platform progress indicator until the final acknowledgement
+  arrives, except for the queued clock in `R-31-09-37`. With non-empty text, Send MUST send the
+  full line and await acceptance before `Enter`, except for deferred submission under
+  `R-11-253`. Progress MUST cover both stages. It MUST prevent a second submission while one is
+  pending. Ordinary edits MUST NOT show this indicator. The app MUST settle input by
+  correlation, not by acknowledgement arrival order.
+- **R-31-09-34** (amended 2026-09-18, measured on the Android emulator against the live Host:
+  a field that was read-only during the round trip dropped the first keystrokes of the next
+  message.) `Send now` MUST clear the field at the tap, before any acknowledgement, and the
+  field MUST stay editable while the submit is in flight. The wire is ordered, so a line frame
+  typed during the round trip reaches the Host after the `Enter` and starts a fresh console
+  line. The clear MUST NOT send deletion keys. When the line or the `Enter` is refused or times
+  out, the app MUST show the error or unknown-outcome strip and MUST put the submitted text back
+  into the field only while the field is still empty; text the person typed since is kept. A
+  deferred submit (`R-31-09-37`) keeps its text in the read-only field until the final accepted
+  acknowledgement clears it. The app MUST NOT resend automatically.
+- **R-31-09-35** An accepted raw-key acknowledgement MUST update the local composer mirror
+  without sending a full-line edit. `Enter` and `ctrl+c` MUST clear it. `Backspace` MUST remove
+  its last grapheme. Accepted paste text MUST append to it. The six raw control sequences in the
+  key table MUST leave it unchanged. Other keys MUST also leave it unchanged. `R-10-076` owns the
+  Host shadow lifecycle.
+- **R-31-09-36** A long press on Send MUST open the platform-native menu. With no queued
+  submission, it MUST offer `Send now` and `Send when done`. A normal tap MUST use `Send now`.
+  While a submission is queued, it MUST offer only `Send now` and `Cancel queued send`. It MUST
+  hide `Send when done` while queued. `Send when done` MUST use `defer: "until_idle"`.
+  Cancellation MUST use `defer: "cancel"`, per `R-11-253`. While queued, `Send now` MUST send
+  only `send_input` with `keys: ["Enter"]` and a fresh `corr`. It MUST NOT send `line`, `defer`,
+  or a separate cancellation first. The app MUST NOT translate these choices into agent-specific
+  keybinds.
+- **R-31-09-37** A queued submission MUST show a clock indicator and a hint that it waits for the
+  agent to finish. The composer MUST be read-only while queued and MUST retain the submitted
+  text. `R-11-253` defines two acknowledgement phases with the same `corr`: intermediate
+  `queued: true`, then final `queued: false`. The intermediate acknowledgement MUST NOT clear
+  text or complete Send. The clock MUST remain visible until the final acknowledgement. After
+  queued acceptance, the app MUST NOT apply an acknowledgement timeout while the Host holds the
+  submission. For `Send now` while queued, the Host supersedes the held correlation with
+  `accepted: false`, per `R-11-253`. The app MUST treat that acknowledgement as superseded, not
+  failed, and await the fresh Enter correlation. Progress MUST continue until the fresh Enter
+  receives its final acknowledgement. Only final acceptance MUST clear submitted text, per
+  `R-31-09-34`. Cancellation, refusal, timeout, or disconnect MUST retain text. The app MUST NOT
+  submit it again automatically.
+- **R-31-09-38** The key panel MUST provide an `Answer` layout for interactive prompts. A
+  transition into blocked status MUST open the panel and select `Answer`. The app MUST use
+  pane-tree status and live `agent_status` updates. Other statuses MUST NOT close the panel or
+  change its selected layout. The person MAY select another layout while blocked. Repeated
+  blocked updates MUST NOT override that choice. The person MUST also be able to select `Answer`
+  manually through `More keys`, regardless of agent status. Answer controls MUST send direct
+  named keys or text. They MUST NOT send `line` or insert text into the composer.
+- **R-31-09-39** Send with an empty composer MUST emit `Enter` through the direct key path. It
+  MUST NOT send an empty full-line edit first. This exception applies to `R-31-09-33`.
 
 ## Retired rules
 

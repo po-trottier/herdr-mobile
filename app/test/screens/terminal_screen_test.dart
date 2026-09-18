@@ -1,6 +1,6 @@
 /// Screen-level tests for `TerminalScreen` (`docs/31-mockups/08-terminal.md`): the app bar
 /// composition (back, pane title, live dot, `Pane actions` overflow — no keyboard control
-/// since R-03-116, 2026-09-10), the live typing path of R-03-054 and its per-pane ACK filter,
+/// since R-03-116, 2026-09-10), full-line edits and correlated submission replies,
 /// the grid tap that raises the keyboard and never sends (R-31-08-08), readable text, the
 /// column window (R-21-037), and the explicit Overview control.
 /// Other cases cover continuous pinch zoom (R-30-302), the force-read pull (R-11-053), the live link word
@@ -33,6 +33,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/widgets.dart'
     show
+        AppLifecycleState,
         Brightness,
         EditableText,
         Offset,
@@ -47,7 +48,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/app.dart' show ResolvedChrome, appThemeFrom;
 import 'package:herdr_mobile/models/codes.dart' show ErrorCode;
 import 'package:herdr_mobile/models/message.dart'
-    show Message, MessageHostAction, MessageScrollRequest, MessageSendInput;
+    show
+        Message,
+        MessageHostAction,
+        MessageScrollRequest,
+        MessageSendInput,
+        MessagePing;
+import 'package:herdr_mobile/models/messages/agent_status.dart'
+    show AgentStatus;
+import 'package:herdr_mobile/models/messages/agent_status_kind.dart'
+    show AgentStatusKind;
 import 'package:herdr_mobile/models/messages/agent_summary.dart'
     show AgentSummary;
 import 'package:herdr_mobile/models/messages/error_message.dart'
@@ -95,7 +105,13 @@ import 'package:herdr_mobile/widgets/theme/chrome_scheme.dart'
     show ChromeScheme;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show AlertDialog, AppBar, BackButton, MaterialApp, TextButton;
+    show
+        AlertDialog,
+        AppBar,
+        BackButton,
+        CircularProgressIndicator,
+        MaterialApp,
+        TextButton;
 import 'package:xterm2/xterm.dart'
     show Terminal, TerminalView, TerminalViewState;
 
@@ -285,6 +301,21 @@ class _Harness {
   final StreamController<Message> messages =
       StreamController<Message>.broadcast();
   final List<Message> sent = <Message>[];
+  final List<String?> correlations = <String?>[];
+
+  void ack(
+    String corr, {
+    bool accepted = true,
+    bool queued = false,
+    String paneId = _paneId,
+  }) {
+    emit(
+      Message.sendInputAck(
+        SendInputAck(paneId: paneId, accepted: accepted, queued: queued),
+        corr: corr,
+      ),
+    );
+  }
 
   bool backTapped = false;
   bool diagnosticsTapped = false;
@@ -332,7 +363,10 @@ class _Harness {
     messages: messages.stream,
     connectionState: const Stream<RelayConnectionState>.empty(),
     initialConnectionState: initialState,
-    send: (Message message, {String? corr}) => sent.add(message),
+    send: (Message message, {String? corr}) {
+      sent.add(message);
+      correlations.add(corr);
+    },
     watchPane: (String paneId, {String? corr}) {},
     unwatchPane: (String paneId, {String? corr}) {},
     onBack: () => backTapped = true,
@@ -1104,7 +1138,7 @@ void main() {
       expect(harness.sendInputs, hasLength(1));
       expect(harness.sendInputs.single.paneId, _paneId);
       expect(harness.sendInputs.single.keys, <String>['ctrl+c']);
-      expect(harness.sendInputs.single.text, isNull);
+      expect(harness.sendInputs.single.line, isNull);
       expect(harness.sent.whereType<MessageHostAction>(), isEmpty);
       await _flushDotTimer(tester);
     },
@@ -1413,43 +1447,354 @@ void main() {
     },
   );
 
-  testWidgets(
-    "typing goes to this pane as typed, and only this pane's ack settles it "
-    '(R-03-054, R-11-227)',
-    (tester) async {
+  for (final source in ['tree', 'status']) {
+    testWidgets('blocked $source opens Answer and sends direct input', (
+      tester,
+    ) async {
       final harness = _Harness();
       await _pumpScreen(tester, harness);
       await _attachLive(tester, harness);
-      await tester.tap(find.byKey(_gridKey));
+      if (source == 'tree') {
+        harness.emit(
+          Message.treeSnapshot(
+            _snapshot.copyWith(
+              panes: [_pane.copyWith(agentStatus: 'blocked')],
+              agents: [_snapshot.agents.single.copyWith(status: 'blocked')],
+            ),
+          ),
+        );
+      } else {
+        harness.emit(
+          const Message.agentStatus(
+            AgentStatus(
+              hostId: 'host-1',
+              paneId: _paneId,
+              workspaceId: 'w3',
+              tabId: 'w3:t1',
+              tabTitle: 'plugin',
+              paneTitle: 'claude',
+              agentKind: 'claude',
+              status: AgentStatusKind.blocked,
+              at: '2026-09-03T10:00:34Z',
+            ),
+          ),
+        );
+      }
       await tester.pump();
-
-      await _type(tester, 'l');
-      expect(harness.sendInputs, hasLength(1));
-      expect(harness.sendInputs.single.paneId, _paneId);
-      expect(harness.sendInputs.single.text, 'l');
-      expect(harness.sendInputs.single.keys, isNull);
-
-      // Another pane's refusal MUST NOT settle this pane's send.
-      harness.emit(
-        const Message.sendInputAck(
-          SendInputAck(paneId: 'w3:p9', accepted: false),
-        ),
+      final enter = _keyCap('keyRowAnswerEnter');
+      final yes = _keyCap('keyRowAnswery');
+      expect(enter.hitTestable(), findsOneWidget);
+      expect(yes.hitTestable(), findsOneWidget);
+      await tester.tap(enter);
+      await tester.pump();
+      await tester.tap(yes);
+      await tester.pump();
+      expect(harness.sendInputs, hasLength(2));
+      expect(harness.sendInputs[0].keys, ['Enter']);
+      expect(harness.sendInputs[0].text, isNull);
+      expect(harness.sendInputs[1].text, 'y');
+      expect(harness.sendInputs[1].keys, isNull);
+      expect(harness.sendInputs.every((input) => input.line == null), isTrue);
+      harness.ack(harness.correlations.last!);
+      await tester.pump();
+      expect(
+        tester.widget<EditableText>(find.byType(EditableText)).controller.text,
+        '',
       );
+      await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
       await tester.pump();
-      expect(find.text('Not sent: typing'), findsNothing);
-
-      harness.emit(
-        const Message.sendInputAck(
-          SendInputAck(paneId: _paneId, accepted: false),
-        ),
-      );
+      expect(harness.sendInputs, hasLength(3));
+      expect(harness.sendInputs.last.keys, ['Enter']);
+      expect(harness.sendInputs.last.line, isNull);
+      harness.ack(harness.correlations.last!);
       await tester.pump();
-      expect(find.text('Not sent: typing'), findsOneWidget);
-      // Nothing re-sends (R-11-228).
-      expect(harness.sendInputs, hasLength(1));
       await _flushDotTimer(tester);
-    },
-  );
+    });
+  }
+
+  testWidgets('empty Send sends only Enter', (tester) async {
+    final harness = _Harness();
+    await _pumpScreen(tester, harness);
+    await _attachLive(tester, harness);
+    await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
+    await tester.pump();
+    expect(harness.sendInputs, hasLength(1));
+    expect(harness.sendInputs.single.keys, ['Enter']);
+    expect(harness.sendInputs.single.line, isNull);
+    harness.ack(harness.correlations.last!);
+    await tester.pump();
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).readOnly,
+      isFalse,
+    );
+    await _flushDotTimer(tester);
+  });
+
+  for (final action in ['delivery', 'cancel', 'send now']) {
+    testWidgets('queued submit retains draft until $action completes', (
+      tester,
+    ) async {
+      final harness = _Harness();
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness);
+      await _type(tester, 'queued draft');
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('composerSend')),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Send when the agent is done'));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(harness.sendInputs.last.line, 'queued draft');
+      harness.ack(harness.correlations.last!);
+      await tester.pump();
+      final corr = harness.correlations.last!;
+      expect(harness.sendInputs.last.keys, ['Enter']);
+      expect(harness.sendInputs.last.toJson()['defer'], 'until_idle');
+      harness.ack(corr, queued: true);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 6));
+      var field = tester.widget<EditableText>(find.byType(EditableText));
+      expect(field.readOnly, isTrue);
+      expect(field.controller.text, 'queued draft');
+      expect(find.textContaining('Not sent'), findsNothing);
+      if (action != 'delivery') {
+        await tester.longPress(
+          find.byKey(const ValueKey<String>('composerSend')),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.tap(
+          find.text(action == 'cancel' ? 'Cancel queued send' : 'Send now'),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        final replacementCorr = harness.correlations.last!;
+        if (action == 'cancel') {
+          expect(harness.sendInputs.last.toJson()['defer'], 'cancel');
+          harness.ack(replacementCorr);
+          await tester.pump();
+        } else {
+          expect(replacementCorr, isNot(corr));
+          expect(harness.sendInputs.last.keys, ['Enter']);
+          expect(harness.sendInputs.last.line, isNull);
+          expect(harness.sendInputs.last.toJson()['defer'], isNull);
+        }
+        expect(
+          tester.widget<EditableText>(find.byType(EditableText)).readOnly,
+          action == 'cancel',
+        );
+        harness.ack(corr, accepted: false);
+        await tester.pump();
+        if (action == 'send now') {
+          expect(find.textContaining('Not sent'), findsNothing);
+          expect(
+            tester.widget<EditableText>(find.byType(EditableText)).readOnly,
+            isFalse,
+          );
+          harness.ack(replacementCorr);
+          await tester.pump();
+        }
+      } else {
+        harness.ack(corr);
+        await tester.pump();
+      }
+      field = tester.widget<EditableText>(find.byType(EditableText));
+      expect(field.readOnly, isFalse);
+      expect(field.controller.text, action == 'cancel' ? 'queued draft' : '');
+      await _flushDotTimer(tester);
+    });
+  }
+
+  testWidgets('key rejection requires matching pane and correlation', (
+    tester,
+  ) async {
+    final harness = _Harness();
+    await _pumpScreen(tester, harness);
+    await _attachLive(tester, harness);
+    await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
+    await tester.pump();
+    await tester.tap(_keyCap('keyRowEsc'));
+    await tester.pump();
+    final corr = harness.correlations.last!;
+    harness.ack('unrelated', accepted: false);
+    harness.ack(corr, paneId: 'other', accepted: false);
+    await tester.pump();
+    expect(find.textContaining('Not sent'), findsNothing);
+    harness.ack(corr, accepted: false);
+    await tester.pump();
+    expect(find.textContaining('Not sent'), findsOneWidget);
+    await _flushDotTimer(tester);
+  });
+
+  testWidgets('edits send complete lines and reconnect preserves the draft', (
+    tester,
+  ) async {
+    final harness = _Harness();
+    await _pumpScreen(tester, harness);
+    harness.emit(
+      const Message.watchAck(
+        WatchAck(
+          paneId: _paneId,
+          revision: 1,
+          viewportRows: 50,
+          width: 144,
+          line: 'host',
+          scroll: ScrollOffsets(offsetFromBottom: 0, maxOffsetFromBottom: 0),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).controller.text,
+      'host',
+    );
+    expect(harness.sendInputs, isEmpty);
+    await tester.enterText(find.byType(EditableText), 'local');
+    await tester.pump();
+    await _type(tester, ' draft');
+    await _attachLive(tester, harness);
+    expect(harness.sendInputs.map((input) => input.line), [
+      'local',
+      'local draft',
+      'local draft',
+    ]);
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).controller.text,
+      'local draft',
+    );
+    await tester.enterText(find.byType(EditableText), '');
+    await tester.pump();
+    await _attachLive(tester, harness);
+    expect(harness.sendInputs.map((input) => input.line), [
+      'local',
+      'local draft',
+      'local draft',
+      '',
+    ]);
+    await _flushDotTimer(tester);
+  });
+
+  for (final outcome in [
+    'accepted',
+    'rejected',
+    'timeout',
+    'line rejected',
+    'line timeout',
+  ]) {
+    testWidgets(
+      'submission $outcome matches correlation and ${outcome == 'accepted' ? 'clears' : 'restores'} the draft',
+      (tester) async {
+        final harness = _Harness();
+        await _pumpScreen(tester, harness);
+        await _attachLive(tester, harness);
+        await _type(tester, 'draft');
+        final editCorr = harness.correlations.last!;
+        await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
+        await tester.pump();
+        final lineCorr = harness.correlations.last!;
+        expect(lineCorr, isNot(editCorr));
+        expect(harness.sendInputs.last.line, 'draft');
+        expect(
+          harness.sendInputs.where((input) => input.keys != null),
+          isEmpty,
+        );
+        expect(
+          tester.widget<EditableText>(find.byType(EditableText)).readOnly,
+          isFalse,
+        );
+        expect(
+          tester
+              .widget<EditableText>(find.byType(EditableText))
+              .controller
+              .text,
+          '',
+        );
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        harness.ack(editCorr);
+        await tester.pump();
+        expect(
+          tester
+              .widget<EditableText>(find.byType(EditableText))
+              .controller
+              .text,
+          '',
+        );
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        if (outcome == 'line timeout') {
+          await tester.pump(const Duration(seconds: 6));
+        } else {
+          harness.ack(lineCorr, accepted: outcome != 'line rejected');
+          await tester.pump();
+        }
+        if (!outcome.startsWith('line ')) {
+          final enterCorr = harness.correlations.last!;
+          expect(enterCorr, isNot(lineCorr));
+          expect(harness.sendInputs.last.keys, ['Enter']);
+          harness.ack(enterCorr, paneId: 'other');
+          await tester.pump();
+          expect(
+            tester.widget<EditableText>(find.byType(EditableText)).readOnly,
+            isFalse,
+          );
+          expect(find.byType(CircularProgressIndicator), findsOneWidget);
+          if (outcome == 'timeout') {
+            await tester.pump(const Duration(seconds: 6));
+          } else {
+            harness.ack(enterCorr, accepted: outcome == 'accepted');
+            await tester.pump();
+          }
+        } else {
+          expect(
+            harness.sendInputs.where((input) => input.keys != null),
+            isEmpty,
+          );
+        }
+        final field = tester.widget<EditableText>(find.byType(EditableText));
+        expect(field.readOnly, isFalse);
+        expect(field.controller.text, outcome == 'accepted' ? '' : 'draft');
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        if (outcome != 'accepted') {
+          expect(find.textContaining('Not sent'), findsOneWidget);
+        }
+        if (outcome == 'rejected') {
+          await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
+          await tester.pump();
+          expect(find.textContaining('Not sent'), findsNothing);
+          harness.ack(harness.correlations.last!);
+          await tester.pump();
+          harness.ack(harness.correlations.last!);
+          await tester.pump();
+          expect(
+            tester
+                .widget<EditableText>(find.byType(EditableText))
+                .controller
+                .text,
+            '',
+          );
+        }
+        await _flushDotTimer(tester);
+      },
+    );
+  }
+
+  testWidgets('RTT probes stop on pause and disposal', (tester) async {
+    final harness = _Harness();
+    await _pumpScreen(tester, harness);
+    await _attachLive(tester, harness);
+    await tester.pump(const Duration(seconds: 10));
+    expect(harness.sent.whereType<MessagePing>(), hasLength(1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 20));
+    expect(harness.sent.whereType<MessagePing>(), hasLength(1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 10));
+    expect(harness.sent.whereType<MessagePing>(), hasLength(2));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 20));
+    expect(harness.sent.whereType<MessagePing>(), hasLength(2));
+  });
 
   testWidgets(
     'typing stays in the native composer until the Host echoes it (R-03-130)',
@@ -2030,7 +2375,7 @@ void main() {
   });
 
   testWidgets(
-    'rotation preserves the pan window and overview state while the ACK stream remains active',
+    'rotation preserves pan window and overview state while composer edits remain active',
     (tester) async {
       final harness = _Harness();
       await _pumpScreen(tester, harness);
@@ -2104,21 +2449,7 @@ void main() {
       await _type(tester, 'l');
       expect(harness.sendInputs, hasLength(1));
       expect(harness.sendInputs.single.paneId, _paneId);
-      expect(harness.sendInputs.single.text, 'l');
-      harness.emit(
-        const Message.sendInputAck(
-          SendInputAck(paneId: 'w3:p9', accepted: false),
-        ),
-      );
-      await tester.pump();
-      expect(find.text('Not sent: typing'), findsNothing);
-      harness.emit(
-        const Message.sendInputAck(
-          SendInputAck(paneId: _paneId, accepted: false),
-        ),
-      );
-      await tester.pump();
-      expect(find.text('Not sent: typing'), findsOneWidget);
+      expect(harness.sendInputs.single.line, 'l');
       await _flushDotTimer(tester);
     },
   );

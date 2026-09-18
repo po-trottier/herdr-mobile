@@ -139,7 +139,7 @@ fn vectors_json_messages_round_trip_through_frame_and_message() {
 
 #[test]
 fn vectors_json_covers_every_documented_message_type() {
-    // docs/11-relay-protocol.md §4's 26-row table (including send_input_ack as 12a).
+    // docs/11-relay-protocol.md §4's table (including send_input_ack as 12a, ping and pong).
     const EXPECTED: &[&str] = &[
         "host_info",
         "device_info",
@@ -167,6 +167,8 @@ fn vectors_json_covers_every_documented_message_type() {
         "disconnect",
         "action_list_request",
         "action_list",
+        "ping",
+        "pong",
     ];
     let on_disk = std::fs::read_to_string(vectors_json_path())
         .expect("tests/vectors.json must be committed; run regenerate_vectors_json");

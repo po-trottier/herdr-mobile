@@ -26,11 +26,12 @@ use serde_json::json;
 use crate::codes::ErrorCode;
 use crate::messages::{
     ActionList, ActionListEntry, ActionListRequest, AgentPrompt, AgentPromptAck, AgentStatus,
-    AgentStatusKind, AgentSummary, DeviceInfo, DeviceList, DeviceListEntry, DeviceListRequest,
-    Disconnect, ErrorMessage, HostAction, HostActionAck, HostActionKind, HostInfo, Message,
-    PaneFrame, PaneScrollState, PaneSummary, Platform, RevokeDevice, RevokeResult, ScrollOffsets,
-    ScrollRequest, ScrollResponse, SendInput, SendInputAck, TabSummary, TreeEvent, TreeRequest,
-    TreeSnapshot, TreeUpdate, UnwatchPane, WatchAck, WatchPane, WorkspaceSummary,
+    AgentStatusKind, AgentSummary, Defer, DeviceInfo, DeviceList, DeviceListEntry,
+    DeviceListRequest, Disconnect, ErrorMessage, HostAction, HostActionAck, HostActionKind,
+    HostInfo, Message, PaneFrame, PaneScrollState, PaneSummary, Ping, Platform, Pong, RevokeDevice,
+    RevokeResult, ScrollOffsets, ScrollRequest, ScrollResponse, SendInput, SendInputAck,
+    TabSummary, TreeEvent, TreeRequest, TreeSnapshot, TreeUpdate, UnwatchPane, WatchAck, WatchPane,
+    WorkspaceSummary,
 };
 
 /// The routing handle from the worked example (`docs/11-relay-protocol.md` §8).
@@ -167,6 +168,7 @@ pub fn message_vectors() -> Vec<(&'static str, u64, Option<String>, Message)> {
                     offset_from_bottom: 0,
                     max_offset_from_bottom: 0,
                 },
+                line: String::new(),
             }),
         ),
         (
@@ -215,9 +217,57 @@ pub fn message_vectors() -> Vec<(&'static str, u64, Option<String>, Message)> {
             None,
             Message::SendInput(SendInput {
                 pane_id: "w3:p2".to_owned(),
+                line: None,
                 text: None,
                 keys: Some(vec!["ctrl+c".to_owned()]),
+                defer: None,
             }),
+        ),
+        (
+            "send_input",
+            4,
+            Some("req-005".to_owned()),
+            Message::SendInput(SendInput {
+                pane_id: "w3:p2".to_owned(),
+                line: Some("hello, world".to_owned()),
+                text: None,
+                keys: None,
+                defer: None,
+            }),
+        ),
+        (
+            "send_input",
+            7,
+            Some("req-007".to_owned()),
+            Message::SendInput(SendInput {
+                pane_id: "w3:p2".to_owned(),
+                line: None,
+                text: None,
+                keys: Some(vec!["Enter".to_owned()]),
+                defer: Some(Defer::UntilIdle),
+            }),
+        ),
+        (
+            "send_input_ack",
+            7,
+            Some("req-007".to_owned()),
+            Message::SendInputAck(SendInputAck {
+                pane_id: "w3:p2".to_owned(),
+                accepted: true,
+                queued: true,
+            }),
+        ),
+        (
+            "ping",
+            6,
+            Some("req-006".to_owned()),
+            Message::Ping(Ping {}),
+        ),
+        (
+            "pong",
+            6,
+            Some("req-006".to_owned()),
+            Message::Pong(Pong {}),
         ),
         (
             "send_input_ack",
@@ -226,6 +276,7 @@ pub fn message_vectors() -> Vec<(&'static str, u64, Option<String>, Message)> {
             Message::SendInputAck(SendInputAck {
                 pane_id: "w3:p2".to_owned(),
                 accepted: true,
+                queued: false,
             }),
         ),
         (

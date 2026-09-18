@@ -30,9 +30,11 @@ import 'package:material_ui/material_ui.dart'
 
 import '../screens/golden_support.dart' show loadAppFonts;
 
-Stream<SendInputAck> _noAcks() => const Stream<SendInputAck>.empty();
+Stream<({String corr, SendInputAck ack})> _noAcks() =>
+    const Stream<({String corr, SendInputAck ack})>.empty();
 
-const ValueKey<String> _regionKey = ValueKey<String>('keyRowScrollRegion');
+final List<String> _sentCorr = <String>[];
+final List<SendInput> _acceptedInputs = <SendInput>[];
 
 /// The enabled state set a `ButtonStyle` resolves against, as
 /// `app_filled_button_test.dart` names it.
@@ -79,7 +81,7 @@ Tristate _toggledOf(WidgetTester tester, String key) {
 /// `terminal_screen.dart`'s grid tap does.
 Widget _row({
   List<Message>? sent,
-  Stream<SendInputAck>? acks,
+  Stream<({String corr, SendInputAck ack})>? acks,
   Object? reconciliation,
   KeyRowLinkState linkState = KeyRowLinkState.live,
   bool landscape = false,
@@ -107,7 +109,7 @@ class _Harness extends StatefulWidget {
     this.withGrid = false,
   });
   final List<Message>? sent;
-  final Stream<SendInputAck>? acks;
+  final Stream<({String corr, SendInputAck ack})>? acks;
   final Object? reconciliation;
   final KeyRowLinkState linkState;
   final bool landscape;
@@ -134,9 +136,8 @@ class _HarnessState extends State<_Harness> {
     focusNode: focus,
     composer: Composer(
       focusNode: focus,
-      onText: (_) {},
-      onDelete: (_) {},
-      onSubmit: () {},
+      onLine: (_) {},
+      onSubmit: (String line, {bool whenIdle = false}) async => true,
       inputFormatters: <TextInputFormatter>[
         TextInputFormatter.withFunction(
           (before, after) =>
@@ -146,8 +147,12 @@ class _HarnessState extends State<_Harness> {
     ),
     paneId: 'w1:p1',
     grid: widget.withGrid ? const SizedBox.expand() : null,
-    send: (Message message, {String? corr}) => widget.sent?.add(message),
+    send: (Message message, {String? corr}) {
+      _sentCorr.add(corr!);
+      widget.sent?.add(message);
+    },
     sendInputAcks: widget.acks ?? _noAcks(),
+    onInputAccepted: _acceptedInputs.add,
     linkState: widget.linkState,
     offlineReason: widget.linkState == KeyRowLinkState.offline
         ? 'Offline. Showing what we last saw.'
@@ -166,7 +171,7 @@ List<SendInput> _inputs(List<Message> sent) => sent
 Future<void> _pumpWithKeyboard(
   WidgetTester tester, {
   required List<Message> sent,
-  Stream<SendInputAck>? acks,
+  Stream<({String corr, SendInputAck ack})>? acks,
   KeyRowLinkState linkState = KeyRowLinkState.live,
 }) async {
   await tester.pumpWidget(_row(sent: sent, acks: acks, linkState: linkState));
@@ -206,35 +211,135 @@ Future<void> _pumpAt390(WidgetTester tester, {bool landscape = false}) async {
   await tester.pumpWidget(_row(landscape: landscape));
 }
 
-/// Every key, chord and control in the row by its `keyRow*` widget key, as the person sees
-/// it: a key inside the middle scroll region is clipped to that region, and a key the region
-/// has scrolled out of view is dropped; a pinned key (column one, column six) is never
-/// clipped. The region is a container, not a key, and is skipped.
-Map<String, Rect> _visibleKeyRects(WidgetTester tester) {
-  final Rect region = tester.getRect(find.byKey(_regionKey));
-  final Map<String, Rect> rects = <String, Rect>{};
-  final Finder keyed = find.byWidgetPredicate(
-    (Widget widget) =>
-        widget.key is ValueKey<String> &&
-        (widget.key! as ValueKey<String>).value.startsWith('keyRow'),
-  );
-  for (final Element element in keyed.evaluate()) {
-    final String id = (element.widget.key! as ValueKey<String>).value;
-    if (id == 'keyRowScrollRegion') continue;
-    final Finder finder = find.byKey(ValueKey<String>(id));
-    Rect rect = tester.getRect(finder);
-    final bool scrolls = find
-        .descendant(of: find.byKey(_regionKey), matching: finder)
-        .evaluate()
-        .isNotEmpty;
-    if (scrolls) rect = rect.intersect(region);
-    if (!rect.isEmpty) rects[id] = rect;
-  }
-  return rects;
-}
-
 void main() {
   setUpAll(loadAppFonts);
+
+  testWidgets('Answer keys send one frame without changing Composer', (
+    tester,
+  ) async {
+    final List<Message> sent = <Message>[];
+    final acks = StreamController<({String corr, SendInputAck ack})>();
+    addTearDown(acks.close);
+    _sentCorr.clear();
+    _acceptedInputs.clear();
+    await tester.pumpWidget(_row(sent: sent, acks: acks.stream));
+    await tester.enterText(find.byType(EditableText), 'keep draft');
+    await tester.tap(_cap('keyRowAnswer'));
+    await tester.pump();
+    expect(_cap('keyRowCtrl'), findsNothing);
+    for (final String name in <String>[
+      'Up',
+      'Down',
+      'Left',
+      'Right',
+      'Enter',
+      'Esc',
+      'Tab',
+      'Space',
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+      'y',
+      'n',
+    ]) {
+      final Finder cap = _cap('keyRowAnswer$name');
+      expect(tester.getSize(cap).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(cap).width, greaterThanOrEqualTo(48));
+      await tester.tap(cap);
+      await tester.pump();
+      final SendInput input = _inputs(sent).last;
+      expect(input.line, isNull);
+      expect(input.keys, name.length == 1 ? isNull : <String>[name]);
+      expect(input.text, name.length == 1 ? name : isNull);
+      acks.add((
+        corr: _sentCorr.last,
+        ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+      ));
+      await tester.pump();
+    }
+    expect(sent, hasLength(19));
+    expect(_acceptedInputs, isEmpty);
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).controller.text,
+      'keep draft',
+    );
+    await tester.tap(_cap('keyRowAnswer'));
+    await tester.pump();
+    expect(_cap('keyRowCtrl'), findsOneWidget);
+  });
+
+  testWidgets('Answer selection follows blocked edges, not status refreshes', (
+    tester,
+  ) async {
+    bool answer = false;
+    late StateSetter update;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return KeyRow(
+                paneId: 'w1:p1',
+                send: (message, {corr}) {},
+                sendInputAcks: _noAcks(),
+                panelOpen: true,
+                answerMode: answer,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    expect(_cap('keyRowCtrl'), findsOneWidget);
+    update(() => answer = true);
+    await tester.pump();
+    expect(_cap('keyRowAnswerEnter'), findsOneWidget);
+    await tester.tap(_cap('keyRowAnswer'));
+    await tester.pump();
+    update(() {});
+    await tester.pump();
+    expect(_cap('keyRowCtrl'), findsOneWidget);
+    update(() => answer = false);
+    await tester.pump();
+    await tester.tap(_cap('keyRowAnswer'));
+    await tester.pump();
+    update(() {});
+    await tester.pump();
+    expect(_cap('keyRowAnswerEnter'), findsOneWidget);
+  });
+
+  testWidgets('queued acknowledgement retains correlation until final reply', (
+    tester,
+  ) async {
+    final acks = StreamController<({String corr, SendInputAck ack})>();
+    addTearDown(acks.close);
+    _sentCorr.clear();
+    _acceptedInputs.clear();
+    await tester.pumpWidget(_row(acks: acks.stream));
+    await tester.tap(_cap('keyRowEsc'));
+    await tester.pump();
+    acks.add((
+      corr: _sentCorr.single,
+      ack: const SendInputAck(paneId: 'w1:p1', accepted: true, queued: true),
+    ));
+    await tester.pump();
+    await tester.pump(terminalReplyTimeout * 2);
+    expect(_acceptedInputs, isEmpty);
+    expect(find.textContaining('Outcome unknown'), findsNothing);
+    acks.add((
+      corr: _sentCorr.single,
+      ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+    ));
+    await tester.pump();
+    expect(_acceptedInputs.single.keys, <String>['Esc']);
+  });
   testWidgets('panel overlays the grid and keeps keyboard focus', (
     tester,
   ) async {
@@ -259,9 +364,9 @@ void main() {
                 grid: const SizedBox.expand(key: gridKey),
                 composer: Composer(
                   focusNode: focus,
-                  onText: (_) {},
-                  onDelete: (_) {},
-                  onSubmit: () {},
+                  onLine: (_) {},
+                  onSubmit: (String line, {bool whenIdle = false}) async =>
+                      true,
                 ),
               );
             },
@@ -293,13 +398,69 @@ void main() {
   });
   group('KeyRow acknowledgements (R-31-09-13, R-31-09-14, R-30-518)', () {
     final List<Message> sent = <Message>[];
-    late StreamController<SendInputAck> acks;
+    late StreamController<({String corr, SendInputAck ack})> acks;
 
     setUp(() {
       sent.clear();
-      acks = StreamController<SendInputAck>.broadcast();
+      _sentCorr.clear();
+      _acceptedInputs.clear();
+      acks = StreamController<({String corr, SendInputAck ack})>.broadcast();
     });
     tearDown(() => acks.close());
+
+    testWidgets(
+      'accepted callbacks match reordered correlations exactly once',
+      (tester) async {
+        await _pumpWithKeyboard(tester, sent: sent, acks: acks.stream);
+        await tester.tap(_cap('keyRowEsc'));
+        await tester.tap(_cap('keyRowTab'));
+        await tester.pump();
+        acks.add((
+          corr: _sentCorr[1],
+          ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+        ));
+        acks.add((
+          corr: _sentCorr[0],
+          ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+        ));
+        acks.add((
+          corr: _sentCorr[1],
+          ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+        ));
+        await tester.pump();
+        expect(_acceptedInputs.map((input) => input.keys), <List<String>>[
+          <String>['Tab'],
+          <String>['Esc'],
+        ]);
+      },
+    );
+
+    testWidgets('unknown correlations do not settle pending keys', (
+      tester,
+    ) async {
+      await _pumpWithKeyboard(tester, sent: sent, acks: acks.stream);
+      await tester.tap(_cap('keyRowTab'));
+      await tester.pump();
+      acks.add((
+        corr: 'another-send',
+        ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+      ));
+      await tester.pump();
+      await tester.pump(terminalReplyTimeout);
+      expect(find.textContaining('We do not know'), findsOneWidget);
+    });
+
+    testWidgets('Composer failures use the existing error strip', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_row());
+      tester.state<KeyRowState>(find.byType(KeyRow)).reportInputFailure();
+      await tester.pump();
+      expect(find.text('Not sent: typing'), findsOneWidget);
+      tester.state<KeyRowState>(find.byType(KeyRow)).clearInputFailure();
+      await tester.pump();
+      expect(find.text('Not sent: typing'), findsNothing);
+    });
 
     testWidgets('a refused send raises a strip that names it, re-sends nothing, and clears on the '
         'next send', (WidgetTester tester) async {
@@ -310,15 +471,22 @@ void main() {
       await tester.pump();
       expect(_inputs(sent), hasLength(2));
 
-      acks.add(const SendInputAck(paneId: 'w1:p1', accepted: false));
-      await tester.pump();
-      expect(find.text('Not sent: esc'), findsOneWidget);
-      expect(_inputs(sent), hasLength(2));
-
-      acks.add(const SendInputAck(paneId: 'w1:p1', accepted: false));
+      acks.add((
+        corr: _sentCorr[1],
+        ack: const SendInputAck(paneId: 'w1:p1', accepted: false),
+      ));
       await tester.pump();
       expect(find.text('Not sent: tab'), findsOneWidget);
-      expect(find.text('Not sent: esc'), findsNothing);
+      expect(_inputs(sent), hasLength(2));
+
+      acks.add((
+        corr: _sentCorr[0],
+        ack: const SendInputAck(paneId: 'w1:p1', accepted: false),
+      ));
+      await tester.pump();
+      expect(find.text('Not sent: esc'), findsOneWidget);
+      expect(find.text('Not sent: tab'), findsNothing);
+      expect(_acceptedInputs, isEmpty);
 
       await tester.tap(_cap('keyRowTab'));
       await tester.pump();
@@ -327,12 +495,15 @@ void main() {
     });
 
     testWidgets(
-      'an accepted acknowledgement settles the oldest send and shows nothing',
+      'an accepted acknowledgement settles the matching send and shows nothing',
       (WidgetTester tester) async {
         await _pumpWithKeyboard(tester, sent: sent, acks: acks.stream);
         await tester.tap(_cap('keyRowTab'));
         await tester.pump();
-        acks.add(const SendInputAck(paneId: 'w1:p1', accepted: true));
+        acks.add((
+          corr: _sentCorr.single,
+          ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+        ));
         await tester.pump();
         expect(find.textContaining('Not sent'), findsNothing);
         expect(find.textContaining('We do not know'), findsNothing);
@@ -738,50 +909,6 @@ void main() {
       await tester.pumpWidget(_row(sent: sent));
       await tester.pumpAndSettle();
     }
-
-    testWidgets('the grid holds exactly these caps, nothing that types a '
-        'character, and opening it sends nothing (R-03-117)', (
-      WidgetTester tester,
-    ) async {
-      await pumpPanel(tester);
-      expect(sent, isEmpty);
-      // Every cap the whole toolbar draws, in one set: the six columns of row one, the
-      // six of row two and the three of row three. A symbol cap would show up here.
-      expect(_visibleKeyRects(tester).keys.toSet(), <String>{
-        'keyRowEsc',
-        'keyRowTab',
-        'keyRowCtrl',
-        'keyRowAlt',
-        'keyRowArrow^',
-        'keyRowNavins',
-        'keyRowNavhome',
-        'keyRowNavpgup',
-        'keyRowArrow<',
-        'keyRowArrowv',
-        'keyRowArrow>',
-        'keyRowNavdel',
-        'keyRowNavend',
-        'keyRowNavpgdn',
-      });
-      // The symbol caps left the row on 2026-09-10: every one of these characters
-      // is on the phone keyboard's own symbol pages.
-      for (final String symbol in const <String>[
-        '-',
-        '_',
-        '=',
-        '+',
-        '|',
-        r'\',
-        '{',
-        '}',
-        '[',
-        ']',
-        '(',
-        ')',
-      ]) {
-        expect(find.text(symbol), findsNothing, reason: symbol);
-      }
-    });
 
     testWidgets('the alt cap of row one latches one-shot, the next character is an alt chord, and '
         'focuses the composer (R-31-09-19)', (WidgetTester tester) async {

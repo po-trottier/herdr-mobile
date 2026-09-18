@@ -25,6 +25,7 @@ abstract class WatchAck with _$WatchAck {
     /// From `pane.layout` `rect.width`, in character cells (R-10-024).
     required int width,
     required ScrollOffsets scroll,
+    @Default('') String line,
   }) = _WatchAck;
 
   factory WatchAck.fromJson(Map<String, dynamic> json) =>

@@ -41,7 +41,8 @@ import '../screens/golden_support.dart' show loadAppFonts;
 
 class _MockPlugin extends Mock implements FlutterLocalNotificationsPlugin {}
 
-Stream<SendInputAck> _noAcks() => const Stream<SendInputAck>.empty();
+Stream<({String corr, SendInputAck ack})> _noAcks() =>
+    const Stream<({String corr, SendInputAck ack})>.empty();
 
 void _noSend(Message message, {String? corr}) {}
 

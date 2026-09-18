@@ -77,6 +77,7 @@ class StatusStrip extends StatelessWidget {
     this.firstVisibleColumn,
     this.lastVisibleColumn,
     this.textSizeFlash,
+    this.rtt,
   });
 
   /// `rect.width` in character cells (R-10-024). Drawn first, per R-31-08-04.
@@ -115,6 +116,7 @@ class StatusStrip extends StatelessWidget {
   /// the timing; non-null takes the trailing slot for that moment (the
   /// leading group has no width to spare on a 390-pixel screen).
   final double? textSizeFlash;
+  final Duration? rtt;
 
   @override
   Widget build(BuildContext context) {
@@ -158,7 +160,12 @@ class StatusStrip extends StatelessWidget {
           ),
           const WidgetSpan(child: SizedBox(width: AppSpace.space2)),
           TextSpan(
-            text: linkWord.label.toUpperCase(),
+            text: linkWord == StatusStripLinkWord.live && rtt != null
+                ? '${rtt!.inMilliseconds} MS'
+                : linkWord.label.toUpperCase(),
+            semanticsLabel: linkWord == StatusStripLinkWord.live && rtt != null
+                ? 'Round trip ${rtt!.inMilliseconds} milliseconds'
+                : null,
             style: AppType.micro.copyWith(color: color.fgSecondary),
           ),
           gap,

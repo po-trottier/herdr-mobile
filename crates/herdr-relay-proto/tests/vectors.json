@@ -172,6 +172,20 @@
       "type": "pane_frame",
       "v": 1
     },
+    "ping": {
+      "corr": "req-006",
+      "payload": {},
+      "seq": 6,
+      "type": "ping",
+      "v": 1
+    },
+    "pong": {
+      "corr": "req-006",
+      "payload": {},
+      "seq": 6,
+      "type": "pong",
+      "v": 1
+    },
     "revoke_device": {
       "corr": "req-008",
       "payload": {
@@ -216,13 +230,15 @@
       "v": 1
     },
     "send_input": {
+      "corr": "req-007",
       "payload": {
+        "defer": "until_idle",
         "keys": [
-          "ctrl+c"
+          "Enter"
         ],
         "pane_id": "w3:p2"
       },
-      "seq": 4,
+      "seq": 7,
       "type": "send_input",
       "v": 1
     },
@@ -334,6 +350,7 @@
     "watch_ack": {
       "corr": "req-002",
       "payload": {
+        "line": "",
         "pane_id": "w3:p2",
         "revision": 82195,
         "scroll": {

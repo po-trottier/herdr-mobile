@@ -53,6 +53,7 @@ import 'package:flutter/services.dart' show TextInputFormatter;
 import 'package:flutter/widgets.dart'
     show
         AlignmentDirectional,
+        AppLifecycleState,
         Border,
         BorderSide,
         BoxDecoration,
@@ -73,6 +74,7 @@ import 'package:flutter/widgets.dart'
         LayoutBuilder,
         MainAxisSize,
         MediaQuery,
+        ModalRoute,
         Orientation,
         PreferredSize,
         Row,
@@ -91,7 +93,8 @@ import 'package:flutter/widgets.dart'
         VoidCallback,
         Widget,
         WidgetSpan,
-        WidgetsBinding;
+        WidgetsBinding,
+        WidgetsBindingObserver;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show AppBar, BackButton, Scaffold, TextButton;
@@ -100,10 +103,11 @@ import '../core/result/result.dart' show Err, Ok;
 import '../models/message.dart'
     show
         Message,
-        MessageSendInput,
+        MessageAgentStatus,
         MessageSendInputAck,
         MessageTreeSnapshot,
-        MessageTreeUpdate;
+        MessageTreeUpdate,
+        MessageWatchAck;
 import '../models/messages/agent_summary.dart' show AgentSummary;
 import '../models/messages/pane_summary.dart' show PaneSummary;
 import '../models/messages/send_input_ack.dart' show SendInputAck;
@@ -136,7 +140,7 @@ import '../services/terminal.dart'
         TerminalService;
 import '../services/tree.dart'
     show applyTreeUpdate, fetchTreeSnapshot, paneDisplayName;
-import '../widgets/composer.dart' show Composer;
+import '../widgets/composer.dart' show Composer, ComposerState;
 import '../widgets/key_row.dart' show KeyRow, KeyRowLinkState, KeyRowState;
 import '../widgets/status_bar.dart' show BarState, StatusBar;
 import '../widgets/status_strip.dart'
@@ -247,20 +251,11 @@ class TerminalScreen extends StatefulWidget {
   State<TerminalScreen> createState() => _TerminalScreenState();
 }
 
-class _TerminalScreenState extends State<TerminalScreen> {
+class _TerminalScreenState extends State<TerminalScreen>
+    with WidgetsBindingObserver {
   late final TerminalService _service = TerminalService(
     messages: widget.messages,
-    send: (message, {corr}) {
-      if (message case MessageSendInput(:final payload)) {
-        // R-31-09-13: composer edits share the key row's acknowledgement path.
-        _keyRowKey.currentState?.sendInput(
-          payload,
-          label: payload.keys?.first.toLowerCase() ?? 'typing',
-        );
-      } else {
-        widget.send(message, corr: corr);
-      }
-    },
+    send: widget.send,
     watchPane: widget.watchPane,
     unwatchPane: widget.unwatchPane,
     initialHostTheme: widget.initialHostTheme,
@@ -279,8 +274,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
   /// remounts it and the fresh state listens again while this controller,
   /// owned by the surviving screen state, lives on (the 2026-09-08
   /// real-device rotation crash).
-  final StreamController<SendInputAck> _ackController =
-      StreamController<SendInputAck>.broadcast();
+  final StreamController<({String corr, SendInputAck ack})> _ackController =
+      StreamController<({String corr, SendInputAck ack})>.broadcast();
 
   /// R-03-130: grid taps focus the native composer without sending input.
   final FocusNode _composerFocus = FocusNode(debugLabel: 'Terminal composer');
@@ -291,7 +286,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   final GlobalKey<KeyRowState> _keyRowKey = GlobalKey<KeyRowState>();
-  final GlobalKey _composerKey = GlobalKey();
+  final GlobalKey<ComposerState> _composerKey = GlobalKey<ComposerState>();
+  bool _receivedWatchAck = false;
+  String _initialLine = '';
+  bool _appActive = true;
+  bool _routeVisible = true;
+  String? _agentStatus;
   final GlobalKey _gridKey = GlobalKey();
 
   late RelayConnectionState _connectionState = widget.initialConnectionState;
@@ -311,6 +311,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   /// The R-03-119 alert while one of the three phases that end the work
   /// shows, with the phase it was raised for; `null` otherwise.
   _StateDialog? _stateDialog;
+  TerminalGridPhase? _shownDialogPhase;
   bool _stateDialogSyncScheduled = false;
 
   late final int _textSize = widget.initialTextSize;
@@ -332,14 +333,20 @@ class _TerminalScreenState extends State<TerminalScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _service.latestRtt.addListener(_onRtt);
+    _service.composerQueued.addListener(_onRtt);
+    _syncRttProbe();
     _connectionSub = widget.connectionState.listen(
       (RelayConnectionState state) => setState(() {
         _connectionState = state;
+        if (state is! RelayConnected) _service.disconnect();
         if (state is RelayConnected) {
           _reconnectAttempt = 0;
         } else if (state is RelayReconnecting) {
           _reconnectAttempt++;
         }
+        _syncRttProbe();
       }),
     );
     _frameSub = _service.frameState.listen((TerminalFrameState state) {
@@ -360,8 +367,44 @@ class _TerminalScreenState extends State<TerminalScreen> {
     unawaited(_loadTree());
   }
 
+  void _onRtt() => setState(() {});
+
+  void _syncRttProbe() {
+    _service.setRttProbeEnabled(
+      enabled:
+          _appActive && _routeVisible && _connectionState is RelayConnected,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeVisible = ModalRoute.of(context)?.isCurrent ?? true;
+    _syncRttProbe();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appActive = state == AppLifecycleState.resumed;
+    _syncRttProbe();
+  }
+
+  Future<bool> _submitComposer(String line, {bool whenIdle = false}) async {
+    _keyRowKey.currentState?.clearInputFailure();
+    final bool accepted = await _service.sendComposerSubmit(
+      widget.paneId,
+      line,
+      whenIdle: whenIdle,
+    );
+    if (mounted && !accepted) _keyRowKey.currentState?.reportInputFailure();
+    return accepted;
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _service.latestRtt.removeListener(_onRtt);
+    _service.composerQueued.removeListener(_onRtt);
     // An alert over a route that leaves closes after this frame, once the
     // tree is unlocked; a dialog the navigator already removed with this
     // route is inactive by then, and the handle does nothing.
@@ -415,11 +458,26 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   void _onSharedMessage(Message message) {
     switch (message) {
-      case MessageSendInputAck(:final payload):
-        // The key row's ACK stream is this pane's `send_input_ack` frames
-        // only (R-11-227, R-11-055).
-        if (payload.paneId == widget.paneId && !_ackController.isClosed) {
-          _ackController.add(payload);
+      case MessageAgentStatus(:final payload):
+        if (payload.paneId == widget.paneId) {
+          setState(() => _updateAgentStatus(payload.status.name));
+        }
+      case MessageSendInputAck(:final payload, :final corr):
+        if (payload.paneId == widget.paneId &&
+            corr != null &&
+            !_ackController.isClosed) {
+          _ackController.add((corr: corr, ack: payload));
+        }
+      case MessageWatchAck(:final payload):
+        if (payload.paneId != widget.paneId) return;
+        if (!_receivedWatchAck) {
+          _receivedWatchAck = true;
+          _initialLine = payload.line;
+          _composerKey.currentState?.seedLine(payload.line);
+        } else {
+          final String line =
+              _composerKey.currentState?.currentLine ?? _initialLine;
+          if (line.isNotEmpty) _service.sendComposerLine(widget.paneId, line);
         }
       case MessageTreeSnapshot(:final payload):
         _applyTree(payload);
@@ -440,6 +498,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
     setState(() {
       _tree = next;
+      _updateAgentStatus(_treePane?.agentStatus);
       if (present) {
         _paneSeenInTree = true;
       } else if (_paneSeenInTree || (!_attaching && _attachError == null)) {
@@ -448,6 +507,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
         _paneClosed = true;
       }
     });
+  }
+
+  void _updateAgentStatus(String? status) {
+    if (status == _agentStatus) return;
+    _agentStatus = status;
+    if (status == 'blocked') _keyPanelOpen = true;
   }
 
   /// R-32-510's live bar refreshes itself once, at the moment the last
@@ -504,13 +569,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   void _syncStateDialog() {
     final TerminalGridPhase phase = _phase;
+    if (_shownDialogPhase != phase) _shownDialogPhase = null;
     final _StateDialog? showing = _stateDialog;
     if (showing != null) {
       if (showing.phase != phase) showing.dialog.dismiss();
       return;
     }
+    if (_shownDialogPhase == phase) return;
     final ChromeDialogHandle<_StateAction>? dialog = _stateDialogFor(phase);
-    if (dialog != null) unawaited(_awaitStateDialog(phase, dialog));
+    if (dialog != null) {
+      _shownDialogPhase = phase;
+      unawaited(_awaitStateDialog(phase, dialog));
+    }
   }
 
   /// Raises the alert of [phase] with the title, the body and the actions
@@ -1123,9 +1193,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
       panelOpen: _keyPanelOpen,
       onTogglePanel: _toggleKeyPanel,
       enabled: _phase == TerminalGridPhase.live,
-      onText: _service.sendComposerText,
-      onDelete: _service.sendComposerDeletions,
-      onSubmit: _service.sendComposerSubmit,
+      initialLine: _initialLine,
+      onLine: (String line) => _service.sendComposerLine(widget.paneId, line),
+      onSubmit: _submitComposer,
+      queued: _service.composerQueued.value,
+      onCancelQueued: () {
+        unawaited(_service.cancelComposerSubmit(widget.paneId));
+      },
+      onSendQueuedNow: () => _service.sendQueuedComposerNow(widget.paneId),
       inputFormatters: [
         TextInputFormatter.withFunction(
           (before, after) =>
@@ -1138,6 +1213,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       columns: frame.columns,
       rows: frame.rows,
       linkWord: _linkWord,
+      rtt: _service.latestRtt.value,
       overview: _overview,
       onToggleOverview: _toggleOverview,
       revision: frame.revision,
@@ -1161,8 +1237,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
       panelOpen: _keyPanelOpen,
       composer: composer,
       paneId: widget.paneId,
-      send: widget.send,
+      send: _service.send,
       sendInputAcks: _ackController.stream,
+      answerMode: _agentStatus == 'blocked',
+      onInputAccepted: (input) =>
+          _composerKey.currentState?.applyAcceptedInput(input),
       linkState: _keyRowLinkState,
       offlineReason: _offlineReason,
       onDiagnostics: widget.onDiagnostics,

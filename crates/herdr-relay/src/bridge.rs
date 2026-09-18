@@ -215,6 +215,7 @@ struct HostState {
     /// `status_at` from real observations; a bridge restart clears it, which
     /// R-11-224's own "predates the bridge start" case already allows.
     agent_status_observed: Arc<Mutex<HashMap<String, String>>>,
+    input_lines: Arc<Mutex<HashMap<String, String>>>,
     /// `true` while stopped (R-10-064's `stop`): registration loops park on
     /// this channel and serving loops close their sockets when it fires.
     stop_tx: tokio::sync::watch::Sender<bool>,
@@ -282,6 +283,7 @@ pub async fn start(config: HostConfig) -> Result<HostHandle, BridgeError> {
         words: config.words,
         registrations: HashMap::new(),
         agent_status_observed: Arc::new(Mutex::new(HashMap::new())),
+        input_lines: Arc::new(Mutex::new(HashMap::new())),
         stop_tx,
         log: config.log,
     }));
@@ -1557,9 +1559,11 @@ async fn serve_session(
     };
     let (req_tx, req_rx) = std_mpsc::channel::<BridgeRequest>();
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<(Message, Option<String>)>();
+    let session_active = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let thread = {
         let state = Arc::clone(state);
         let device_id = device_id.clone();
+        let session_active = Arc::clone(&session_active);
         std::thread::spawn(move || {
             bridge_thread(
                 client,
@@ -1570,6 +1574,7 @@ async fn serve_session(
                 state,
                 device_id,
                 theme,
+                session_active,
             );
         })
     };
@@ -1588,10 +1593,26 @@ async fn serve_session(
                             }
                         }
                         match dispatch_incoming(&bytes, &req_tx) {
+                            DispatchOutcome::Pong(corr) => {
+                                let pong = Message::Pong(herdr_relay_proto::messages::Pong {});
+                                if send_message(&mut socket, &mut transport, &mut seq, &pong, corr).await.is_err() {
+                                    break;
+                                }
+                            }
                             // A second `device_info` mid-session is ignored:
                             // R-11-131 names only the first frame.
                             DispatchOutcome::Continue | DispatchOutcome::DeviceInfo => {}
-                            DispatchOutcome::Disconnect => break,
+                            DispatchOutcome::Disconnect => {
+                                cancel_held_before_close(&req_tx).await;
+                                if let Ok(first) = out_rx.try_recv() {
+                                    for (message, corr) in drain_outgoing(first, &mut out_rx) {
+                                        if send_message(&mut socket, &mut transport, &mut seq, &message, corr).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
                             DispatchOutcome::Error(_message) => {
                                 (lock(state).log)(
                                     "herdr-relay: a malformed frame ended a device session",
@@ -1604,25 +1625,22 @@ async fn serve_session(
                 }
             }
             outgoing = out_rx.recv() => {
-                match outgoing {
-                    Some((message, corr)) => {
-                        if send_message(&mut socket, &mut transport, &mut seq, &message, corr)
-                            .await
-                            .is_err()
-                        {
-                            break;
-                        }
-                        if needs_push_wake(&message) {
-                            let log = lock(state).log.clone();
-                            send_push_wake(&mut socket, &log).await;
-                        }
-                        // R-13-049: successful outbound traffic updates last_seen too.
-                        let mut host = lock(state);
-                        if host.store.touch_last_seen(&device_id).is_err() {
-                            (host.log)("herdr-relay: updating last_seen failed");
-                        }
+                let Some(first) = outgoing else { break };
+                let mut failed = false;
+                for (message, corr) in drain_outgoing(first, &mut out_rx) {
+                    if send_message(&mut socket, &mut transport, &mut seq, &message, corr).await.is_err() {
+                        failed = true;
+                        break;
                     }
-                    None => break,
+                    if needs_push_wake(&message) {
+                        let log = lock(state).log.clone();
+                        send_push_wake(&mut socket, &log).await;
+                    }
+                }
+                if failed { break; }
+                let mut host = lock(state);
+                if host.store.touch_last_seen(&device_id).is_err() {
+                    (host.log)("herdr-relay: updating last_seen failed");
                 }
             }
             reason = &mut close_rx => {
@@ -1632,7 +1650,11 @@ async fn serve_session(
                 // the close signal (a self-revoke's own `revoke_result`) goes
                 // out first: the fatal error MUST be the last frame (R-11-065),
                 // and `select!` gives the close branch no ordering over `out_rx`.
-                while let Ok((message, corr)) = out_rx.try_recv() {
+                cancel_held_before_close(&req_tx).await;
+                let batch = out_rx.try_recv().ok()
+                    .map(|first| drain_outgoing(first, &mut out_rx))
+                    .unwrap_or_default();
+                for (message, corr) in batch {
                     if send_message(&mut socket, &mut transport, &mut seq, &message, corr)
                         .await
                         .is_err()
@@ -1658,15 +1680,32 @@ async fn serve_session(
             }
             _ = stop_rx.changed() => {
                 // R-10-064's `stop`: every relay connection closes.
+                cancel_held_before_close(&req_tx).await;
+                if let Ok(first) = out_rx.try_recv() {
+                    for (message, corr) in drain_outgoing(first, &mut out_rx) {
+                        if send_message(&mut socket, &mut transport, &mut seq, &message, corr).await.is_err() {
+                            break;
+                        }
+                    }
+                }
                 let _ = close_socket(&mut socket, CloseCode::Normal).await;
                 break;
             }
         }
     }
 
+    session_active.store(false, std::sync::atomic::Ordering::Release);
     drop(req_tx);
     let _ = thread.join();
     (lock(state).log)("herdr-relay: a device session ended");
+}
+
+async fn cancel_held_before_close(req_tx: &std_mpsc::Sender<BridgeRequest>) {
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    if req_tx.send(BridgeRequest::CancelPending(done_tx)).is_ok() {
+        // A closed receiver means the bridge thread already ended.
+        let _ = done_rx.await;
+    }
 }
 
 /// Closes the WebSocket with one of R-11-121's application close codes
@@ -1688,6 +1727,7 @@ async fn close_socket(socket: &mut WsStream, code: CloseCode) -> Result<(), ()> 
 
 enum DispatchOutcome {
     Continue,
+    Pong(Option<String>),
     Disconnect,
     /// R-11-131: a `device_info` frame was parsed. The pairing path reads
     /// the first one's payload through [`decode_message`] directly; a
@@ -1716,6 +1756,7 @@ fn dispatch_incoming(bytes: &[u8], req_tx: &std_mpsc::Sender<BridgeRequest>) -> 
         Err(err) => return DispatchOutcome::Error(format!("decoding a message failed: {err}")),
     };
     match message {
+        Message::Ping(_) => return DispatchOutcome::Pong(corr),
         Message::TreeRequest(_) => {
             let _ = req_tx.send(BridgeRequest::TreeRequest(corr));
         }
@@ -1785,6 +1826,72 @@ enum BridgeRequest {
     HostAction(HostAction, Option<String>),
     DeviceListRequest(DeviceListRequest, Option<String>),
     RevokeDevice(RevokeDevice, Option<String>),
+    CancelPending(tokio::sync::oneshot::Sender<()>),
+}
+fn coalesce_input(
+    mut request: SendInput,
+    corr: Option<String>,
+    rx: &std_mpsc::Receiver<BridgeRequest>,
+    pending: &mut Option<BridgeRequest>,
+) -> (SendInput, Vec<Option<String>>) {
+    let mut corrs = vec![corr];
+    if request.line.is_some()
+        && request.text.is_none()
+        && request.keys.is_none()
+        && request.defer.is_none()
+    {
+        while let Ok(next) = rx.try_recv() {
+            match next {
+                BridgeRequest::SendInput(newer, corr)
+                    if newer.line.is_some()
+                        && newer.text.is_none()
+                        && newer.keys.is_none()
+                        && newer.defer.is_none()
+                        && newer.pane_id == request.pane_id =>
+                {
+                    request = newer;
+                    corrs.push(corr);
+                }
+                other => {
+                    *pending = Some(other);
+                    break;
+                }
+            }
+        }
+    }
+    (request, corrs)
+}
+
+fn reply_to_inputs(
+    tx: &tokio::sync::mpsc::UnboundedSender<(Message, Option<String>)>,
+    reply: Message,
+    mut corrs: Vec<Option<String>>,
+) {
+    let last = corrs.pop();
+    for corr in corrs {
+        let _ = tx.send((reply.clone(), corr));
+    }
+    if let Some(corr) = last {
+        let _ = tx.send((reply, corr));
+    }
+}
+
+fn drain_outgoing(
+    first: (Message, Option<String>),
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<(Message, Option<String>)>,
+) -> Vec<(Message, Option<String>)> {
+    let mut batch = vec![first];
+    while let Ok(message) = rx.try_recv() {
+        batch.push(message);
+    }
+    let mut panes = std::collections::HashSet::new();
+    batch.reverse();
+    batch.retain(|(message, _)| match message {
+        Message::PaneFrame(frame) => panes.insert(frame.pane_id.clone()),
+        _ => true,
+    });
+    batch.reverse();
+    batch
 }
 
 /// Opens the session's one long-lived events subscription (R-10-011) with
@@ -1829,11 +1936,14 @@ fn bridge_thread(
     state: Arc<Mutex<HostState>>,
     device_id: String,
     mut theme: crate::theme::Watcher,
+    session_active: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let mut bridge = Bridge::new(client.clone(), identity, relay_config);
     // Share the bridge process's one observed-stamp map (see `HostState`)
     // into this session's Bridge in place of its fresh per-session one.
     bridge.agent_status_observed = lock(&state).agent_status_observed.clone();
+    bridge.input_lines = lock(&state).input_lines.clone();
+    bridge.session_active = Some(session_active);
     // R-10-011/R-10-055: the one long-lived events subscription opens at
     // session start, so tree updates and agent statuses flow before the first
     // `watch_pane`. A failed open is retried by the `watch_pane` arm below
@@ -1857,6 +1967,7 @@ fn bridge_thread(
         // passed (measured 2026-09-16: 12 frames per second reached Herdr while the
         // phone typed 28).
         let mut next = req_rx.recv_timeout(wait);
+        let mut pending = None;
         loop {
             match next {
                 Ok(BridgeRequest::TreeRequest(corr)) => match bridge.tree_snapshot() {
@@ -1903,15 +2014,31 @@ fn bridge_thread(
                         }
                     }
                 }
-                Ok(BridgeRequest::SendInput(request, corr)) => match bridge.send_input(request) {
-                    Ok(reply) => {
-                        let _ = out_tx.send((reply, corr));
+                Ok(BridgeRequest::SendInput(request, corr)) => {
+                    if request.defer.is_some() {
+                        for reply in bridge.handle_deferred_input(request, corr) {
+                            let _ = out_tx.send(reply);
+                        }
+                    } else {
+                        let (request, corrs) = coalesce_input(request, corr, &req_rx, &mut pending);
+                        let pane_id = request.pane_id.clone();
+                        let reply = bridge.send_input(request).unwrap_or(Message::SendInputAck(
+                            herdr_relay_proto::messages::SendInputAck {
+                                pane_id,
+                                accepted: false,
+                                queued: false,
+                            },
+                        ));
+                        reply_to_inputs(&out_tx, reply, corrs);
                     }
-                    Err(err) => {
-                        let mapped = crate::watch::map_watch_error(&err);
-                        let _ = out_tx.send((Message::Error(mapped), corr));
+                }
+                Ok(BridgeRequest::CancelPending(done)) => {
+                    bridge.cancel_pending_inputs();
+                    for reply in bridge.take_input_replies() {
+                        let _ = out_tx.send(reply);
                     }
-                },
+                    let _ = done.send(());
+                }
                 Ok(BridgeRequest::ScrollRequest(request, corr)) => {
                     match bridge.scroll_request(request) {
                         Ok(response) => {
@@ -2005,7 +2132,10 @@ fn bridge_thread(
                 Err(std_mpsc::RecvTimeoutError::Disconnected) => return,
                 Err(std_mpsc::RecvTimeoutError::Timeout) => break,
             }
-            next = match req_rx.try_recv() {
+            for reply in bridge.take_input_replies() {
+                let _ = out_tx.send(reply);
+            }
+            next = match pending.take().map_or_else(|| req_rx.try_recv(), Ok) {
                 Ok(request) => Ok(request),
                 Err(std_mpsc::TryRecvError::Empty) => break,
                 Err(std_mpsc::TryRecvError::Disconnected) => return,
@@ -2039,6 +2169,9 @@ fn bridge_thread(
             if let Some(frame) = frame_slot.try_take() {
                 let _ = out_tx.send((Message::PaneFrame(frame), None));
             }
+            for reply in bridge.take_input_replies() {
+                let _ = out_tx.send(reply);
+            }
         }
         if clear_subscription {
             subscription = None;
@@ -2055,6 +2188,168 @@ fn bridge_thread(
 #[cfg(test)]
 mod tests {
     use super::{bounded_host_name, to_ws_origin};
+    #[test]
+    fn input_coalesces_only_consecutive_lines_and_replies_to_every_corr() {
+        use super::*;
+        use herdr_relay_proto::messages::SendInputAck;
+
+        let line = |pane: &str, text: &str| SendInput {
+            pane_id: pane.to_owned(),
+            defer: None,
+            line: Some(text.to_owned()),
+            text: None,
+            keys: None,
+        };
+        let barriers = [
+            BridgeRequest::TreeRequest(Some("tree".to_owned())),
+            BridgeRequest::SendInput(line("other", "other"), None),
+            BridgeRequest::SendInput(
+                SendInput {
+                    defer: Some(herdr_relay_proto::messages::Defer::UntilIdle),
+                    ..line("pane", "deferred")
+                },
+                Some("held".to_owned()),
+            ),
+            BridgeRequest::SendInput(
+                SendInput {
+                    text: Some("invalid".to_owned()),
+                    ..line("pane", "malformed")
+                },
+                None,
+            ),
+            BridgeRequest::SendInput(
+                SendInput {
+                    pane_id: "pane".to_owned(),
+                    defer: None,
+                    line: None,
+                    text: None,
+                    keys: Some(vec!["Enter".to_owned()]),
+                },
+                None,
+            ),
+        ];
+        for barrier in barriers {
+            let (tx, rx) = std_mpsc::channel();
+            assert!(
+                tx.send(BridgeRequest::SendInput(
+                    line("pane", "newest"),
+                    Some("second".to_owned())
+                ))
+                .is_ok()
+            );
+            assert!(tx.send(barrier).is_ok());
+            assert!(
+                tx.send(BridgeRequest::SendInput(
+                    line("pane", "after"),
+                    Some("after".to_owned())
+                ))
+                .is_ok()
+            );
+            let mut pending = None;
+            let (request, corrs) = coalesce_input(
+                line("pane", "old"),
+                Some("first".to_owned()),
+                &rx,
+                &mut pending,
+            );
+            assert_eq!(request.line.as_deref(), Some("newest"));
+            assert!(matches!(
+                pending,
+                Some(BridgeRequest::TreeRequest(_)) | Some(BridgeRequest::SendInput(_, _))
+            ));
+            assert!(
+                matches!(rx.try_recv(), Ok(BridgeRequest::SendInput(request, _)) if request.line.as_deref() == Some("after"))
+            );
+            for reply in [
+                Message::SendInputAck(SendInputAck {
+                    pane_id: "pane".to_owned(),
+                    accepted: true,
+                    queued: false,
+                }),
+                Message::SendInputAck(SendInputAck {
+                    pane_id: "pane".to_owned(),
+                    accepted: false,
+                    queued: false,
+                }),
+                Message::Error(ErrorMessage {
+                    code: WireErrorCode::InternalError,
+                    message: "failed".to_owned(),
+                    fatal: false,
+                }),
+            ] {
+                let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel();
+                reply_to_inputs(&out_tx, reply.clone(), corrs.clone());
+                assert_eq!(
+                    out_rx.try_recv().unwrap(),
+                    (reply.clone(), Some("first".to_owned()))
+                );
+                assert_eq!(
+                    out_rx.try_recv().unwrap(),
+                    (reply, Some("second".to_owned()))
+                );
+                assert!(out_rx.try_recv().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn outbound_keeps_latest_frame_per_pane_and_other_messages_in_order() {
+        use super::*;
+        let frame = |pane: &str, revision| {
+            (
+                Message::PaneFrame(PaneFrame {
+                    pane_id: pane.to_owned(),
+                    revision,
+                    viewport_rows: 24,
+                    width: 80,
+                    text: revision.to_string(),
+                }),
+                None,
+            )
+        };
+        let pong = (
+            Message::Pong(herdr_relay_proto::messages::Pong {}),
+            Some("ping".to_owned()),
+        );
+        let error = (
+            Message::Error(ErrorMessage {
+                code: WireErrorCode::InternalError,
+                message: "failed".to_owned(),
+                fatal: false,
+            }),
+            None,
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        for message in [
+            pong.clone(),
+            frame("b", 1),
+            frame("a", 2),
+            error.clone(),
+            frame("b", 2),
+        ] {
+            tx.send(message).unwrap();
+        }
+        assert_eq!(
+            drain_outgoing(frame("a", 1), &mut rx),
+            vec![pong, frame("a", 2), error, frame("b", 2)]
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn ping_echoes_corr_without_a_bridge_request() {
+        use super::*;
+        let (tx, rx) = std_mpsc::channel();
+        let frame = Frame::wrap(
+            1,
+            Some("probe".to_owned()),
+            &Message::Ping(herdr_relay_proto::messages::Ping {}),
+        )
+        .unwrap();
+        let result = dispatch_incoming(&frame.to_json_bytes().unwrap(), &tx);
+        assert!(matches!(result, DispatchOutcome::Pong(corr) if corr.as_deref() == Some("probe")));
+        assert!(rx.try_recv().is_err());
+    }
 
     #[test]
     fn hostname_respects_utf8_byte_limit() {

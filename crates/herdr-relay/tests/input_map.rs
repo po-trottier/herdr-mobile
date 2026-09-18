@@ -12,12 +12,12 @@ use herdr_relay::watch::{Bridge, HerdrCalls, HostIdentity};
 use herdr_relay_proto::messages::{Message, SendInput, WatchPane};
 use serde_json::{Value, json};
 
-/// One captured `pane.send_input` call: the `text` and `keys` the bridge actually
-/// forwarded to Herdr.
-type SentCall = (Option<String>, Option<Vec<String>>);
+/// Capture text, keys, and whether the bridge used the raw-text method.
+type SentCall = (Option<String>, Option<Vec<String>>, bool);
 
 struct StubHerdr {
     sent: Arc<Mutex<Vec<SentCall>>>,
+    fail_text: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl HerdrCalls for StubHerdr {
@@ -55,16 +55,28 @@ impl HerdrCalls for StubHerdr {
         Ok(json!({ "text": "", "truncated": false }))
     }
 
+    fn pane_send_text(&self, _pane_id: &str, text: &str) -> Result<(), IpcError> {
+        if self.fail_text.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(IpcError::Io(std::io::Error::other("injected text failure")));
+        }
+        self.sent
+            .lock()
+            .expect("stub mutex")
+            .push((Some(text.to_owned()), None, true));
+        Ok(())
+    }
+
     fn pane_send_input(
         &self,
         _pane_id: &str,
         text: Option<&str>,
         keys: Option<&[String]>,
     ) -> Result<(), IpcError> {
-        self.sent
-            .lock()
-            .expect("stub mutex is never poisoned")
-            .push((text.map(str::to_owned), keys.map(<[String]>::to_vec)));
+        self.sent.lock().expect("stub mutex").push((
+            text.map(str::to_owned),
+            keys.map(<[String]>::to_vec),
+            false,
+        ));
         Ok(())
     }
 
@@ -119,8 +131,21 @@ impl HerdrCalls for StubHerdr {
 
 /// A `Bridge` already watching `w1:p1`, with a fresh call-capture slot.
 fn watching_bridge() -> (Bridge<StubHerdr>, Arc<Mutex<Vec<SentCall>>>) {
+    let (bridge, sent, _) = watching_bridge_with_failure();
+    (bridge, sent)
+}
+
+fn watching_bridge_with_failure() -> (
+    Bridge<StubHerdr>,
+    Arc<Mutex<Vec<SentCall>>>,
+    Arc<std::sync::atomic::AtomicBool>,
+) {
     let sent = Arc::new(Mutex::new(Vec::new()));
-    let herdr = StubHerdr { sent: sent.clone() };
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let herdr = StubHerdr {
+        sent: sent.clone(),
+        fail_text: fail.clone(),
+    };
     let identity = HostIdentity {
         host_id: "host-1".to_string(),
         host_name: "test-host".to_string(),
@@ -130,8 +155,121 @@ fn watching_bridge() -> (Bridge<StubHerdr>, Arc<Mutex<Vec<SentCall>>>) {
         .watch_pane(WatchPane {
             pane_id: "w1:p1".to_string(),
         })
-        .expect("watch_pane succeeds against the stub");
-    (bridge, sent)
+        .expect("watch");
+    (bridge, sent, fail)
+}
+
+fn reconcile(bridge: &mut Bridge<StubHerdr>, line: &str) -> bool {
+    let Message::SendInputAck(ack) = bridge
+        .send_input(SendInput {
+            defer: None,
+            pane_id: "w1:p1".to_string(),
+            line: Some(line.to_owned()),
+            text: None,
+            keys: None,
+        })
+        .expect("valid line")
+    else {
+        panic!("expected input acknowledgement")
+    };
+    ack.accepted
+}
+
+fn watched_line(bridge: &mut Bridge<StubHerdr>) -> String {
+    bridge
+        .watch_pane(WatchPane {
+            pane_id: "w1:p1".to_string(),
+        })
+        .expect("rewatch")
+        .0
+        .line
+}
+
+#[test]
+fn emoji_middle_reconcile_deletes_graphemes_and_sends_raw_tail() {
+    let (mut bridge, sent) = watching_bridge();
+    assert!(reconcile(&mut bridge, "a👨‍👩‍👧‍👦👍🏽z"));
+    sent.lock().unwrap().clear();
+    assert!(reconcile(&mut bridge, "a🙂z"));
+    assert_eq!(
+        *sent.lock().unwrap(),
+        vec![
+            (None, Some(vec!["Backspace".to_string(); 3]), false),
+            (Some("🙂z".to_string()), None, true),
+        ]
+    );
+    assert_eq!(watched_line(&mut bridge), "a🙂z");
+}
+
+#[test]
+fn newline_tail_uses_paste() {
+    let (mut bridge, sent) = watching_bridge();
+    assert!(reconcile(&mut bridge, "head"));
+    sent.lock().unwrap().clear();
+    assert!(reconcile(&mut bridge, "head\nnext"));
+    assert_eq!(
+        *sent.lock().unwrap(),
+        vec![(Some("\nnext".to_string()), None, false)]
+    );
+}
+
+#[test]
+fn enter_clears_shadow() {
+    let (mut bridge, _) = watching_bridge();
+    assert!(reconcile(&mut bridge, "draft"));
+    send(&mut bridge, None, Some(&["Enter"])).unwrap();
+    assert_eq!(watched_line(&mut bridge), "");
+}
+
+#[test]
+fn backspace_pops_one_grapheme() {
+    let (mut bridge, _) = watching_bridge();
+    assert!(reconcile(&mut bridge, "a👨‍👩‍👧‍👦"));
+    send(&mut bridge, None, Some(&["Backspace"])).unwrap();
+    assert_eq!(watched_line(&mut bridge), "a");
+}
+
+#[test]
+fn watch_ack_restores_shadow_on_rewatch() {
+    let (mut bridge, _) = watching_bridge();
+    assert!(reconcile(&mut bridge, "restored draft"));
+    bridge.unwatch_pane(herdr_relay_proto::messages::UnwatchPane {
+        pane_id: "w1:p1".to_string(),
+    });
+    assert_eq!(watched_line(&mut bridge), "restored draft");
+}
+
+#[test]
+fn failed_reconcile_returns_false_and_keeps_old_shadow() {
+    let (mut bridge, sent, fail) = watching_bridge_with_failure();
+    assert!(reconcile(&mut bridge, "old"));
+    sent.lock().unwrap().clear();
+    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(!reconcile(&mut bridge, "old tail"));
+    assert_eq!(watched_line(&mut bridge), "old");
+    assert!(sent.lock().unwrap().is_empty());
+}
+
+#[test]
+fn failed_tail_keeps_deleted_prefix_and_retry_does_not_delete_again() {
+    let (mut bridge, sent, fail) = watching_bridge_with_failure();
+    assert!(reconcile(&mut bridge, "a👨‍👩‍👧‍👦👍🏽"));
+    sent.lock().unwrap().clear();
+    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(!reconcile(&mut bridge, "a🙂"));
+    assert_eq!(watched_line(&mut bridge), "a");
+    assert_eq!(
+        *sent.lock().unwrap(),
+        vec![(None, Some(vec!["Backspace".to_string(); 2]), false)]
+    );
+    sent.lock().unwrap().clear();
+    fail.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert!(reconcile(&mut bridge, "a🙂"));
+    assert_eq!(
+        *sent.lock().unwrap(),
+        vec![(Some("🙂".to_string()), None, true)]
+    );
+    assert_eq!(watched_line(&mut bridge), "a🙂");
 }
 
 fn send(
@@ -140,6 +278,8 @@ fn send(
     keys: Option<&[&str]>,
 ) -> Result<Message, herdr_relay::watch::WatchError> {
     bridge.send_input(SendInput {
+        defer: None,
+        line: None,
         pane_id: "w1:p1".to_string(),
         text: text.map(str::to_owned),
         keys: keys.map(|k| k.iter().map(|s| (*s).to_string()).collect()),
@@ -147,27 +287,22 @@ fn send(
 }
 
 /// R-10-036: the six unnamed keys, sent by a compliant Device as their raw CSI
-/// sequence in `text` (R-11-054 step 2), MUST reach `pane.send_input` unchanged.
+/// sequence in `text` (R-11-054 step 2), MUST reach `pane.send_text` unchanged.
 #[test]
 fn every_row_of_the_r_10_036_table_reaches_herdr_as_the_exact_raw_sequence() {
-    let rows: &[(&str, &str)] = &[
-        ("Home", "\u{1b}[H"),
-        ("End", "\u{1b}[F"),
-        ("PageUp", "\u{1b}[5~"),
-        ("PageDown", "\u{1b}[6~"),
-        ("Delete", "\u{1b}[3~"),
-        ("Insert", "\u{1b}[2~"),
-    ];
-    for (name, sequence) in rows {
+    for sequence in [
+        "\u{1b}[H",
+        "\u{1b}[F",
+        "\u{1b}[5~",
+        "\u{1b}[6~",
+        "\u{1b}[3~",
+        "\u{1b}[2~",
+    ] {
         let (mut bridge, sent) = watching_bridge();
-        let result = send(&mut bridge, Some(sequence), None);
-        assert!(result.is_ok(), "{name} ({sequence:?}) should be accepted");
-        let calls = sent.lock().expect("stub mutex is never poisoned");
-        assert_eq!(calls.len(), 1, "{name} sends exactly one pane.send_input");
+        send(&mut bridge, Some(sequence), None).unwrap();
         assert_eq!(
-            calls[0].0.as_deref(),
-            Some(*sequence),
-            "{name} must reach Herdr as the unmodified raw sequence"
+            *sent.lock().unwrap(),
+            vec![(Some(sequence.to_string()), None, true)]
         );
     }
 }
@@ -177,14 +312,17 @@ fn every_row_of_the_r_10_036_table_reaches_herdr_as_the_exact_raw_sequence() {
 #[test]
 fn printable_text_and_named_keys_are_accepted() {
     let (mut bridge, sent) = watching_bridge();
-    assert!(send(&mut bridge, Some("a"), None).is_ok());
-    assert!(send(&mut bridge, None, Some(&["ctrl+c"])).is_ok());
-    assert!(send(&mut bridge, None, Some(&["Enter"])).is_ok());
-    let calls = sent.lock().expect("stub mutex is never poisoned");
-    assert_eq!(calls.len(), 3);
-    assert_eq!(calls[0].0.as_deref(), Some("a"));
-    assert_eq!(calls[1].1.as_deref(), Some(&["ctrl+c".to_string()][..]));
-    assert_eq!(calls[2].1.as_deref(), Some(&["Enter".to_string()][..]));
+    send(&mut bridge, Some("a"), None).unwrap();
+    send(&mut bridge, None, Some(&["ctrl+c"])).unwrap();
+    send(&mut bridge, None, Some(&["Enter"])).unwrap();
+    assert_eq!(
+        *sent.lock().unwrap(),
+        vec![
+            (Some("a".to_string()), None, true),
+            (None, Some(vec!["ctrl+c".to_string()]), false),
+            (None, Some(vec!["Enter".to_string()]), false),
+        ]
+    );
 }
 
 /// `docs/10-herdr-integration.md` §6.3: every rejected name, sent as a `keys`

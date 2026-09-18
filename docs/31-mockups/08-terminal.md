@@ -179,7 +179,8 @@ labeled action reads `Readable`; pressing it restores the current saved readable
      `R-32-592` sits before it, a short bar as tall as the text line, `size.icon.sm`, in the
      word's hue: `working` for `live`, which pulses, `idle` for `paused`, `blocked` for `in use`,
      `unknown` for `offline` (amended 2026-09-09 by the product owner, per `R-03-100`: one state
-     mark, the bar; the dot is retired).
+     mark, the bar; the dot is retired). Amended 2026-09-18 per `R-31-08-29`: while live, the
+     word is the measured round-trip time, `N MS`, not `LIVE`. The other states keep their words.
    - `rev 41822` is `revision` from the same two messages. It is shown because it proves the view
      is current and makes a bug report exact.
    - `Overview` is the native labeled action with a 48dp minimum target in Readable mode. In Overview
@@ -658,6 +659,11 @@ other mocks in this repository are 40 columns.
   `R-30-719` reads the bar, then the title. The attention summary of `R-31-08-26` MUST still start
   on the title text edge: on Android and in landscape its start inset adds the bar's
   `border.attention` width and the `space.2` gap to the title's own inset.
+
+- **R-31-08-29** The live status word MUST show the measured round-trip time as `N MS`,
+  not `LIVE`, per `R-30-969`. Until the first sample arrives it MUST show `LIVE`.
+  Paused, reconnecting, offline, and other non-live states MUST retain their existing words.
+  `R-11-250` owns ping/pong measurement. A terminal frame MUST NOT supply the RTT sample.
 
 ## Accessibility
 

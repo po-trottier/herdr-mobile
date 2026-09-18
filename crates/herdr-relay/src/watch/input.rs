@@ -10,13 +10,14 @@
 use std::time::Instant;
 
 use serde_json::{Value, json};
+use unicode_segmentation::UnicodeSegmentation;
 
 use herdr_relay_proto::messages::{
     AgentPrompt, AgentPromptAck, HostAction, HostActionAck, HostActionKind, Message, SendInput,
     SendInputAck,
 };
 
-use super::bridge::{Bridge, WatchError};
+use super::bridge::{Bridge, WatchError, lock_observed};
 use super::herdr_calls::HerdrCalls;
 use super::key_map::validate_key;
 
@@ -28,18 +29,115 @@ impl<H: HerdrCalls> Bridge<H> {
     /// one, and this returns before any arming.
     pub fn send_input(&mut self, request: SendInput) -> Result<Message, WatchError> {
         self.require_watched(&request.pane_id)?;
-        let (text, keys) = resolve_send_input(&request)?;
-        self.herdr
-            .pane_send_input(&request.pane_id, text.as_deref(), keys.as_deref())?;
-        // R-10-071: time the reads from the write, not from the reply, and let a
-        // newer `send_input` restart the sequence.
-        if let Some(scheduler) = &mut self.scheduler {
+        validate_send_input(&request)?;
+        if request.keys.as_ref().is_some_and(|keys| {
+            keys.iter()
+                .any(|key| key.eq_ignore_ascii_case("Enter") || key.eq_ignore_ascii_case("ctrl+c"))
+        }) {
+            self.cancel_pending_inputs();
+        }
+        // ponytail: one global input lock. Use per-pane locks if concurrent Devices need them.
+        let mut lines = lock_observed(&self.input_lines);
+        let old = lines.entry(request.pane_id.clone()).or_default();
+        let old_len = old.len();
+        let accepted = if let Some(line) = &request.line {
+            self.reconcile_line(&request.pane_id, old, line).is_ok()
+        } else {
+            self.forward_input(&request, old).is_ok()
+        };
+        if accepted && let Some(line) = request.line {
+            *old = line;
+        }
+        let changed = old.len() != old_len;
+        drop(lines);
+        // R-10-071: restart the read schedule after a successful write.
+        if (accepted || changed)
+            && let Some(scheduler) = &mut self.scheduler
+        {
             scheduler.on_input_sent(Instant::now());
         }
         Ok(Message::SendInputAck(SendInputAck {
             pane_id: request.pane_id,
-            accepted: true,
+            accepted,
+            queued: false,
         }))
+    }
+
+    fn send_typed_text(&self, pane_id: &str, text: &str) -> Result<(), WatchError> {
+        if text.contains('\n') {
+            self.herdr.pane_send_input(pane_id, Some(text), None)?;
+        } else {
+            self.herdr.pane_send_text(pane_id, text)?;
+        }
+        Ok(())
+    }
+
+    fn forward_input(&self, request: &SendInput, shadow: &mut String) -> Result<(), WatchError> {
+        if let Some(text) = &request.text {
+            self.send_typed_text(&request.pane_id, text)?;
+            shadow.push_str(text);
+        }
+        if let Some(keys) = &request.keys {
+            self.herdr
+                .pane_send_input(&request.pane_id, None, Some(keys))?;
+            if keys.iter().any(|key| {
+                key.eq_ignore_ascii_case("Enter")
+                    || key.eq_ignore_ascii_case("Return")
+                    || key.eq_ignore_ascii_case("ctrl+c")
+            }) {
+                shadow.clear();
+            } else {
+                for key in keys {
+                    if key.eq_ignore_ascii_case("Backspace") {
+                        shadow.truncate(
+                            shadow
+                                .grapheme_indices(true)
+                                .next_back()
+                                .map_or(0, |(i, _)| i),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn reconcile_line(
+        &self,
+        pane_id: &str,
+        old: &mut String,
+        line: &str,
+    ) -> Result<(), WatchError> {
+        let prefix_bytes: usize = old
+            .graphemes(true)
+            .zip(line.graphemes(true))
+            .take_while(|(a, b)| a == b)
+            .map(|(a, _)| a.len())
+            .sum();
+        let remove = old[prefix_bytes..].graphemes(true).count();
+        if remove != 0 {
+            let keys = vec!["Backspace".to_owned(); remove.min(64)];
+            let mut remaining = remove;
+            while remaining != 0 {
+                let count = remaining.min(keys.len());
+                self.herdr
+                    .pane_send_input(pane_id, None, Some(&keys[..count]))?;
+                let keep = old.len()
+                    - old
+                        .graphemes(true)
+                        .rev()
+                        .take(count)
+                        .map(str::len)
+                        .sum::<usize>();
+                old.truncate(keep);
+                remaining -= count;
+            }
+        }
+        let tail = &line[prefix_bytes..];
+        if !tail.is_empty() {
+            self.send_typed_text(pane_id, tail)?;
+        }
+        Ok(())
     }
 
     /// `agent_prompt` -> `agent_prompt_ack` (R-11-060, R-10-040, R-10-043): maps
@@ -82,7 +180,7 @@ impl<H: HerdrCalls> Bridge<H> {
         }))
     }
 
-    fn require_watched(&self, pane_id: &str) -> Result<(), WatchError> {
+    pub(super) fn require_watched(&self, pane_id: &str) -> Result<(), WatchError> {
         match &self.watched {
             Some(watched) if watched.pane_id == pane_id => Ok(()),
             _ => Err(WatchError::NotWatching(pane_id.to_string())),
@@ -210,9 +308,21 @@ impl<H: HerdrCalls> Bridge<H> {
 /// multi-character string on an agent pane) is not this function's concern: the
 /// Device sends that as its own `agent_prompt` message (section 4.14), never as
 /// `send_input`.
-fn resolve_send_input(
-    request: &SendInput,
-) -> Result<(Option<String>, Option<Vec<String>>), WatchError> {
+pub(super) fn validate_send_input(request: &SendInput) -> Result<(), WatchError> {
+    if request.defer.is_some() {
+        return Err(WatchError::InvalidInput(
+            "deferred input requires the deferred handler".to_owned(),
+        ));
+    }
+    if request.line.is_some() {
+        return if request.text.is_some() || request.keys.is_some() {
+            Err(WatchError::InvalidInput(
+                "line cannot include text or keys".to_owned(),
+            ))
+        } else {
+            Ok(())
+        };
+    }
     if request.text.is_none() && request.keys.as_ref().is_none_or(|k| k.is_empty()) {
         return Err(WatchError::InvalidInput(
             "send_input carried neither text nor keys".to_string(),
@@ -221,7 +331,7 @@ fn resolve_send_input(
     for key in request.keys.iter().flatten() {
         validate_key(key).map_err(|e| WatchError::InvalidInput(e.to_string()))?;
     }
-    Ok((request.text.clone(), request.keys.clone()))
+    Ok(())
 }
 
 fn require_pane_id(request: &HostAction) -> Result<String, WatchError> {
@@ -310,11 +420,18 @@ mod tests {
         pane_zoom_calls: Mutex<Vec<(String, String)>>,
         focus_calls: Mutex<Vec<String>>,
         reject_focus: bool,
+        working: bool,
+        input_keys: Mutex<Vec<Vec<String>>>,
     }
 
     impl HerdrCalls for StubCalls {
-        fn session_snapshot(&self) -> Result<Value, IpcError> {
+        fn pane_send_text(&self, _pane_id: &str, _text: &str) -> Result<(), IpcError> {
             unimplemented!("not exercised by this test")
+        }
+        fn session_snapshot(&self) -> Result<Value, IpcError> {
+            Ok(
+                json!({"agents": [{"pane_id": "p", "agent": "test", "agent_status": if self.working { "working" } else { "idle" }}]}),
+            )
         }
         fn pane_layout(&self, _pane_id: &str) -> Result<Value, IpcError> {
             unimplemented!("not exercised by this test")
@@ -331,7 +448,11 @@ mod tests {
             _text: Option<&str>,
             _keys: Option<&[String]>,
         ) -> Result<(), IpcError> {
-            unimplemented!("not exercised by this test")
+            self.input_keys
+                .lock()
+                .unwrap()
+                .push(_keys.unwrap_or_default().to_vec());
+            Ok(())
         }
         fn agent_focus(&self, target: &str) -> Result<(), IpcError> {
             self.focus_calls.lock().unwrap().push(target.to_owned());
@@ -525,5 +646,135 @@ mod tests {
         let calls = bridge.herdr.pane_zoom_calls.lock().unwrap();
         assert_eq!(calls[0], ("w1:p1".to_string(), "toggle".to_string()));
         assert_eq!(calls[1], ("w1:p1".to_string(), "off".to_string()));
+    }
+    #[test]
+    fn held_submit_lifecycle() {
+        use super::super::bridge::WatchedPane;
+        use herdr_relay_proto::messages::{Defer, UnwatchPane};
+
+        let mut bridge = Bridge::new(
+            StubCalls {
+                working: true,
+                ..Default::default()
+            },
+            HostIdentity {
+                host_id: "h".into(),
+                host_name: "h".into(),
+            },
+            RelayConfig::default(),
+        );
+        bridge.watched = Some(WatchedPane {
+            pane_id: "p".into(),
+            last_revision: 0,
+            viewport_rows: 24,
+            width: 80,
+            last_frame_hash: 0,
+        });
+        let request = || SendInput {
+            pane_id: "p".into(),
+            line: None,
+            text: None,
+            keys: Some(vec!["Enter".into()]),
+            defer: Some(Defer::UntilIdle),
+        };
+        let ack = |corr: &str, accepted, queued| {
+            (
+                Message::SendInputAck(SendInputAck {
+                    pane_id: "p".into(),
+                    accepted,
+                    queued,
+                }),
+                Some(corr.to_owned()),
+            )
+        };
+        assert_eq!(
+            bridge.handle_deferred_input(request(), Some("a".into())),
+            vec![ack("a", true, true)]
+        );
+        assert!(bridge.herdr.input_keys.lock().unwrap().is_empty());
+        assert_eq!(
+            bridge.handle_deferred_input(request(), Some("b".into())),
+            vec![ack("a", false, false), ack("b", true, true)]
+        );
+        lock_observed(&bridge.input_lines).insert("p".into(), "draft".into());
+        bridge.handle_subscription_line(r#"{"event":"pane_agent_status_changed","data":{"pane_id":"p","agent_status":"idle"}}"#).unwrap();
+        assert_eq!(bridge.take_input_replies(), vec![ack("b", true, false)]);
+        assert!(bridge.take_input_replies().is_empty());
+        assert_eq!(
+            *bridge.herdr.input_keys.lock().unwrap(),
+            vec![vec!["Enter".to_owned()]]
+        );
+        assert_eq!(lock_observed(&bridge.input_lines).get("p").unwrap(), "");
+        bridge.handle_deferred_input(request(), Some("c".into()));
+        let cancel = || SendInput {
+            pane_id: "p".into(),
+            line: None,
+            text: None,
+            keys: None,
+            defer: Some(Defer::Cancel),
+        };
+        assert_eq!(
+            bridge.handle_deferred_input(cancel(), Some("cancel".into())),
+            vec![ack("c", false, false), ack("cancel", true, false)]
+        );
+        bridge.herdr.working = false;
+        assert_eq!(
+            bridge.handle_deferred_input(request(), Some("d".into())),
+            vec![ack("d", true, false)]
+        );
+        assert_eq!(bridge.herdr.input_keys.lock().unwrap().len(), 2);
+        bridge.herdr.working = true;
+        let mut invalid = request();
+        invalid.text = Some("bad".into());
+        assert_eq!(
+            bridge.handle_deferred_input(invalid, Some("invalid".into())),
+            vec![ack("invalid", false, false)]
+        );
+        assert_eq!(bridge.herdr.input_keys.lock().unwrap().len(), 2);
+        for key in ["Enter", "ctrl+c"] {
+            bridge.handle_deferred_input(request(), Some(key.into()));
+            let mut interrupt = request();
+            interrupt.defer = None;
+            interrupt.keys = Some(vec![key.into()]);
+            assert_eq!(
+                bridge.send_input(interrupt).unwrap(),
+                ack("unused", true, false).0
+            );
+            assert_eq!(bridge.take_input_replies(), vec![ack(key, false, false)]);
+        }
+        assert_eq!(
+            *bridge.herdr.input_keys.lock().unwrap(),
+            vec![
+                vec!["Enter".to_owned()],
+                vec!["Enter".to_owned()],
+                vec!["Enter".to_owned()],
+                vec!["ctrl+c".to_owned()]
+            ]
+        );
+        bridge.handle_deferred_input(request(), Some("session-end".into()));
+        bridge.session_active = Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            false,
+        )));
+        bridge.handle_subscription_line(r#"{"event":"pane_agent_status_changed","data":{"pane_id":"p","agent_status":"idle"}}"#).unwrap();
+        assert_eq!(
+            bridge.take_input_replies(),
+            vec![ack("session-end", false, false)]
+        );
+        assert_eq!(bridge.herdr.input_keys.lock().unwrap().len(), 4);
+        bridge.session_active = None;
+        bridge.handle_deferred_input(request(), Some("e".into()));
+        bridge.unwatch_pane(UnwatchPane {
+            pane_id: "other".into(),
+        });
+        assert!(bridge.take_input_replies().is_empty());
+        bridge.unwatch_pane(UnwatchPane {
+            pane_id: "p".into(),
+        });
+        assert_eq!(bridge.take_input_replies(), vec![ack("e", false, false)]);
+        assert_eq!(
+            bridge.handle_deferred_input(cancel(), Some("cancel".into())),
+            vec![ack("cancel", true, false)]
+        );
+        assert_eq!(bridge.herdr.input_keys.lock().unwrap().len(), 4);
     }
 }

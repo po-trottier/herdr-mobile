@@ -520,8 +520,9 @@ the computer's screen and only ever shows what the computer has drawn, and the *
 native text field under the grid where the person types. The person's keystrokes go into the
 composer, which the platform's own keyboard edits natively: instant glyphs, native backspace,
 native cursor, native selection and autocorrect, with nothing drawn on top of the grid and nothing
-predicted. The composer sends its text to the computer as `send_input` on **every edit**, so the
-computer's own echo follows in the grid at the round trip, and `enter` submits. Decided 2026-09-11
+predicted. The composer sends its complete text as `send_input.line` on **every edit**. The Host
+owns the input shadow and reconciliation, per `R-03-137`. Keyboard Enter inserts a newline.
+Only Send submits, and its progress remains visible until acknowledgement. Decided 2026-09-11
 by the product owner after the predictive overlay of `R-03-123` shipped: "Characters pop in and
 out, cursor moves, it's so weird. I want a real, native feel, where I write in the input field, it
 immediately writes the characters at the right place, I can press backspace to remove. It should
@@ -539,6 +540,20 @@ the pane, never through the field) are owned by `docs/31-mockups/09-key-row.md`;
 feed-on-arrival and viewport stability are owned by `docs/21-terminal-rendering.md` `R-21-021`
 and `R-21-044`.
 
+**R-03-137**: Every composer edit MUST send the full text, not a Device-generated edit delta.
+The Host MUST own the input shadow. The app MUST seed the composer from `watch_ack.line`.
+Keyboard Enter MUST insert a newline. Only Send MUST submit the command.
+Send MUST show progress until its acknowledgement arrives, and failure MUST preserve the text.
+`R-11-248` and `R-11-249` own the wire contract and seed. `R-11-251` and `R-11-252` own
+the Host queue rules. `R-31-09-31` through `R-31-09-34` own the composer behaviour.
+
+**R-03-138**: The app MUST distinguish immediate submission from submission when the agent
+finishes. `Send now` MUST remain the default. `Send when done` MUST use the agent status, not
+agent-specific keybinds. The choice MUST work without knowledge of the agent vendor. Immediate
+submission lets the agent handle steering itself. Interactive answers MUST use direct keys or
+text, not the composer line.
+`R-11-253` owns deferred submission and its intermediate and final acknowledgements.
+`R-31-09-36` through `R-31-09-39` own the controls and their visible states.
 **R-03-131**: The terminal grid MUST take its **background and foreground from the computer's
 Herdr theme**, so the pane on the phone is the pane on the desk. Decided 2026-09-11 by the product
 owner: "implement herdr themes for the terminal window. The terminal window background should be
@@ -567,8 +582,8 @@ rounded text field that grows with its text from one line to a fixed maximum, a 
 trailing it on the same row, and bank one of the key row directly under it inside the same surface,
 with one padding token around every part and no rule between the field and the keys. The field
 uses `type.mono.compose`, the token that already exists for this purpose, not `type.mono.code`. The
-platform's return action still submits, per `R-31-09-28`, because the pane's `Enter` is what a
-terminal means by return; the field wraps long text so it can be read before it is sent. Nothing in
+platform's return action inserts a newline, per `R-31-09-28`. Send submits the text.
+The field wraps long text so the person can read it before submission. Nothing in
 the bar is app-drawn: the field, the send control, the keys and the row toggle are the widgets the
 native control map of `docs/33-platform-chrome.md` section 5 names, and the icons come from the one
 icon set of `R-32-401`. `docs/31-mockups/09-key-row.md` owns the bar's layout and behaviour,

@@ -10,6 +10,8 @@ use crate::ipc::{HerdrClient, IpcError};
 /// stub with no test framework and no real Herdr server, matching the
 /// `herdr-scheduled` pattern R-40-029 sets for a shim test.
 pub trait HerdrCalls: Send {
+    /// R-10-077: sends literal text without bracketed-paste markers.
+    fn pane_send_text(&self, pane_id: &str, text: &str) -> Result<(), IpcError>;
     fn session_snapshot(&self) -> Result<Value, IpcError>;
     fn pane_layout(&self, pane_id: &str) -> Result<Value, IpcError>;
     /// R-02-014, R-10-021, R-41-169: `source:"visible"`, `format:"ansi"`,
@@ -89,6 +91,14 @@ pub trait HerdrCalls: Send {
 }
 
 impl HerdrCalls for HerdrClient {
+    fn pane_send_text(&self, pane_id: &str, text: &str) -> Result<(), IpcError> {
+        self.call(
+            "pane.send_text",
+            json!({ "pane_id": pane_id, "text": text }),
+        )?;
+        Ok(())
+    }
+
     fn session_snapshot(&self) -> Result<Value, IpcError> {
         self.call_result("session.snapshot", json!({}), "snapshot")
     }

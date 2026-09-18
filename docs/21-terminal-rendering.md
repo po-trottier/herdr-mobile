@@ -1273,7 +1273,14 @@ the screen-reader label carries under R-21-037 point 4.
 below the grid shows local edits and sends input to the Host. No prediction engine, overlay,
 expiry timer or Safe typing mode remains. `docs/31-mockups/09-key-row.md` owns the composer rules.
 
-## 13. The grid palette
+## 13. Raw input
+
+**R-21-045**: The app MUST distinguish typed text from an explicit paste. Ordinary typed text
+MUST remain raw text, not a bracketed paste. Keyboard Enter MUST insert a newline in the native
+line editor, not submit the command. `R-10-077` owns the raw input path.
+`R-11-248` owns full-line reconciliation.
+
+## 14. The grid palette
 
 **R-21-044**: Apply the Host's Herdr palette to the grid only, per
 R-03-131 and R-33-055. Use `surface_dim` for the background and `text`

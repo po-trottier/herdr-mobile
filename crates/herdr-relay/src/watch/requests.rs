@@ -18,7 +18,7 @@ use crate::config::ConfigPaths;
 use crate::relay::SessionRegistry;
 use crate::store::DeviceStore;
 
-use super::bridge::{Bridge, WatchError, WatchedPane, frame_hash};
+use super::bridge::{Bridge, WatchError, WatchedPane, frame_hash, lock_observed};
 use super::events::UNFILTERED_TREE_EVENTS;
 use super::herdr_calls::HerdrCalls;
 use super::scheduler::PaneScheduler;
@@ -48,6 +48,9 @@ impl<H: HerdrCalls> Bridge<H> {
         let width = self.fetch_width(&pane_id)?;
         let text = self.fetch_visible_text(&pane_id)?;
 
+        if self.watched.as_ref().is_some_and(|w| w.pane_id != pane_id) {
+            self.cancel_pending_inputs();
+        }
         self.watched = Some(WatchedPane {
             pane_id: pane_id.clone(),
             last_revision: pane.revision,
@@ -69,6 +72,10 @@ impl<H: HerdrCalls> Bridge<H> {
 
         let ack = WatchAck {
             pane_id: pane_id.clone(),
+            line: lock_observed(&self.input_lines)
+                .get(&pane_id)
+                .cloned()
+                .unwrap_or_default(),
             revision: pane.revision,
             viewport_rows: pane.scroll.viewport_rows,
             width,
@@ -97,6 +104,7 @@ impl<H: HerdrCalls> Bridge<H> {
             .as_ref()
             .is_some_and(|w| w.pane_id == request.pane_id)
         {
+            self.cancel_pending_inputs();
             self.watched = None;
             self.scheduler = None;
         }

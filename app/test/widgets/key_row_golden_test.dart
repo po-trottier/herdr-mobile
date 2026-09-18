@@ -24,12 +24,14 @@ const _themes = <(String, Brightness)>[
 KeyRow _keyRow({
   bool landscape = false,
   bool panelOpen = true,
+  bool answerMode = false,
   KeyRowLinkState linkState = KeyRowLinkState.live,
 }) => KeyRow(
   panelOpen: panelOpen,
+  answerMode: answerMode,
   paneId: 'w3:p1',
   send: (message, {corr}) {},
-  sendInputAcks: const Stream<SendInputAck>.empty(),
+  sendInputAcks: const Stream<({String corr, SendInputAck ack})>.empty(),
   linkState: linkState,
   offlineReason: linkState == KeyRowLinkState.offline
       ? 'Not connected to patrick-desk.'
@@ -67,6 +69,7 @@ Future<void> _goldenCase(
             key: _captureKey,
             child: KeyRow(
               panelOpen: keyRow.panelOpen,
+              answerMode: keyRow.answerMode,
               paneId: keyRow.paneId,
               send: keyRow.send,
               sendInputAcks: keyRow.sendInputAcks,
@@ -79,9 +82,8 @@ Future<void> _goldenCase(
                 panelOpen: keyRow.panelOpen,
                 onTogglePanel: () {},
                 enabled: keyRow.linkState == KeyRowLinkState.live,
-                onText: (_) {},
-                onDelete: (_) {},
-                onSubmit: () {},
+                onLine: (_) {},
+                onSubmit: (String line, {bool whenIdle = false}) async => true,
               ),
             ),
           ),
@@ -126,6 +128,23 @@ void main() {
             );
             await tester.pumpAndSettle();
           },
+        );
+        debugDefaultTargetPlatformOverride = null;
+      });
+    }
+
+    for (final TargetPlatform platform in <TargetPlatform>[
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    ]) {
+      testWidgets('Answer keys ($themeName, $platform)', (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        await _goldenCase(
+          tester,
+          name: 'answer_${platform.name}',
+          brightness: brightness,
+          keyRow: _keyRow(answerMode: true),
         );
         debugDefaultTargetPlatformOverride = null;
       });

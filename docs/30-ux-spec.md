@@ -1339,16 +1339,23 @@ socket exposes none.
   self-destroying from a phone.
 - **R-30-968** The app MUST NOT be able to enable, disable, link or unlink a plugin. Herdr has
   no socket method for any of those.
-- **R-30-520** When the acknowledgement of `plugin.action.invoke` names a pane, the app MUST offer
+- **R-30-969** The terminal status strip MUST show the measured RTT as `N MS` instead of `LIVE`.
+  RTT means round-trip time. Its semantics label MUST be `Round trip N milliseconds`.
+  Until the first measurement arrives, the word stays `LIVE`; the first `pong` or input
+  acknowledgement replaces it, at most 10 s after the terminal opens. Non-live states MUST keep
+  their existing status words. `R-11-250` owns the ping/pong contract.
+
+**R-30-520** When the acknowledgement of `plugin.action.invoke` names a pane, the app MUST offer
   to open that pane, and MUST NOT navigate on its own. `docs/11-relay-protocol.md` owns the field
   that carries it, in `R-11-217`. Ten of the twenty measured actions open, focus or close a pane,
   per `R-02-024`, so this is the normal case for a real plugin and not an edge one.
-  - **What the person sees.** A result row appears under the action that was invoked, reading
+
+- **What the person sees.** A result row appears under the action that was invoked, reading
     `That opened a pane.`, with one control, `Open the pane`. The control routes to
     `/hosts/:hostId/panes/:paneId`. The row MUST stay until the person leaves the screen or invokes
     another action. It MUST NOT be a strip that times out, because reaching the pane is the whole
     point of the action, and a person who missed a timed strip has no second path to it.
-  - **Why it offers instead of jumping.** Four reasons, and the first is decisive. The
+- **Why it offers instead of jumping.** Four reasons, and the first is decisive. The
     acknowledgement carries a pane id only when exactly one new pane appeared, per `R-11-217a`, and
     carries none when a toggle closed its pane, per `R-11-217b`. So the same row yields a route on
     one tap and no route on the next, and a navigation that fires unpredictably is worse than an
@@ -1357,10 +1364,10 @@ socket exposes none.
     list they were working in. Third, the terminal view is heavy: it starts a live VT stream, which
     is a poor thing to start without being asked. And `R-30-965` already holds that an action runs
     only from an explicit tap, so the same reason applies to leaving the screen.
-  - **When the pane is gone.** If the named pane is absent from the current tree, the result row
+- **When the pane is gone.** If the named pane is absent from the current tree, the result row
     MUST read `That pane has already closed.` and MUST NOT carry the control. The app MUST NOT open
     a stale pane, exactly as `R-30-511` requires of a notification tap.
-  - **Never for a hidden action.** This rule MUST NOT reach the `herdr-relay` plugin, whose rows
+- **Never for a hidden action.** This rule MUST NOT reach the `herdr-relay` plugin, whose rows
     `R-30-967` hides. Its `pair` action opens the pane that renders the live pairing QR and the six
     words, so an offer to open that pane would draw a live pairing secret onto a phone that is
     already paired.

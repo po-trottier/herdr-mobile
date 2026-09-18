@@ -210,7 +210,7 @@ void main() {
         expect(tester.getSize(send).height, sendHeight);
         expect(tester.getCenter(send).dy, tester.getCenter(field).dy);
         if (platform == TargetPlatform.iOS) {
-          expect(tester.getRect(field).right - tester.getRect(send).right, 8);
+          expect(tester.getRect(field).right - tester.getRect(send).right, 3);
         }
         await tester.enterText(find.byType(EditableText), 'one\ntwo\nthree');
         await tester.pump();
@@ -225,7 +225,11 @@ void main() {
         );
         expect(tester.getCenter(more).dy, tester.getCenter(send).dy);
         if (platform == TargetPlatform.iOS) {
-          expect(tester.getRect(field).right - tester.getRect(send).right, 8);
+          expect(
+            tester.getCenter(send),
+            tester.getRect(field).bottomRight -
+                Offset(singleLineRadius, singleLineRadius),
+          );
         }
         await tester.pumpWidget(const SizedBox.shrink());
         debugDefaultTargetPlatformOverride = null;

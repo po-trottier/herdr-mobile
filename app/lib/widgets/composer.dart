@@ -133,12 +133,9 @@ class _ComposerState extends State<Composer> {
             controller: _controller,
             crossAxisAlignment: CrossAxisAlignment.end,
             suffix: Padding(
-              padding: const EdgeInsetsDirectional.fromSTEB(
-                3 - AppBorder.hairline,
-                3 - AppBorder.hairline,
-                AppSpace.space2 - AppBorder.hairline,
-                3 - AppBorder.hairline,
-              ),
+              // The 18 pt field corner and 15 pt Send radius share a centre
+              // with equal 3 pt edge insets (including the field's border).
+              padding: const EdgeInsets.all(3 - AppBorder.hairline),
               child: send,
             ),
             enabled: widget.enabled,

@@ -1410,7 +1410,7 @@ This surface follows R-03-133. `docs/31-mockups/09-key-row.md` owns its behaviou
 | Leading glyph | `Symbols.add_rounded`, semantics `More keys`; `Symbols.close_rounded` while open, semantics `Fewer keys` |
 | Field | Fill `color.bg.high`; corner radius equals half the platform's single-line field height (Android 24 dp; iOS 18 pt), unchanged as the field grows; `border.hairline` in `color.border.strong`. Text `type.mono.compose` in `color.fg.primary`; placeholder `Type here` in `color.fg.disabled`. `minLines: 1`, `maxLines: 5`, multiline keyboard, `textInputAction: send`. Native editing options follow R-31-09-30 |
 | Field padding | Android: `space.3` horizontally, 13 dp vertically; one 22 dp text line totals 48 dp. iOS: `space.3` leading, `space.1` trailing, 7 pt vertically; one 22 pt text line totals 36 pt |
-| Send control | Android: outside the field, round `IconButton.filled`, exactly 48 dp, `Symbols.send_rounded`. iOS: inside the field suffix, `CupertinoButton` with zero padding and `minimumSize: 30`, a 30 pt circle with 3 pt vertical inset and `space.2` (8 pt) trailing inset from the field edge, `Symbols.arrow_upward_rounded`. Both use `color.accent.primary` with `color.fg.on_accent` glyphs at `size.icon.md` and semantics `Send` |
+| Send control | Android: outside the field, round `IconButton.filled`, exactly 48 dp, `Symbols.send_rounded`. iOS: inside the field suffix, `CupertinoButton` with zero padding and `minimumSize: 30`, a 30 pt circle with equal 3 pt bottom and trailing insets from the field edge, `Symbols.arrow_upward_rounded`. Its 15 pt radius and the field's 18 pt corner share a centre, leaving an even 3 pt gap. Both use `color.accent.primary` with `color.fg.on_accent` glyphs at `size.icon.md` and semantics `Send` |
 | Send state | Enabled when empty, per R-31-09-28. Field and send controls stay disabled offline or while the Host is in use, per R-30-807 and R-32-502 |
 | Key panel | Closed by default. Above the bar, over the bottom of the grid; its own `color.bg.raised` surface and top `border.hairline` in `color.border.strong`. Use `space.4` horizontal inset and `space.2` gaps and vertical padding. Three rows, six columns, height fits the rows, no scroll. Use the native caps of section 7.12 and the order in R-31-09-21. Opening preserves the keyboard state. Field focus and modifier latches leave it open. Only `×` or a grid tap closes it |
 
@@ -1420,6 +1420,7 @@ This surface follows R-03-133. `docs/31-mockups/09-key-row.md` owns its behaviou
   The iOS send control MUST fit inside the field suffix at the dimensions above.
   Controls MUST stay bottom-aligned when the field grows, per R-03-133 (amended 2026-09-17).
   The leading circle and Send MUST have level centres. The iOS Send MUST use the inset above.
+  Its bottom trailing curve MUST be concentric with the field's corner, per R-03-133.
   The field's corner radius MUST equal half its platform's single-line height, even when taller.
   The key panel MUST overlay the grid above the bar, not replace or cover the keyboard.
   The app MUST NOT draw substitute fields, buttons, or keys.

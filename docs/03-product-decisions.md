@@ -585,6 +585,7 @@ the middle, the send control trailing. **Every control on the row is exactly the
 single-line height**. Amended 2026-09-17 by the product owner: as the field grows, its corner radius
 MUST stay fixed so it becomes a rounded rectangle. On review of the multiline field that day,
 the owner approved Send at the bottom trailing corner with padding, and `+` aligned alongside it.
+On iOS, Send's curve and the field's corner MUST share a centre, with an even gap between their edges.
 The controls MUST NOT float at the vertical centre of a multiline field.
 The key row is gone as a permanent surface. The `+` opens the **key panel**, and the panel MUST
 open **above the bar, over the bottom of the grid, with the keyboard left exactly as it was**:

@@ -1275,7 +1275,7 @@ expiry timer or Safe typing mode remains. `docs/31-mockups/09-key-row.md` owns t
 
 ## 13. Raw input
 
-**R-21-045**: The app MUST distinguish typed text from an explicit paste. Ordinary typed text
+**R-21-046**: The app MUST distinguish typed text from an explicit paste. Ordinary typed text
 MUST remain raw text, not a bracketed paste. Keyboard Enter MUST insert a newline in the native
 line editor, not submit the command. `R-10-077` owns the raw input path.
 `R-11-248` owns full-line reconciliation.

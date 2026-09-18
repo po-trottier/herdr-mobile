@@ -2064,6 +2064,9 @@ is `app/lib/widgets/key_label.dart`.
   Each action MUST expose the named semantics required by `R-32-515`.
   The `Workspace` `PINNED` card MUST use flat rows without hierarchy indentation.
   Pane content MUST start at the header inset, `space.4`.
+  Status, age and workspace name MUST form one trailing text group at the row's `space.4` inset.
+  The group MUST use `space.2` between fields and ellipsise long text. Spare width MUST sit between
+  the pane identity and this group, not after or within the group.
   An agent state bar MUST sit at the card edge. An agent row MUST NOT reserve an empty leading slot.
 
 ## 8. Motion

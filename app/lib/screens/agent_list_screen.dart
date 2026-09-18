@@ -96,8 +96,10 @@ import 'package:flutter/widgets.dart'
         Icon,
         IconData,
         Flexible,
+        IgnoreBaseline,
         IgnorePointer,
         InheritedNotifier,
+        InlineSpan,
         Key,
         LayoutBuilder,
         Listener,
@@ -129,6 +131,7 @@ import 'package:flutter/widgets.dart'
         StatelessWidget,
         StreamBuilder,
         Text,
+        TextAlign,
         TextBaseline,
         TextDirection,
         TextOverflow,
@@ -1986,34 +1989,27 @@ class _RowBox extends StatelessWidget {
 /// Priority puts the status beside the tab title and the age beside the breadcrumb.
 /// Workspace puts the kind, pane, status, and age on one line.
 class _RowLine extends StatelessWidget {
-  const _RowLine({required this.leading, this.trailing, this.workspace});
+  const _RowLine({
+    required this.leading,
+    this.trailing,
+    this.flexibleTrailing = false,
+  });
 
   final Widget leading;
   final Widget? trailing;
-  final String? workspace;
+  // Keep flexible metadata in one group so unused width falls between the groups.
+  final bool flexibleTrailing;
 
   @override
   Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
     crossAxisAlignment: CrossAxisAlignment.baseline,
     textBaseline: TextBaseline.alphabetic,
     children: <Widget>[
       Expanded(child: leading),
       if (trailing != null) ...<Widget>[
         const SizedBox(width: AppSpace.space3),
-        trailing!,
-      ],
-      if (workspace != null) ...<Widget>[
-        const SizedBox(width: AppSpace.space2),
-        Flexible(
-          child: Text(
-            workspace!,
-            style: AppType.caption.copyWith(
-              color: AppColor.of(context).fgSecondary,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
+        if (flexibleTrailing) Flexible(child: trailing!) else trailing!,
       ],
     ],
   );
@@ -2053,54 +2049,59 @@ class _ShellRowContent extends StatelessWidget {
     contentPadding: EdgeInsets.zero,
     primaryWidget: _RowBox(
       leadingInset: leadingInset,
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: slotWidth,
-            child: Center(
-              child: Icon(
-                Symbols.splitscreen_rounded,
-                size: AppSize.iconSm,
-                color: color.fgSecondary,
+      child: _RowLine(
+        leading: Row(
+          children: <Widget>[
+            SizedBox(
+              width: slotWidth,
+              child: Center(
+                child: IgnoreBaseline(
+                  child: Icon(
+                    Symbols.splitscreen_rounded,
+                    size: AppSize.iconSm,
+                    color: color.fgSecondary,
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: _slotGap),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                text: row.paneDisplayName,
-                style: AppType.body.copyWith(color: color.fgSecondary),
-                children: [
-                  if (row.title.isNotEmpty)
-                    const WidgetSpan(
-                      alignment: PlaceholderAlignment.baseline,
-                      baseline: TextBaseline.alphabetic,
-                      child: SizedBox(width: AppSpace.space2),
-                    ),
-                  if (row.title.isNotEmpty)
-                    TextSpan(
-                      text: row.title,
-                      style: AppType.caption.copyWith(color: color.fgSecondary),
-                    ),
-                ],
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (showWorkspace) ...<Widget>[
-            const SizedBox(width: AppSpace.space2),
-            Flexible(
-              child: Text(
-                row.workspaceName,
-                style: AppType.caption.copyWith(color: color.fgSecondary),
+            const SizedBox(width: _slotGap),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  text: row.paneDisplayName,
+                  style: AppType.body.copyWith(color: color.fgSecondary),
+                  children: [
+                    if (row.title.isNotEmpty)
+                      const WidgetSpan(
+                        alignment: PlaceholderAlignment.baseline,
+                        baseline: TextBaseline.alphabetic,
+                        child: SizedBox(width: AppSpace.space2),
+                      ),
+                    if (row.title.isNotEmpty)
+                      TextSpan(
+                        text: row.title,
+                        style: AppType.caption.copyWith(
+                          color: color.fgSecondary,
+                        ),
+                      ),
+                  ],
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
-        ],
+        ),
+        flexibleTrailing: showWorkspace,
+        trailing: showWorkspace
+            ? Text(
+                row.workspaceName,
+                style: AppType.caption.copyWith(color: color.fgSecondary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+              )
+            : null,
       ),
     ),
   );
@@ -2182,7 +2183,7 @@ class _AgentRowContent extends StatelessWidget {
               Expanded(
                 child: axis == AgentListAxis.workspace
                     ? _RowLine(
-                        workspace: showWorkspace ? row.workspaceName : null,
+                        flexibleTrailing: showWorkspace,
                         leading: Row(
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
@@ -2206,27 +2207,68 @@ class _AgentRowContent extends StatelessWidget {
                             ),
                           ],
                         ),
-                        trailing: Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: <Widget>[
-                            Text(
-                              statusLabel,
-                              style: AppType.body.copyWith(
-                                color: color.fgPrimary,
-                              ),
-                            ),
-                            if (age != null) ...<Widget>[
-                              const SizedBox(width: AppSpace.space2),
-                              Text(
-                                age,
-                                style: AppType.caption.copyWith(
-                                  color: color.fgSecondary,
+                        trailing: showWorkspace
+                            ? Text.rich(
+                                TextSpan(
+                                  children: <InlineSpan>[
+                                    TextSpan(
+                                      text: statusLabel,
+                                      style: AppType.body.copyWith(
+                                        color: color.fgPrimary,
+                                      ),
+                                    ),
+                                    if (age != null) ...<InlineSpan>[
+                                      const WidgetSpan(
+                                        alignment:
+                                            PlaceholderAlignment.baseline,
+                                        baseline: TextBaseline.alphabetic,
+                                        child: SizedBox(width: AppSpace.space2),
+                                      ),
+                                      TextSpan(
+                                        text: age,
+                                        style: AppType.caption.copyWith(
+                                          color: color.fgSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                    const WidgetSpan(
+                                      alignment: PlaceholderAlignment.baseline,
+                                      baseline: TextBaseline.alphabetic,
+                                      child: SizedBox(width: AppSpace.space2),
+                                    ),
+                                    TextSpan(
+                                      text: row.workspaceName,
+                                      style: AppType.caption.copyWith(
+                                        color: color.fgSecondary,
+                                      ),
+                                    ),
+                                  ],
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.end,
+                              )
+                            : Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: <Widget>[
+                                  Text(
+                                    statusLabel,
+                                    style: AppType.body.copyWith(
+                                      color: color.fgPrimary,
+                                    ),
+                                  ),
+                                  if (age != null) ...<Widget>[
+                                    const SizedBox(width: AppSpace.space2),
+                                    Text(
+                                      age,
+                                      style: AppType.caption.copyWith(
+                                        color: color.fgSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                            ],
-                          ],
-                        ),
                       )
                     : Column(
                         mainAxisSize: MainAxisSize.min,

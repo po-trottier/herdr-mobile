@@ -131,9 +131,14 @@ class _ComposerState extends State<Composer> {
         ? CupertinoTextField(
             key: const ValueKey<String>('composerField'),
             controller: _controller,
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
             suffix: Padding(
-              padding: const EdgeInsets.all(3 - AppBorder.hairline),
+              padding: const EdgeInsetsDirectional.fromSTEB(
+                3 - AppBorder.hairline,
+                3 - AppBorder.hairline,
+                AppSpace.space2 - AppBorder.hairline,
+                3 - AppBorder.hairline,
+              ),
               child: send,
             ),
             enabled: widget.enabled,
@@ -210,7 +215,7 @@ class _ComposerState extends State<Composer> {
             ),
           );
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: <Widget>[
         SizedBox.square(
           key: const ValueKey<String>('composerMore'),

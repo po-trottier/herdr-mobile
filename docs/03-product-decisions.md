@@ -583,9 +583,9 @@ instead of something like the + button iMessage has to show more options." The a
 iOS Messages and Google Messages: one row of three parts, a round `+` control leading, the field in
 the middle, the send control trailing. **Every control on the row is exactly the field's
 single-line height**. Amended 2026-09-17 by the product owner: as the field grows, its corner radius
-MUST stay fixed so it becomes a rounded rectangle, and the controls MUST stay vertically centred
-beside the field. The previous bottom alignment and growing pill corners broke multiline input.
-The key row is gone as a permanent surface. The `+` opens the **key panel** in the place of the
+MUST stay fixed so it becomes a rounded rectangle. On review of the multiline field that day,
+the owner approved Send at the bottom trailing corner with padding, and `+` aligned alongside it.
+The controls MUST NOT float at the vertical centre of a multiline field.
 The key row is gone as a permanent surface. The `+` opens the **key panel**, and the panel MUST
 open **above the bar, over the bottom of the grid, with the keyboard left exactly as it was**:
 up stays up, down stays down. The owner ruled out the alternative the same day, a panel that takes

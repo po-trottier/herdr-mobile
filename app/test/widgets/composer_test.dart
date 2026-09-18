@@ -162,7 +162,7 @@ void main() {
     TargetPlatform.iOS,
   ]) {
     testWidgets(
-      'multiline field keeps its corners and centers controls on ${platform.name}',
+      'multiline field keeps fixed corners and bottom inset controls on ${platform.name}',
       (tester) async {
         debugDefaultTargetPlatformOverride = platform;
         addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -206,16 +206,27 @@ void main() {
         expect(tester.getCenter(more).dy, tester.getCenter(field).dy);
         final send = find.byKey(const ValueKey<String>('composerSend'));
         final double sendHeight = platform == TargetPlatform.iOS ? 30 : height;
+        final double sendBottomInset = platform == TargetPlatform.iOS ? 3 : 0;
         expect(tester.getSize(send).height, sendHeight);
         expect(tester.getCenter(send).dy, tester.getCenter(field).dy);
+        if (platform == TargetPlatform.iOS) {
+          expect(tester.getRect(field).right - tester.getRect(send).right, 8);
+        }
         await tester.enterText(find.byType(EditableText), 'one\ntwo\nthree');
         await tester.pump();
         expect(tester.getSize(field).height, height + 44);
         expect(paintedCornerRadius(), singleLineRadius);
         expect(tester.getSize(more).height, height);
-        expect(tester.getCenter(more).dy, tester.getCenter(field).dy);
+        expect(tester.getRect(more).bottom, tester.getRect(field).bottom);
         expect(tester.getSize(send).height, sendHeight);
-        expect(tester.getCenter(send).dy, tester.getCenter(field).dy);
+        expect(
+          tester.getRect(field).bottom - tester.getRect(send).bottom,
+          sendBottomInset,
+        );
+        expect(tester.getCenter(more).dy, tester.getCenter(send).dy);
+        if (platform == TargetPlatform.iOS) {
+          expect(tester.getRect(field).right - tester.getRect(send).right, 8);
+        }
         await tester.pumpWidget(const SizedBox.shrink());
         debugDefaultTargetPlatformOverride = null;
       },

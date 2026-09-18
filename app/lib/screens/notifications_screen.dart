@@ -49,9 +49,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart'
     show
-        AnimationStyle,
         Border,
-        BorderRadius,
         BorderSide,
         BoxConstraints,
         BoxDecoration,
@@ -59,7 +57,6 @@ import 'package:flutter/widgets.dart'
         Center,
         ColoredBox,
         Column,
-        Container,
         CrossAxisAlignment,
         Curve,
         Curves,
@@ -73,11 +70,9 @@ import 'package:flutter/widgets.dart'
         LayoutBuilder,
         MainAxisSize,
         MediaQuery,
-        Navigator,
+        MenuController,
         Padding,
-        Radius,
         Row,
-        SafeArea,
         SingleTickerProviderStateMixin,
         SizedBox,
         SliverChildBuilderDelegate,
@@ -109,14 +104,7 @@ import 'package:flutter_slidable/flutter_slidable.dart'
         SlidableController;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show
-        AppBar,
-        IconButton,
-        RoundedRectangleBorder,
-        Scaffold,
-        TextButton,
-        Theme,
-        showModalBottomSheet;
+    show AppBar, IconButton, Scaffold, TextButton, Theme;
 
 import '../core/result/result.dart' show Err, Result;
 import '../models/messages/agent_status_kind.dart';
@@ -137,7 +125,7 @@ import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_confirmation_dialog.dart';
 import '../widgets/theme/chrome_confirmation_outcome.dart';
-import '../widgets/theme/chrome_list_row.dart';
+import '../widgets/theme/chrome_menu.dart';
 import '../widgets/treatments.dart';
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -171,20 +159,6 @@ const String earlierHeaderLabel = 'EARLIER';
 /// next step, in one sentence pair.
 const String noNewSentence =
     'No new notifications. You have read everything below.';
-
-/// Section 7.16's sheet motion: `motion.duration.base` both ways, `motion.curve.enter` in and
-/// `motion.curve.exit` out; under reduce motion no animation at all (R-32-606). `curveExit` is
-/// defined in Flutter's reverse space (R-32-609), so a `reverseCurve` takes it unchanged.
-/// Duplicated from `pane_actions_sheet.dart` per this file's header note.
-AnimationStyle _sheetAnimationStyle(BuildContext context) =>
-    MediaQuery.disableAnimationsOf(context)
-    ? AnimationStyle.noAnimation
-    : const AnimationStyle(
-        duration: AppMotion.durationBase,
-        reverseDuration: AppMotion.durationBase,
-        curve: AppMotion.curveEnter,
-        reverseCurve: AppMotion.curveExit,
-      );
 
 /// The swipe reveal's settle (R-32-600, R-32-609). `flutter_slidable` tracks the finger 1:1
 /// while it drags, then settles a released row with its own `Curves.ease` over 200 ms, a weak
@@ -323,110 +297,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool get _hasAge =>
       _items.any((NotificationItem entry) => entry.item.at != null);
 
-  /// Callout 11: the row's actions behind a visible control, on the menu surface of R-33-033 (a
-  /// bottom sheet on both platforms), so a person who never swipes still finds `Mark as read`
-  /// and `Remove`. Same callbacks as the swipe. The sheet takes section 7.16's anatomy: grab
-  /// handle, header (the row's phrase over its breadcrumb), a group divider,
-  /// `size.row.one_line` rows in `type.body`, then `Cancel`.
-  Future<void> _showRowActions(NotificationItem entry) {
-    final AppColor color = AppColor.of(context);
-    final String paneId = entry.item.paneId;
-    return showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      backgroundColor: color.bgRaised,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
-      ),
-      sheetAnimationStyle: _sheetAnimationStyle(context),
-      builder: (BuildContext sheetContext) {
-        final Widget divider = Container(
-          height: AppBorder.hairline,
-          color: color.borderSubtle,
-        );
-        return SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpace.space2),
-                child: Center(
-                  child: ExcludeSemantics(
-                    child: Container(
-                      width: AppSize.grabWidth,
-                      height: AppSize.grabHeight,
-                      decoration: BoxDecoration(
-                        color: color.fgDisabled,
-                        borderRadius: BorderRadius.circular(AppRadius.full),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpace.space4,
-                  AppSpace.space4,
-                  AppSpace.space4,
-                  AppSpace.space3,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      _phraseFor(entry),
-                      style: AppType.bodyStrong.copyWith(
-                        color: color.fgPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpace.space1),
-                    Text(
-                      _segmentsFor(entry).join(_breadcrumbSeparator),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.caption.copyWith(color: color.fgSecondary),
-                    ),
-                  ],
-                ),
-              ),
-              divider,
-              if (!entry.seen)
-                _SheetActionRow(
-                  // `Mark as seen` in the R-32-401 map.
-                  icon: Symbols.done_all_rounded,
-                  label: 'Mark as read',
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    unawaited(_run(widget.onMarkSeen(paneId)));
-                  },
-                ),
-              _SheetActionRow(
-                // `Remove one notification, destructive` in the R-32-401 map (2026-09-08).
-                icon: Symbols.delete_outline_rounded,
-                label: 'Remove',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  unawaited(_run(widget.onRemove(paneId)));
-                },
-              ),
-              divider,
-              // R-03-059 (2026-09-09): the platform button keeps its own height; no box
-              // around it.
-              AppTextButton(
-                label: 'Cancel',
-                onPressed: () => Navigator.of(sheetContext).pop(),
-                subdued: true,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   /// R-31-07-04: `Remove all` is the one destructive action here and confirms first, per
   /// `docs/32-design-language.md` section 7.17 and R-33-074.
   Future<void> _confirmRemoveAll() async {
@@ -506,7 +376,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   onOpenPane: widget.onOpenPane,
                   onMarkSeen: (String id) => _run(widget.onMarkSeen(id)),
                   onRemove: (String id) => _run(widget.onRemove(id)),
-                  onOpenActions: _showRowActions,
                   now: widget.now,
                 ),
         ),
@@ -712,7 +581,6 @@ class _NotificationList extends StatelessWidget {
     required this.onOpenPane,
     required this.onMarkSeen,
     required this.onRemove,
-    required this.onOpenActions,
     required this.now,
   });
 
@@ -722,7 +590,6 @@ class _NotificationList extends StatelessWidget {
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
   final void Function(String paneId) onRemove;
-  final void Function(NotificationItem entry) onOpenActions;
   final DateTime Function() now;
 
   Widget _header(String label) => SliverPersistentHeader(
@@ -748,7 +615,6 @@ class _NotificationList extends StatelessWidget {
         onOpenPane: onOpenPane,
         onMarkSeen: onMarkSeen,
         onRemove: onRemove,
-        onOpenActions: onOpenActions,
         now: now,
       ),
       childCount: entries.length,
@@ -807,7 +673,6 @@ class _NotificationRow extends StatefulWidget {
     required this.onOpenPane,
     required this.onMarkSeen,
     required this.onRemove,
-    required this.onOpenActions,
     required this.now,
   });
 
@@ -817,7 +682,6 @@ class _NotificationRow extends StatefulWidget {
   final void Function(String paneId) onOpenPane;
   final void Function(String paneId) onMarkSeen;
   final void Function(String paneId) onRemove;
-  final void Function(NotificationItem entry) onOpenActions;
   final DateTime Function() now;
 
   @override
@@ -908,7 +772,8 @@ class _NotificationRowState extends State<_NotificationRow>
           color: widget.color,
           showDivider: widget.showDivider,
           onTap: () => widget.onOpenPane(paneId),
-          onActions: () => widget.onOpenActions(entry),
+          onMarkSeen: entry.seen ? null : markRead,
+          onRemove: remove,
           now: widget.now,
           customActions: <CustomSemanticsAction, VoidCallback>{
             if (!entry.seen)
@@ -975,26 +840,6 @@ class _SwipeAction extends StatelessWidget {
   }
 }
 
-/// A native action row in the notification sheet.
-class _SheetActionRow extends StatelessWidget {
-  const _SheetActionRow({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => ChromeListRow.sheet(
-    title: label,
-    leading: Icon(icon, size: AppSize.iconMd),
-    destructive: icon == Symbols.delete_outline_rounded,
-    onTap: onTap,
-  );
-}
-
 /// A native notification row with its status, age, and action menu.
 class _RowContent extends StatelessWidget {
   const _RowContent({
@@ -1002,7 +847,8 @@ class _RowContent extends StatelessWidget {
     required this.color,
     required this.showDivider,
     required this.onTap,
-    required this.onActions,
+    required this.onMarkSeen,
+    required this.onRemove,
     required this.now,
     required this.customActions,
   });
@@ -1010,7 +856,10 @@ class _RowContent extends StatelessWidget {
   final AppColor color;
   final bool showDivider;
   final VoidCallback onTap;
-  final VoidCallback onActions;
+
+  /// `null` on a read row: the menu then offers `Remove` alone.
+  final VoidCallback? onMarkSeen;
+  final VoidCallback onRemove;
   final DateTime Function() now;
   final Map<CustomSemanticsAction, VoidCallback> customActions;
 
@@ -1061,10 +910,28 @@ class _RowContent extends StatelessWidget {
         left: AppSpace.space4,
         right: AppSpace.space4 - _menuGlyphInset,
       ),
-      trailing: _IconAction(
-        icon: Symbols.more_vert_rounded,
-        label: 'Notification actions',
-        onTap: onActions,
+      trailing: ChromeMenuAnchor(
+        items: <ChromeMenuItem>[
+          if (onMarkSeen != null)
+            ChromeMenuItem(
+              // `Mark as seen` in the R-32-401 map.
+              label: 'Mark as read',
+              icon: Symbols.done_all_rounded,
+              onSelected: onMarkSeen,
+            ),
+          ChromeMenuItem(
+            // `Remove one notification, destructive` in the R-32-401 map (2026-09-08).
+            label: 'Remove',
+            icon: Symbols.delete_outline_rounded,
+            destructive: true,
+            onSelected: onRemove,
+          ),
+        ],
+        builder: (BuildContext context, MenuController menu) => _IconAction(
+          icon: Symbols.more_vert_rounded,
+          label: 'Notification actions',
+          onTap: menu.open,
+        ),
       ),
       onTap: onTap,
     );

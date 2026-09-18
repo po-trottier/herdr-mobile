@@ -34,15 +34,13 @@ import 'package:flutter/foundation.dart'
         ValueNotifier;
 import 'package:flutter/widgets.dart'
     show
-        BorderRadius,
-        BoxDecoration,
         ColoredBox,
-        ExcludeSemantics,
         LocalKey,
         MediaQuery,
         Navigator,
         Page,
         PopScope,
+        ScrollController,
         SizedBox,
         State,
         StatefulWidget,
@@ -63,8 +61,7 @@ import 'package:go_router/go_router.dart'
         StatefulShellBranch,
         StatefulShellRoute;
 import 'package:local_auth/local_auth.dart' show LocalAuthentication;
-import 'package:material_ui/material_ui.dart'
-    show Container, MaterialPage, showModalBottomSheet;
+import 'package:material_ui/material_ui.dart' show MaterialPage;
 import 'package:package_info_plus/package_info_plus.dart' show PackageInfo;
 
 import 'core/result/result.dart' show Err, Ok, Result;
@@ -128,9 +125,9 @@ import 'services/tree.dart' show fetchTreeSnapshot, paneDisplayName;
 import 'widgets/app_filled_button.dart';
 import 'widgets/app_text_button.dart';
 import 'widgets/theme/app_color.dart';
-import 'widgets/theme/app_size.dart';
 import 'widgets/theme/app_space.dart';
 import 'widgets/theme/app_type.dart';
+import 'widgets/theme/chrome_sheet.dart' show showChromeSheet;
 import 'widgets/theme/chrome_snackbar.dart' show showChromeSnackbar;
 
 bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
@@ -2019,12 +2016,9 @@ Future<void> _maybeOfferAppLock(BuildContext context) async {
   if (!context.mounted || !supported) {
     return; // R-30-523: no screen-lock capability -- skip silently, leave App Lock off.
   }
-  await showModalBottomSheet<void>(
+  await showChromeSheet<void>(
     context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    backgroundColor: AppColor.of(context).bgRaised,
-    builder: (sheetContext) =>
+    builder: (BuildContext sheetContext, ScrollController? _) =>
         AppLockOfferSheet(onTurnOn: () => unawaited(_turnAppLockOn(context))),
   );
 }
@@ -2065,10 +2059,10 @@ Future<void> _turnAppLockOn(BuildContext context) async {
 /// private sheet/route helper in this file, specifically so `test/routing_test.dart` can pump
 /// it directly with no `go_router`/`Riverpod`/platform-channel plumbing -- mirroring
 /// `welcome_screen.dart`'s `WelcomeScreenBody` split. Shaped exactly like
-/// `settings_screen.dart`'s private `_RelayAddressSheet`/`_NameSheet`: a grab handle, a
-/// heading, one line of body text, one filled button, one text-button cancel row -- never new
-/// sheet chrome. `R-30-005` forbids a modal dialog for this choice; this is the bottom sheet
-/// that rule requires instead.
+/// `settings_screen.dart`'s private `_NameSheet`: a heading, one line of body text, one filled
+/// button, one text-button cancel row -- never new sheet chrome; the platform draws the handle
+/// and the surface through `showChromeSheet`. `R-30-005` forbids a modal dialog for this
+/// choice; this is the sheet that rule requires instead.
 class AppLockOfferSheet extends StatelessWidget {
   const AppLockOfferSheet({super.key, this.onTurnOn});
 
@@ -2088,8 +2082,6 @@ class AppLockOfferSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const _AppLockSheetGrabHandle(),
-              const SizedBox(height: AppSpace.space4),
               Text(
                 "Lock the app behind your phone's screen lock?",
                 style: AppType.heading.copyWith(color: color.fgPrimary),
@@ -2120,26 +2112,4 @@ class AppLockOfferSheet extends StatelessWidget {
       ),
     );
   }
-}
-
-/// The grab handle: `size.grab` at `radius.full` in `color.fg.disabled`, duplicated from
-/// `settings_screen.dart`'s own private `_GrabHandle` per that widget's own doc comment
-/// (R-32-546, R-90-018 -- no shared bottom-sheet primitive exists on any package's `Paths.`
-/// line yet).
-class _AppLockSheetGrabHandle extends StatelessWidget {
-  const _AppLockSheetGrabHandle();
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: ExcludeSemantics(
-      child: Container(
-        width: AppSize.grabWidth,
-        height: AppSize.grabHeight,
-        decoration: BoxDecoration(
-          color: AppColor.of(context).fgDisabled,
-          borderRadius: BorderRadius.circular(AppSize.grabHeight / 2),
-        ),
-      ),
-    ),
-  );
 }

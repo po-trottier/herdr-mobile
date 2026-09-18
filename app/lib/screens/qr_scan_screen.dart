@@ -77,9 +77,9 @@ import 'package:flutter/widgets.dart'
         Orientation,
         Padding,
         PositionedDirectional,
-        Radius,
         Row,
         SafeArea,
+        ScrollController,
         Semantics,
         SingleChildScrollView,
         SingleTickerProviderStateMixin,
@@ -96,14 +96,7 @@ import 'package:flutter/widgets.dart'
         WidgetsBindingObserver;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show
-        AppBar,
-        Colors,
-        Material,
-        PreferredSize,
-        RoundedRectangleBorder,
-        Scaffold,
-        showModalBottomSheet;
+    show AppBar, Material, PreferredSize, Scaffold;
 import 'package:mobile_scanner/mobile_scanner.dart'
     show
         BarcodeFormat,
@@ -141,6 +134,7 @@ import '../widgets/theme/app_size.dart';
 import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_icon_action.dart';
+import '../widgets/theme/chrome_sheet.dart';
 import '../widgets/theme/chrome_tonal_button.dart';
 import '../widgets/treatments.dart';
 
@@ -830,43 +824,9 @@ class _BottomBar extends StatelessWidget {
   );
 }
 
-/// The bottom sheet grab handle of `docs/32-design-language.md` section 7.16: `size.grab` at
-/// `radius.full` in `color.fg.disabled`, centred, `space.2` from the top, excluded from the
-/// semantics tree (R-32-546). The same anatomy `pane_actions_sheet.dart` draws.
-class _GrabHandle extends StatelessWidget {
-  const _GrabHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpace.space2),
-      child: Center(
-        child: ExcludeSemantics(
-          child: Container(
-            width: AppSize.grabWidth,
-            height: AppSize.grabHeight,
-            decoration: BoxDecoration(
-              color: color.fgDisabled,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The surface every sheet on this screen is presented on: `color.bg.raised` with `radius.lg`
-/// top corners (section 7.16), supplied to `showModalBottomSheet` the way
-/// `device_list_screen.dart` does, so the content draws no surface of its own.
-const RoundedRectangleBorder _sheetShape = RoundedRectangleBorder(
-  borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
-);
-
 /// The help sheet's content: the three setup steps of `_setupSteps`, word for word, plus one
-/// `Close` row (R-31-02-09). Anatomy per section 7.16 and `pane_actions_sheet.dart`: grab
-/// handle, `type.heading` title, `space.4` side inset, `space.6` under the last action.
+/// `Close` row (R-31-02-09). Anatomy per section 7.16: `type.heading` title, `space.4` side
+/// inset, `space.6` under the last action; the platform draws the handle and the surface.
 class HelpSheetContent extends StatelessWidget {
   const HelpSheetContent({super.key, this.onClose});
 
@@ -886,7 +846,6 @@ class HelpSheetContent extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const _GrabHandle(),
           Text(
             'How to pair a computer',
             style: AppType.heading.copyWith(color: color.fgPrimary),
@@ -908,8 +867,8 @@ class HelpSheetContent extends StatelessWidget {
   }
 }
 
-/// One [_InfoSheet]'s content. No grab handle: `_showSheet` presents it with the drag and the
-/// tap-outside dismissal off, so a handle would promise a gesture the sheet refuses. Otherwise
+/// One [_InfoSheet]'s content, presented with the drag and the tap-outside dismissal off, so
+/// the platform draws no handle that would promise a gesture the sheet refuses. Otherwise
 /// the same anatomy as [HelpSheetContent].
 class _InfoSheetContent extends StatelessWidget {
   const _InfoSheetContent({required this.sheet, this.onAction});
@@ -1119,16 +1078,10 @@ class _QrScanScreenState extends State<QrScanScreen>
   void _openHelp() {
     unawaited(_scanner.pause());
     unawaited(
-      showModalBottomSheet<void>(
+      showChromeSheet<void>(
         context: context,
-        useRootNavigator: true,
-        backgroundColor: Colors.transparent,
-        shape: _sheetShape,
-        builder: (context) => Material(
-          color: AppColor.of(context).bgRaised,
-          shape: _sheetShape,
-          child: HelpSheetContent(onClose: () => Navigator.of(context).pop()),
-        ),
+        builder: (BuildContext context, ScrollController? _) =>
+            HelpSheetContent(onClose: () => Navigator.of(context).pop()),
       ).whenComplete(() {
         if (mounted && _phase == QrScanPhase.ready) {
           unawaited(_startCamera());
@@ -1378,21 +1331,15 @@ class _QrScanScreenState extends State<QrScanScreen>
   void _showSheet(_InfoSheet sheet) {
     unawaited(_scanner.pause());
     unawaited(
-      showModalBottomSheet<void>(
+      showChromeSheet<void>(
         context: context,
-        useRootNavigator: true,
         isDismissible: false,
         enableDrag: false,
-        backgroundColor: Colors.transparent,
-        shape: _sheetShape,
-        builder: (context) => Material(
-          color: AppColor.of(context).bgRaised,
-          shape: _sheetShape,
-          child: _InfoSheetContent(
-            sheet: sheet,
-            onAction: () => Navigator.of(context).pop(),
-          ),
-        ),
+        builder: (BuildContext context, ScrollController? _) =>
+            _InfoSheetContent(
+              sheet: sheet,
+              onAction: () => Navigator.of(context).pop(),
+            ),
       ).whenComplete(() {
         if (mounted && _phase == QrScanPhase.ready) {
           unawaited(_startCamera());

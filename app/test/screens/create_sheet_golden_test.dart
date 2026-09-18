@@ -31,7 +31,7 @@ import 'package:herdr_mobile/models/messages/workspace_summary.dart';
 import 'package:herdr_mobile/screens/create_sheet.dart';
 import 'package:herdr_mobile/services/relay.dart';
 import 'package:material_ui/material_ui.dart'
-    show BackButton, Builder, ElevatedButton, Scaffold, Text;
+    show BackButton, Builder, ElevatedButton, MaterialApp, Scaffold, Text;
 
 import 'golden_support.dart';
 
@@ -161,8 +161,10 @@ void main() {
             }
             expect(find.text('Cancel'), findsOneWidget);
 
+            // The whole app, not the content alone: the sheet's surface, corner and handle
+            // are the platform component's own, drawn around the content (R-33-033).
             await expectLater(
-              find.byType(CreateSheet),
+              find.byType(MaterialApp),
               matchesGoldenFile(
                 'goldens/create_sheet_$stateName${platformSuffix}_$themeName.png',
               ),

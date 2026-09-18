@@ -16,7 +16,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoButton, CupertinoNavigationBar;
 import 'package:flutter/foundation.dart'
-    show Brightness, TargetPlatform, debugDefaultTargetPlatformOverride;
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show Offset, SizedBox, StatefulBuilder;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
@@ -24,6 +24,7 @@ import 'package:flutter/widgets.dart'
         Border,
         BorderStyle,
         BoxDecoration,
+        BuildContext,
         CustomPaint,
         DecoratedBox,
         MediaQuery,
@@ -50,7 +51,7 @@ import 'package:herdr_mobile/widgets/theme/app_color.dart';
 import 'package:herdr_mobile/widgets/theme/app_space.dart';
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show AppBar, IconButton, Material, MaterialApp;
+    show AppBar, IconButton, Material, MaterialApp, Theme;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -750,15 +751,17 @@ void main() {
       );
       await tester.tap(find.byIcon(Symbols.info_rounded));
       await tester.pumpAndSettle();
-      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
-      for (final brightness in [Brightness.dark, Brightness.light]) {
-        tester.platformDispatcher.platformBrightnessTestValue = brightness;
-        await tester.pumpAndSettle();
-        final surface = tester
-            .element(find.byType(HelpSheetContent))
-            .findAncestorWidgetOfExactType<Material>()!;
-        expect(surface.color, AppColor.resolve(brightness).bgRaised);
-      }
+      // The Material 3 sheet keeps the component's own surface role, which the app theme
+      // maps to `bg.raised` (R-33-033's `Content sheet` row); the content paints none.
+      final BuildContext sheetContext = tester.element(
+        find.byType(HelpSheetContent),
+      );
+      final Material surface = sheetContext
+          .findAncestorWidgetOfExactType<Material>()!;
+      expect(
+        surface.color,
+        Theme.of(sheetContext).colorScheme.surfaceContainerLow,
+      );
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();
       expect(find.text(message), findsOneWidget);

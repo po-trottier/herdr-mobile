@@ -2,10 +2,10 @@
 /// (`app/lib/widgets/theme/chrome_confirmation_dialog.dart`) opens the platform dialog
 /// R-33-074 names: `CupertinoAlertDialog` with a leading, non-default `Cancel` action on iOS
 /// (R-33-074.2, R-33-074.3), the Material `AlertDialog` on Android, with [cancelLabel]
-/// applying on Android only, per that widget's own doc comment. On both platforms the
-/// destructive verb is `treat.destructive` and the safe action is `type.body.strong` in
-/// `color.fg.primary`, per `docs/32-design-language.md` section 7.17 and R-32-527 (amended
-/// 2026-09-08); one dark golden per platform records the result.
+/// applying on Android only, per that widget's own doc comment. On both platforms the actions
+/// are the component's own: plain labels with no glyph, the destructive one
+/// `isDestructiveAction` on iOS and `color.status.error` on Android (R-33-074.6, amended
+/// 2026-09-18); one dark golden per platform records the result.
 library;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
@@ -16,13 +16,17 @@ import 'package:flutter/widgets.dart'
     show Brightness, BuildContext, Builder, Icon, Text, Widget;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
-import 'package:herdr_mobile/widgets/theme/app_type.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_confirmation_dialog.dart';
 import 'package:herdr_mobile/widgets/theme/chrome_confirmation_outcome.dart';
-import 'package:herdr_mobile/widgets/treatments.dart';
-import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show AlertDialog, ElevatedButton, MaterialApp, Scaffold, TextButton;
+    show
+        AlertDialog,
+        Dialog,
+        ElevatedButton,
+        MaterialApp,
+        Scaffold,
+        TextButton,
+        WidgetState;
 
 import '../../screens/golden_support.dart';
 
@@ -60,39 +64,26 @@ Future<ChromeConfirmationOutcome? Function()> _open(
   return () => outcome;
 }
 
-/// The destructive verb carries `treat.destructive`: the `delete_outline`
-/// glyph in `color.status.error` and the label in `color.fg.primary`, never
-/// red text (R-32-527). The safe action is `type.body.strong` in
-/// `color.fg.primary`.
-void _expectRoles(WidgetTester tester, String cancelLabel) {
-  final Finder treatment = find.byType(Treatment);
-  expect(treatment, findsOneWidget);
+/// Both actions are plain labels: no glyph inside the dialog (R-33-074.6).
+void _expectPlainActions(WidgetTester tester, String cancelLabel) {
+  expect(find.text('Forget'), findsOneWidget);
+  expect(find.text(cancelLabel), findsOneWidget);
   expect(
-    find.descendant(of: treatment, matching: find.text('Forget')),
-    findsOneWidget,
+    find.descendant(
+      of: find.byType(Dialog).evaluate().isEmpty
+          ? find.byType(CupertinoAlertDialog)
+          : find.byType(Dialog),
+      matching: find.byType(Icon),
+    ),
+    findsNothing,
   );
-  final Icon glyph = tester.widget(
-    find.descendant(of: treatment, matching: find.byType(Icon)),
-  );
-  expect(glyph.icon, Symbols.delete_outline_rounded);
-  expect(glyph.color, AppColor.light.statusError);
-  // `Treatment` renders its label through `keyedText` (R-32-599), a
-  // `Text.rich` whose style sits on the root span, not on the widget.
-  final Text verb = tester.widget(
-    find.descendant(of: treatment, matching: find.text('Forget')),
-  );
-  expect((verb.style ?? verb.textSpan!.style)!.color, AppColor.light.fgPrimary);
-
-  final Text safe = tester.widget(find.text(cancelLabel));
-  expect(safe.style!.fontWeight, AppType.bodyStrong.fontWeight);
-  expect(safe.style!.color, AppColor.light.fgPrimary);
 }
 
 void main() {
   setUpAll(loadAppFonts);
 
   testWidgets('iOS: CupertinoAlertDialog with Cancel leading and the destructive action marked, '
-      'per R-33-074.2/.3, each role in its 7.17 composition', (tester) async {
+      'per R-33-074.2/.3, both actions plain labels', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     final outcome = await _open(tester);
 
@@ -114,7 +105,7 @@ void main() {
       isTrue,
       reason: 'neither action is default while a destructive action is present, per R-33-074.3',
     );
-    _expectRoles(tester, 'Cancel');
+    _expectPlainActions(tester, 'Cancel');
 
     await tester.tap(find.text('Forget'));
     await tester.pumpAndSettle();
@@ -124,14 +115,29 @@ void main() {
 
   testWidgets(
     'Android: Material AlertDialog with the destructive action, roles placed by the '
-    'component (R-33-074.4), each role in its 7.17 composition',
+    'component (R-33-074.4), the destructive label in color.status.error',
     (tester) async {
       final outcome = await _open(tester, cancelLabel: 'Not now');
 
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.byType(CupertinoAlertDialog), findsNothing);
       expect(find.byType(TextButton), findsNWidgets(2));
-      _expectRoles(tester, 'Not now');
+      _expectPlainActions(tester, 'Not now');
+      final TextButton forget = tester.widget(
+        find.widgetWithText(TextButton, 'Forget'),
+      );
+      expect(
+        forget.style!.foregroundColor!.resolve(<WidgetState>{}),
+        AppColor.light.statusError,
+      );
+      final TextButton notNow = tester.widget(
+        find.widgetWithText(TextButton, 'Not now'),
+      );
+      expect(
+        notNow.style,
+        isNull,
+        reason: 'the safe action is the theme\'s own',
+      );
 
       await tester.tap(find.text('Forget'));
       await tester.pumpAndSettle();
@@ -152,23 +158,22 @@ void main() {
     (TargetPlatform.android, 'android'),
     (TargetPlatform.iOS, 'ios'),
   ]) {
-    testWidgets(
-      '$name dark golden: the destructive verb carries treat.destructive',
-      (tester) async {
-        debugDefaultTargetPlatformOverride = platform;
-        tester.view.physicalSize = goldenReferenceSize;
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        await _open(tester, golden: Brightness.dark);
-        await expectLater(
-          find.byType(MaterialApp),
-          matchesGoldenFile(
-            'goldens/chrome_confirmation_dialog_${name}_dark.png',
-          ),
-        );
-        debugDefaultTargetPlatformOverride = null;
-      },
-    );
+    testWidgets('$name dark golden: the platform dialog with plain actions', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      tester.view.physicalSize = goldenReferenceSize;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await _open(tester, golden: Brightness.dark);
+      await expectLater(
+        find.byType(MaterialApp),
+        matchesGoldenFile(
+          'goldens/chrome_confirmation_dialog_${name}_dark.png',
+        ),
+      );
+      debugDefaultTargetPlatformOverride = null;
+    });
   }
 }

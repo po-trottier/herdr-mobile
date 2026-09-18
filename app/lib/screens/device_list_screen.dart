@@ -3,8 +3,8 @@
 /// (`docs/30-ux-spec.md` row 14). Lists every phone the connected computer knows as the
 /// platform's own list (R-03-105, 2026-09-09), pushes the Device detail screen
 /// (`device_detail_screen.dart`) for one, and offers the three revoke actions of R-31-14-01
-/// through one `delete` action in the app bar that opens the platform's own choice surface
-/// (R-03-111, 2026-09-09): a Material menu on Android, a `CupertinoActionSheet` on iOS.
+/// through one `delete` action in the app bar that opens the platform's own menu
+/// (R-03-111, 2026-09-09; `ChromeMenuAnchor` on both platforms since 2026-09-18).
 ///
 /// This file owns no route: `app/lib/routing.dart` (`WP-12-b`, not this package's `Paths.`
 /// line) wires `/hosts/:hostId/devices` to this widget on request, and supplies this screen's
@@ -21,13 +21,7 @@ library;
 import 'dart:async' show StreamSubscription, Timer, unawaited;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show
-        CupertinoActionSheet,
-        CupertinoActionSheetAction,
-        CupertinoNavigationBar,
-        CupertinoPageRoute,
-        CupertinoPageScaffold,
-        showCupertinoModalPopup;
+    show CupertinoNavigationBar, CupertinoPageRoute, CupertinoPageScaffold;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart'
@@ -43,10 +37,8 @@ import 'package:flutter/widgets.dart'
         CrossAxisAlignment,
         CustomScrollView,
         EdgeInsets,
-        Icon,
-        IgnorePointer,
         MainAxisSize,
-        MergeSemantics,
+        MenuController,
         Navigator,
         Opacity,
         Padding,
@@ -62,18 +54,11 @@ import 'package:flutter/widgets.dart'
         StatefulWidget,
         StatelessWidget,
         Text,
-        TextStyle,
         VoidCallback,
         Widget;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show
-        AppBar,
-        MaterialPageRoute,
-        MenuAnchor,
-        MenuController,
-        MenuItemButton,
-        Scaffold;
+    show AppBar, MaterialPageRoute, Scaffold;
 
 import '../core/result/result.dart' show Err, Ok, Result;
 import '../models/message.dart';
@@ -100,6 +85,7 @@ import '../widgets/theme/chrome_confirmation_outcome.dart';
 import '../widgets/theme/chrome_icon_action.dart';
 import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/theme/chrome_loading_delay.dart';
+import '../widgets/theme/chrome_menu.dart';
 import '../widgets/theme/chrome_settings_section.dart';
 import '../widgets/theme/chrome_snackbar.dart';
 import '../widgets/treatments.dart';
@@ -122,12 +108,6 @@ const String _everyPhoneKeyNote =
 /// list in the `Host in use` and `Offline` states (R-31-14-09). Mirrors `qr_scan_screen.dart`'s
 /// and `terminal_view_widget.dart`'s own local copy of the same token.
 const double _opacityDim = 0.60;
-
-/// `opacity.disabled`, per the same table, for the one `Remove other phones` action of the iOS
-/// sheet while no other phone exists: `CupertinoActionSheetAction` has no disabled state of
-/// its own, so this file dims the whole action the way `ChromeListRow.destructive` dims its
-/// Cupertino tile (R-32-502).
-const double _opacityDisabled = 0.38;
 
 /// The three choices the `Remove phones` surface offers (R-03-111), in the order the
 /// mockup draws them.
@@ -573,145 +553,44 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
   }
 
   /// The one `delete` action of R-03-111 in the app bar, spoken `Remove phones`, the
-  /// [ChromeIconAction] of R-33-033 with the glyph of `treat.destructive`. On Android it is
-  /// the anchor of a Material menu: the three choices as [MenuItemButton]s, each with the
-  /// destructive glyph, disabled when their target is gone. On iOS it opens the
-  /// `CupertinoActionSheet` of [_showRemoveSheet]. Disabled at `opacity.disabled` while
-  /// [_canOpenRemove] is false, so the bar never gains or loses a control (R-32-502).
-  Widget _removeAction(AppColor color) {
-    if (_isIos) {
-      return ChromeIconAction(
+  /// [ChromeIconAction] of R-33-033 with the glyph of `treat.destructive`. It anchors the
+  /// platform menu of [ChromeMenuAnchor]: the three choices, each destructive, each disabled
+  /// when its target is gone. Disabled at `opacity.disabled` while [_canOpenRemove] is false,
+  /// so the bar never gains or loses a control (R-32-502). The menu returns the choice and
+  /// closes; the confirmation of R-33-074 then opens over the list, never over the menu.
+  Widget _removeAction(AppColor color) => ChromeMenuAnchor(
+    items: <ChromeMenuItem>[
+      ChromeMenuItem(
+        label: 'Remove this phone',
         icon: Symbols.delete_outline_rounded,
-        label: _removeActionLabel,
-        onPressed: _canOpenRemove ? () => unawaited(_showRemoveSheet()) : null,
-      );
-    }
-    return MenuAnchor(
-      builder:
-          (BuildContext context, MenuController controller, Widget? child) =>
-              ChromeIconAction(
-                icon: Symbols.delete_outline_rounded,
-                label: _removeActionLabel,
-                onPressed: _canOpenRemove
-                    ? () => controller.isOpen
-                          ? controller.close()
-                          : controller.open()
-                    : null,
-              ),
-      menuChildren: <Widget>[
-        _removeMenuItem(
-          color,
-          'Remove this phone',
-          enabled: _thisPhone != null,
-          choice: _RemoveChoice.thisPhone,
-        ),
-        _removeMenuItem(
-          color,
-          'Remove other phones',
-          enabled: _hasOthers,
-          choice: _RemoveChoice.others,
-        ),
-        _removeMenuItem(
-          color,
-          'Remove every phone',
-          enabled: true,
-          choice: _RemoveChoice.all,
-        ),
-      ],
-    );
-  }
-
-  /// One item of the Android menu: the platform's own [MenuItemButton], its label in the
-  /// component's own type, the `delete_outline` glyph of `treat.destructive` at `size.icon.md`
-  /// in `color.status.error` leading it (R-32-527), the same token dimmed when the item is
-  /// disabled (R-32-502). The item announces `destructive`, per R-30-141, as the rows it
-  /// replaces did.
-  Widget _removeMenuItem(
-    AppColor color,
-    String title, {
-    required bool enabled,
-    required _RemoveChoice choice,
-  }) => MergeSemantics(
-    child: Semantics(
-      hint: 'destructive',
-      child: MenuItemButton(
-        style: MenuItemButton.styleFrom(
-          iconColor: color.statusError,
-          disabledIconColor: color.statusError.withValues(
-            alpha: _opacityDisabled,
-          ),
-          iconSize: AppSize.iconMd,
-        ),
-        leadingIcon: const Icon(Symbols.delete_outline_rounded),
-        onPressed: enabled ? () => _onRemoveChoice(choice) : null,
-        child: Text(title),
+        destructive: true,
+        onSelected: _thisPhone == null
+            ? null
+            : () => _onRemoveChoice(_RemoveChoice.thisPhone),
       ),
+      ChromeMenuItem(
+        label: 'Remove other phones',
+        icon: Symbols.delete_outline_rounded,
+        destructive: true,
+        onSelected: _hasOthers
+            ? () => _onRemoveChoice(_RemoveChoice.others)
+            : null,
+      ),
+      ChromeMenuItem(
+        label: 'Remove every phone',
+        icon: Symbols.delete_outline_rounded,
+        destructive: true,
+        onSelected: () => _onRemoveChoice(_RemoveChoice.all),
+      ),
+    ],
+    builder: (BuildContext context, MenuController menu) => ChromeIconAction(
+      icon: Symbols.delete_outline_rounded,
+      label: _removeActionLabel,
+      onPressed: _canOpenRemove
+          ? () => menu.isOpen ? menu.close() : menu.open()
+          : null,
     ),
   );
-
-  /// The iOS choice surface of R-03-111: the platform's own `CupertinoActionSheet`, three
-  /// `isDestructiveAction` actions in the mockup's order and the `Cancel` button the platform
-  /// groups apart. Each label keeps the component's own size, colour and case and takes the
-  /// interface family, as `app.dart`'s `actionTextStyle` does for every `CupertinoButton`
-  /// (R-03-104, R-32-212): the sheet reads no theme slot, so the family is set on the label.
-  /// The sheet returns the choice and closes; the confirmation of R-33-074 then opens over
-  /// the list, never over the sheet.
-  Future<void> _showRemoveSheet() async {
-    final bool hasThisPhone = _thisPhone != null;
-    final bool hasOthers = _hasOthers;
-    Widget label(String title) => Text(
-      title,
-      style: const TextStyle(fontFamily: AppType.interfaceFontFamily),
-    );
-    final _RemoveChoice? choice = await showCupertinoModalPopup<_RemoveChoice>(
-      context: context,
-      builder: (BuildContext sheetContext) {
-        Widget action(
-          String title,
-          _RemoveChoice choice, {
-          required bool enabled,
-        }) {
-          final Widget action = CupertinoActionSheetAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(sheetContext).pop(choice),
-            child: label(title),
-          );
-          return MergeSemantics(
-            child: Semantics(
-              hint: 'destructive',
-              enabled: enabled,
-              child: enabled
-                  ? action
-                  : IgnorePointer(
-                      child: Opacity(opacity: _opacityDisabled, child: action),
-                    ),
-            ),
-          );
-        }
-
-        return CupertinoActionSheet(
-          actions: <Widget>[
-            action(
-              'Remove this phone',
-              _RemoveChoice.thisPhone,
-              enabled: hasThisPhone,
-            ),
-            action(
-              'Remove other phones',
-              _RemoveChoice.others,
-              enabled: hasOthers,
-            ),
-            action('Remove every phone', _RemoveChoice.all, enabled: true),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(sheetContext).pop(),
-            child: label('Cancel'),
-          ),
-        );
-      },
-    );
-    if (choice != null && mounted) _onRemoveChoice(choice);
-  }
 
   @override
   Widget build(BuildContext context) {

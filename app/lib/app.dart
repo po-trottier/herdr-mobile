@@ -48,6 +48,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' show ProviderScope;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
+        BottomSheetThemeData,
         ButtonStyle,
         ColorScheme,
         Colors,
@@ -550,6 +551,10 @@ ThemeData appThemeFrom(ColorScheme colorScheme) {
     dividerColor: tokens.borderSubtle,
     splashFactory: NoSplash.splashFactory,
     snackBarTheme: chromeSnackbarTheme(tokens),
+    // R-33-033's `Content sheet` and `Confirmation` rows: the Material 3 sheet and dialog keep
+    // the component's own shape, surface and elevation; the theme sets only the drag handle,
+    // so every modal sheet the app opens carries it.
+    bottomSheetTheme: const BottomSheetThemeData(showDragHandle: true),
     cupertinoOverrideTheme: CupertinoThemeData(
       textTheme: CupertinoTextThemeData(
         textStyle: TextStyle(

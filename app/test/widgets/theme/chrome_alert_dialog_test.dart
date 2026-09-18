@@ -99,11 +99,6 @@ void main() {
         reason: 'the detail stacks under the body',
       );
 
-      final Text tryAgain = tester.widget(find.text('Try again'));
-      expect(tryAgain.style!.fontWeight, AppType.bodyStrong.fontWeight);
-      final Text back = tester.widget(find.text('Back'));
-      expect(back.style!.fontWeight, AppType.body.fontWeight);
-
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
       expect(await handle.result, _Way.tryAgain);

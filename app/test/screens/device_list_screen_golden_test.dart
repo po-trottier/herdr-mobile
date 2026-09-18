@@ -3,7 +3,7 @@
 /// paints without a platform dialog on screen (R-90-011): `Default`, `Loading`, `Empty`,
 /// `Error`, `Error, no reply`, `Outcome unknown` and `Removing`, plus the two choice surfaces
 /// of R-03-111 (2026-09-09): `Choosing, Android`, the Material menu under the `Remove phones`
-/// action, and `Choosing, iOS`, the `CupertinoActionSheet`. Each renders in both Selenized
+/// action, and `Choosing, iOS`, the `CupertinoMenuAnchor` menu. Each renders in both Selenized
 /// dark and light (R-32-012). Since 2026-09-09 (R-03-105) the list is the platform's own: one
 /// push row per phone with `This phone` at the trailing edge of this phone's row and no state
 /// bar; since R-03-111 the three remove actions are the items of the choice surface, so the
@@ -40,10 +40,9 @@ import 'dart:async';
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoActivityIndicator,
-        CupertinoActionSheet,
-        CupertinoActionSheetAction,
         CupertinoListSection,
-        CupertinoListTile;
+        CupertinoListTile,
+        CupertinoMenuItem;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart' show Brightness;
@@ -295,10 +294,10 @@ void main() {
       },
     );
 
-    // `Choosing, iOS` (R-03-111): the `CupertinoActionSheet`, three destructive actions and
-    // the `Cancel` button the platform groups apart, over the dimmed list.
+    // `Choosing, iOS` (R-03-111, R-33-033): the `CupertinoMenuAnchor` pull-down menu under
+    // the `Remove phones` action, three `isDestructiveAction` items, the glyph trailing.
     testWidgets(
-      'choosing ($themeName, iOS action sheet) matches docs/31-mockups/14-devices.md',
+      'choosing ($themeName, iOS menu) matches docs/31-mockups/14-devices.md',
       (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
         addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -311,14 +310,14 @@ void main() {
         await tester.tap(find.byType(ChromeIconAction));
         await tester.pumpAndSettle();
 
-        expect(find.byType(CupertinoActionSheet), findsOneWidget);
-        expect(find.byType(CupertinoActionSheetAction), findsNWidgets(4));
-        expect(find.text('Cancel'), findsOneWidget);
+        expect(find.byType(CupertinoMenuItem), findsNWidgets(3));
+        expect(find.byIcon(Symbols.delete_outline_rounded), findsNWidgets(4));
+        expect(find.text('Cancel'), findsNothing);
 
         await expectLater(
           find.byType(MaterialApp),
           matchesGoldenFile(
-            'goldens/device_list_screen_sheet_ios_$themeName.png',
+            'goldens/device_list_screen_menu_ios_$themeName.png',
           ),
         );
         debugDefaultTargetPlatformOverride = null;

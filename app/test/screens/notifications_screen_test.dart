@@ -11,7 +11,11 @@ import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoButton, CupertinoListTile, CupertinoNavigationBar;
+    show
+        CupertinoButton,
+        CupertinoListTile,
+        CupertinoMenuItem,
+        CupertinoNavigationBar;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/semantics.dart'
@@ -31,8 +35,13 @@ import 'package:herdr_mobile/widgets/theme/app_space.dart' show AppSpace;
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
-    show AlertDialog, IconButton, MaterialApp, TextButton;
-import 'package:material_ui/material_ui.dart' show ListTile;
+    show
+        AlertDialog,
+        IconButton,
+        ListTile,
+        MaterialApp,
+        MenuItemButton,
+        TextButton;
 
 final DateTime _fixedNow = DateTime.utc(2026, 9, 4, 10, 4);
 
@@ -400,7 +409,7 @@ void main() {
     },
   );
 
-  testWidgets('the row actions control opens a sheet with Mark as read (unread only) and Remove, on '
+  testWidgets('the row actions control opens a menu with Mark as read (unread only) and Remove, on '
       'the same callbacks (callout 11)', (tester) async {
     final (calls, _) = await _pump(
       tester,
@@ -726,11 +735,23 @@ void main() {
         await tester.tap(mark);
         await tester.pumpAndSettle();
         expect(calls.markSeen, <String>['w1:p1']);
+        // The row's `⋮` opens the platform menu of R-33-033: `MenuItemButton` on Android,
+        // `CupertinoMenuItem` on iOS, each choice with its glyph.
         await tester.tap(find.byIcon(Symbols.more_vert_rounded));
         await tester.pumpAndSettle();
-        expect(find.widgetWithText(tile, 'Remove'), findsOneWidget);
-        expect(find.widgetWithText(tile, 'Mark as read'), findsOneWidget);
-        await tester.tap(find.widgetWithText(tile, 'Remove'));
+        final Type item = platform == TargetPlatform.iOS
+            ? CupertinoMenuItem
+            : MenuItemButton;
+        expect(find.widgetWithText(item, 'Remove'), findsOneWidget);
+        expect(find.widgetWithText(item, 'Mark as read'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.widgetWithText(item, 'Mark as read'),
+            matching: find.byIcon(Symbols.done_all_rounded),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.widgetWithText(item, 'Remove'));
         await tester.pumpAndSettle();
         expect(calls.remove, <String>['w1:p1', 'w1:p1']);
         expect(calls.open, isEmpty);

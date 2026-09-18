@@ -28,14 +28,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart'
     show GoRoute, GoRouter, RouteBase, StatefulShellBranch, StatefulShellRoute;
 import 'package:herdr_mobile/app.dart' show appThemeFrom;
-import 'package:herdr_mobile/core/result/result.dart' show Ok;
 import 'package:herdr_mobile/models/messages/agent_status_kind.dart'
     show AgentStatusKind;
 import 'package:herdr_mobile/routing.dart';
 import 'package:herdr_mobile/screens/app_shell.dart' show AppShell;
 import 'package:herdr_mobile/screens/host_list_screen.dart' show HostListScreen;
-import 'package:herdr_mobile/screens/notifications_screen.dart'
-    show NotificationsScreen;
 import 'package:herdr_mobile/services/agent_status.dart'
     show AttentionItem, NotificationItem;
 import 'package:herdr_mobile/services/relay.dart';
@@ -46,22 +43,18 @@ import 'package:herdr_mobile/widgets/theme/app_size.dart' show AppSize;
 import 'package:herdr_mobile/widgets/theme/app_type.dart' show AppType;
 import 'package:herdr_mobile/widgets/theme/chrome_scheme.dart'
     show ChromeScheme;
-import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
         Badge,
-        BottomSheet,
         Brightness,
         BuildContext,
         Colors,
         FloatingActionButton,
         Icon,
         MaterialApp,
-        ModalRoute,
         NavigationBar,
         NavigationBarTheme,
         NavigationBarThemeData,
-        Navigator,
         Widget,
         Text;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
@@ -160,60 +153,6 @@ void _fakePrefs() {
 }
 
 void main() {
-  testWidgets(
-    'notification sheet covers the shell on the root navigator (R-30-045)',
-    (tester) async {
-      final link = _Link(
-        connected: true,
-        hostName: 'NV-test',
-        hostId: 'h1',
-        currentNotifications: <NotificationItem>[_item('p1')],
-      );
-      addTearDown(link.dispose);
-      final router = _buildTestRouter(
-        link,
-        NotificationsScreen(
-          hostName: 'NV-test',
-          notifications: link.notifications.stream,
-          currentNotifications: link.currentNotifications,
-          onMarkSeen: (_) async => const Ok(null),
-          onMarkAllSeen: () async => const Ok(null),
-          onRemove: (_) async => const Ok(null),
-          onRemoveAll: () async => const Ok(null),
-          onOpenPane: (_) {},
-        ),
-      );
-      addTearDown(router.dispose);
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('NOTIFICATIONS').first);
-      await tester.pumpAndSettle();
-
-      final screenContext = tester.element(find.byType(NotificationsScreen));
-      final root = Navigator.of(screenContext, rootNavigator: true);
-      final branch = Navigator.of(screenContext);
-      final branchRoute = ModalRoute.of(screenContext);
-      expect(branch, isNot(same(root)));
-      expect(find.byType(AppStrip).hitTestable(), findsOneWidget);
-      expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
-
-      await tester.tap(find.byIcon(Symbols.more_vert_rounded));
-      await tester.pumpAndSettle();
-
-      final sheetContext = tester.element(find.byType(BottomSheet));
-      expect(ModalRoute.of(sheetContext)!.navigator, same(root));
-      expect(find.byType(NavigationBar).hitTestable(), findsNothing);
-      expect(find.byType(AppStrip).hitTestable(), findsNothing);
-
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-      expect(find.byType(BottomSheet), findsNothing);
-      expect(branchRoute!.isCurrent, isTrue);
-      expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
-      await tester.pumpWidget(const MaterialApp());
-    },
-  );
-
   testWidgets('renders all three destinations and switches between them', (
     WidgetTester tester,
   ) async {

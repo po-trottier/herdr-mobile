@@ -7,12 +7,14 @@
 /// and a large text scale, plus `Cancel` staying above a raised keyboard (R-31-10-09).
 library;
 
-import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoListTile;
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoActionSheet, CupertinoActionSheetAction;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart'
     show
         EdgeInsets,
+        Icon,
         MediaQuery,
         MediaQueryData,
         Offset,
@@ -86,7 +88,8 @@ Future<void> _openSheet(
 void main() {
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets(
-      '$platform uses native sheet actions and navigation disclosure',
+      '$platform uses the platform action surface: ListTile rows with a glyph on Android, '
+      'glyph-less CupertinoActionSheet actions on iOS (R-33-033)',
       (tester) async {
         debugDefaultTargetPlatformOverride = platform;
         addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -98,14 +101,22 @@ void main() {
           onClosePane: () {},
           onSplit: (_) {},
         );
-        final nativeRows = find.byType(
-          platform == TargetPlatform.iOS ? CupertinoListTile : ListTile,
-        );
-        expect(nativeRows, findsNWidgets(4));
-        expect(
-          find.byIcon(Symbols.chevron_right_rounded),
-          platform == TargetPlatform.iOS ? findsOneWidget : findsNothing,
-        );
+        if (platform == TargetPlatform.iOS) {
+          expect(find.byType(CupertinoActionSheet), findsOneWidget);
+          // Four actions plus Cancel, no glyph on any of them.
+          expect(find.byType(CupertinoActionSheetAction), findsNWidgets(5));
+          expect(
+            find.descendant(
+              of: find.byType(CupertinoActionSheet),
+              matching: find.byType(Icon),
+            ),
+            findsNothing,
+          );
+        } else {
+          expect(find.byType(ListTile), findsNWidgets(4));
+          expect(find.byIcon(Symbols.extension_rounded), findsOneWidget);
+          expect(find.byIcon(Symbols.chevron_right_rounded), findsNothing);
+        }
         await tester.tap(find.text('Plugin actions'));
         await tester.pumpAndSettle();
         expect(opened, isTrue);

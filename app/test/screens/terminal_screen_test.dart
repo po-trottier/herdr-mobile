@@ -1565,7 +1565,10 @@ void main() {
         await tester.tap(
           find.text(action == 'cancel' ? 'Cancel queued send' : 'Send now'),
         );
+        // The platform menu fires its choice in a post-frame callback; one more frame lands
+        // the rebuild it causes.
         await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump();
         final replacementCorr = harness.correlations.last!;
         if (action == 'cancel') {
           expect(harness.sendInputs.last.toJson()['defer'], 'cancel');
@@ -2522,7 +2525,8 @@ void main() {
 
         await tester.tap(find.text('pane 2'));
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
+        // `CupertinoSheetRoute` leaves over its own transition, longer than the Material sheet.
+        await tester.pump(const Duration(milliseconds: 600));
         expect(harness.switchedTo, 'w3:p2');
         expect(find.byType(PaneSwitcherSheet), findsNothing);
         // The switch is the caller's route replacement: this screen sent

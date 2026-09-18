@@ -1,7 +1,7 @@
 /// Smoke-tests `DeviceListScreen` (`WP-20-a`) against `docs/31-mockups/14-devices.md`: the
 /// platform rows of R-03-105 (one `ChromeListRow` per phone, `This phone` on this phone's
 /// row, no state bar), the one `Remove phones` app bar action of R-03-111 and the platform
-/// choice surface it opens (a Material menu on Android, a `CupertinoActionSheet` on iOS), the
+/// menu it opens (a Material `MenuAnchor` on Android, a `CupertinoMenuAnchor` on iOS), the
 /// confirmation dialogs' exact wording (R-31-14-01), the `Remove other phones` sequence (one
 /// `revoke_device` per other phone, never this one, stopped by a refusal), the `Error` state's
 /// `Try again`, and the pushed Device detail screen: its six values (R-31-14-08) and, on this
@@ -13,15 +13,14 @@ import 'dart:async';
 import 'package:cupertino_ui/cupertino_ui.dart'
     show
         CupertinoActivityIndicator,
-        CupertinoActionSheet,
-        CupertinoActionSheetAction,
         CupertinoAlertDialog,
+        CupertinoMenuItem,
         CupertinoNavigationBar;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart' show AppBar;
 import 'package:flutter/widgets.dart'
-    show CustomScrollView, SizedBox, SliverPadding;
+    show CustomScrollView, Icon, SizedBox, SliverPadding;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/core/result/result.dart';
 import 'package:herdr_mobile/models/codes.dart';
@@ -478,48 +477,44 @@ void main() {
     },
   );
 
-  testWidgets(
-    'iOS: Remove phones opens a CupertinoActionSheet with three destructive actions and '
-    'Cancel; picking Remove every phone opens its confirmation over the list (R-03-111)',
-    (WidgetTester tester) async {
-      _useIos();
-      await _pumpLoaded(tester, _threePhones());
+  testWidgets('iOS: Remove phones opens a CupertinoMenuAnchor menu of three destructive items with a '
+      'trailing glyph; picking Remove every phone opens its confirmation over the list '
+      '(R-03-111, R-33-033)', (WidgetTester tester) async {
+    _useIos();
+    await _pumpLoaded(tester, _threePhones());
 
-      await _openRemove(tester);
+    await _openRemove(tester);
 
-      expect(find.byType(CupertinoActionSheet), findsOneWidget);
-      final List<CupertinoActionSheetAction> actions = tester
-          .widgetList<CupertinoActionSheetAction>(
-            find.byType(CupertinoActionSheetAction),
-          )
-          .toList();
-      expect(actions, hasLength(4));
-      expect(actions.take(3).every((a) => a.isDestructiveAction), isTrue);
-      expect(actions.last.isDestructiveAction, isFalse);
-      expect(find.text('Remove this phone'), findsOneWidget);
-      expect(find.text('Remove other phones'), findsOneWidget);
-      expect(find.text('Remove every phone'), findsOneWidget);
-      expect(find.text('Cancel'), findsOneWidget);
+    final List<CupertinoMenuItem> items = tester
+        .widgetList<CupertinoMenuItem>(find.byType(CupertinoMenuItem))
+        .toList();
+    expect(items, hasLength(3));
+    expect(items.every((CupertinoMenuItem i) => i.isDestructiveAction), isTrue);
+    expect(
+      items.every((CupertinoMenuItem i) => i.trailing is Icon),
+      isTrue,
+      reason: 'the glyph sits in the trailing slot on iOS',
+    );
+    expect(find.text('Remove this phone'), findsOneWidget);
+    expect(find.text('Remove other phones'), findsOneWidget);
+    expect(find.text('Remove every phone'), findsOneWidget);
+    expect(find.text('Cancel'), findsNothing, reason: 'a menu has no Cancel');
 
-      await tester.tap(find.text('Remove every phone'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove every phone'));
+    await tester.pumpAndSettle();
 
-      expect(find.byType(CupertinoActionSheet), findsNothing);
-      expect(find.byType(CupertinoAlertDialog), findsOneWidget);
-      expect(
-        find.text('Remove every phone from patrick-desk?'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining(' key in the Relay pane on your computer.'),
-        findsOneWidget,
-      );
-      debugDefaultTargetPlatformOverride = null;
-    },
-  );
+    expect(find.byType(CupertinoMenuItem), findsNothing);
+    expect(find.byType(CupertinoAlertDialog), findsOneWidget);
+    expect(find.text('Remove every phone from patrick-desk?'), findsOneWidget);
+    expect(
+      find.textContaining(' key in the Relay pane on your computer.'),
+      findsOneWidget,
+    );
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   testWidgets(
-    'iOS with only this phone paired: Remove other phones is disabled in the sheet and a tap '
+    'iOS with only this phone paired: Remove other phones is disabled in the menu and a tap '
     'on it does nothing; Remove this phone still confirms (R-03-105, R-03-111)',
     (WidgetTester tester) async {
       _useIos();
@@ -528,16 +523,22 @@ void main() {
       await _openRemove(tester);
 
       expect(
-        tester.getSemantics(find.text('Remove other phones')),
-        isSemantics(
-          label: 'Remove other phones',
-          hint: 'destructive',
-          isEnabled: false,
+        tester
+            .widget<CupertinoMenuItem>(
+              find.widgetWithText(CupertinoMenuItem, 'Remove other phones'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester.getSemantics(
+          find.widgetWithText(CupertinoMenuItem, 'Remove other phones'),
         ),
+        isSemantics(hint: 'destructive', isEnabled: false),
       );
       await tester.tap(find.text('Remove other phones'), warnIfMissed: false);
       await tester.pumpAndSettle();
-      expect(find.byType(CupertinoActionSheet), findsOneWidget);
+      expect(find.byType(CupertinoMenuItem), findsNWidgets(3));
       expect(find.byType(CupertinoAlertDialog), findsNothing);
 
       await tester.tap(find.text('Remove this phone'));

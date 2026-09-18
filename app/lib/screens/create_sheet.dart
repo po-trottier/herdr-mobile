@@ -7,35 +7,22 @@ library;
 import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:flutter/material.dart'
-    show
-        Colors,
-        Icon,
-        Radius,
-        RoundedRectangleBorder,
-        MainAxisSize,
-        Navigator,
-        showModalBottomSheet,
-        BoxConstraints,
-        Row;
+    show Icon, MainAxisSize, Navigator, BoxConstraints, Row;
 import 'package:flutter/widgets.dart'
     show
-        BorderRadius,
-        BoxDecoration,
         BuildContext,
-        Center,
         Column,
         ConstrainedBox,
         Container,
         CrossAxisAlignment,
-        DecoratedBox,
         EdgeInsets,
-        ExcludeSemantics,
         Expanded,
         Flexible,
         MediaQuery,
         Padding,
         PopScope,
         SafeArea,
+        ScrollController,
         SingleChildScrollView,
         SizedBox,
         StatefulWidget,
@@ -77,6 +64,7 @@ import '../widgets/theme/app_space.dart';
 import '../widgets/theme/app_type.dart';
 import '../widgets/theme/chrome_activity_indicator.dart';
 import '../widgets/theme/chrome_back_button.dart';
+import '../widgets/theme/chrome_sheet.dart';
 import '../widgets/treatments.dart';
 
 /// Function shape for sending a frame, mirrors `pane_actions.dart`'s own private copy.
@@ -112,13 +100,13 @@ enum _LiveConnection { connected, hostInUse, offline }
 /// tapped is still the list shown once that create resolves — `Loading` is not a fourth phase.
 enum _Phase { menu, choosingWorkspace, outcomeUnknown }
 
-/// Shows [CreateSheet] as the modal bottom sheet: `radius.lg` top corners and `color.bg.raised`,
-/// the same shape `pane_actions_sheet.dart`'s `showPaneActionsSheet` uses. `isDismissible` is
-/// `true`, so a scrim tap closes an idle sheet, per callout 4 of `docs/31-mockups/17-create.md`
-/// ("A tap on the scrim closes the menu"). The barrier tap reaches the sheet as
-/// `Navigator.maybePop`, and `CreateSheet`'s own `PopScope` (`canPop: _loadingRowId == null`)
-/// refuses it while a create is in flight, per R-31-17-07. `enableDrag` stays `false`: the flag
-/// is fixed at show time, and the drag gesture animates the route directly rather than through
+/// Shows [CreateSheet] on the platform's content sheet of R-33-033 through [showChromeSheet]
+/// (R-33-037: a sheet on both platforms). `isDismissible` is `true`, so a scrim tap closes an
+/// idle sheet on Android, per callout 4 of `docs/31-mockups/17-create.md` ("A tap on the
+/// scrim closes the menu"). The barrier tap reaches the sheet as `Navigator.maybePop`, and
+/// `CreateSheet`'s own `PopScope` (`canPop: _loadingRowId == null`) refuses it while a create
+/// is in flight, per R-31-17-07. `enableDrag` stays `false` on both platforms: the flag is
+/// fixed at show time, and the drag gesture animates the route directly rather than through
 /// `maybePop`, so a drag cannot be gated on `_loadingRowId`. R-31-17-07 lists drag down beside
 /// the scrim tap, but the owner rejected only the scrim behaviour; the drag decision is pending.
 Future<void> showCreateSheet(
@@ -131,18 +119,13 @@ Future<void> showCreateSheet(
   required SendFrame send,
   required ValueChanged<CreateResult> onCreated,
 }) {
-  return showModalBottomSheet<void>(
+  return showChromeSheet<void>(
     context: context,
-    useRootNavigator: true,
     // decided 2026-09-03 by the product owner: a scrim tap dismisses an idle sheet (R-31-17-07);
     // PopScope refuses the tap while a create is in flight. Drag stays off, decision pending.
     isDismissible: true,
     enableDrag: false,
-    backgroundColor: Colors.transparent,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
-    ),
-    builder: (BuildContext context) => CreateSheet(
+    builder: (BuildContext context, ScrollController? _) => CreateSheet(
       hostName: hostName,
       snapshot: snapshot,
       lastCreatedWorkspaceId: lastCreatedWorkspaceId,
@@ -329,7 +312,6 @@ class _CreateSheetState extends State<CreateSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
     return PopScope(
       canPop: _loadingRowId == null,
       child: ConstrainedBox(
@@ -337,31 +319,21 @@ class _CreateSheetState extends State<CreateSheet> {
           maxHeight: MediaQuery.sizeOf(context).height * 0.9,
         ),
         child: SafeArea(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: color.bgRaised,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(AppRadius.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _buildHeader(context),
+              if (_connection != _LiveConnection.connected) _connectionBanner(),
+              if (_refusalText != null) _errorStrip(context),
+              _buildBody(context),
+              const _GroupDivider(),
+              _CancelRow(
+                onTap: _loadingRowId == null
+                    ? () => Navigator.of(context).pop()
+                    : () {},
               ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                const _GrabHandle(),
-                _buildHeader(context),
-                if (_connection != _LiveConnection.connected)
-                  _connectionBanner(),
-                if (_refusalText != null) _errorStrip(context),
-                _buildBody(context),
-                const _GroupDivider(),
-                _CancelRow(
-                  onTap: _loadingRowId == null
-                      ? () => Navigator.of(context).pop()
-                      : () {},
-                ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
@@ -549,32 +521,6 @@ class _CreateSheetState extends State<CreateSheet> {
           const SizedBox(height: AppSpace.space2),
           AppTextButton(label: 'Try again', onPressed: _retry),
         ],
-      ),
-    );
-  }
-}
-
-/// The grab handle: `size.grab` at `radius.full` in `color.fg.disabled`, centred, excluded from
-/// the semantics tree (R-32-546). Mirrors `pane_actions_sheet.dart`'s own private copy.
-class _GrabHandle extends StatelessWidget {
-  const _GrabHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpace.space2),
-      child: Center(
-        child: ExcludeSemantics(
-          child: Container(
-            width: AppSize.grabWidth,
-            height: AppSize.grabHeight,
-            decoration: BoxDecoration(
-              color: color.fgDisabled,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-            ),
-          ),
-        ),
       ),
     );
   }

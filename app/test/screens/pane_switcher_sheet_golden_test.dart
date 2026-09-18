@@ -28,7 +28,7 @@ import 'package:herdr_mobile/models/messages/workspace_summary.dart'
     show WorkspaceSummary;
 import 'package:herdr_mobile/screens/pane_switcher_sheet.dart';
 import 'package:material_ui/material_ui.dart'
-    show Builder, ElevatedButton, Scaffold, Text;
+    show Builder, ElevatedButton, MaterialApp, Scaffold, Text;
 
 import 'golden_support.dart';
 
@@ -174,23 +174,25 @@ void main() {
           await tester.pumpAndSettle();
 
           // Structural proof beside the visual one: every tier is present and
-          // the current pane is the selected row. The sheet opens part-height,
-          // so the lower rows are scrolled into view before the check, then
-          // back to the top so the golden shows the opening frame.
+          // the current pane is the selected row. The sheet opens part-height
+          // under the platform's own drag handle, so the lower rows are
+          // scrolled into view before the check, then back to the top so the
+          // golden shows the opening frame.
+          final Finder scrollable = find.descendant(
+            of: find.byType(PaneSwitcherSheet),
+            matching: find.byType(Scrollable),
+          );
           expect(find.text('Switch pane'), findsOneWidget);
-          expect(find.text('docs'), findsOneWidget);
           expect(find.text('tests'), findsOneWidget);
           expect(find.text('Blocked'), findsOneWidget);
-          expect(find.text('Done'), findsOneWidget);
-          await tester.scrollUntilVisible(
-            find.text('Working'),
-            48,
-            scrollable: find.descendant(
-              of: find.byType(PaneSwitcherSheet),
-              matching: find.byType(Scrollable),
-            ),
-          );
-          expect(find.text('Working'), findsOneWidget);
+          for (final String lower in <String>['Done', 'docs', 'Working']) {
+            await tester.scrollUntilVisible(
+              find.text(lower),
+              48,
+              scrollable: scrollable,
+            );
+            expect(find.text(lower), findsOneWidget);
+          }
           expect(find.bySemanticsLabel('pane 3, zsh'), findsOneWidget);
           tester
               .state<ScrollableState>(
@@ -203,8 +205,10 @@ void main() {
               .jumpTo(0);
           await tester.pumpAndSettle();
 
+          // The whole app, not the content alone: the sheet's surface, corner and handle
+          // are the platform component's own, drawn around the content (R-33-033).
           await expectLater(
-            find.byType(PaneSwitcherSheet),
+            find.byType(MaterialApp),
             matchesGoldenFile(
               'goldens/pane_switcher_sheet_${platformName}_$themeName.png',
             ),

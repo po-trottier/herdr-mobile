@@ -1,14 +1,10 @@
 /// Native terminal input below the grid (R-03-130, R-31-09-26..30).
 library;
 
+import 'dart:async' show unawaited;
+
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show
-        CupertinoActionSheet,
-        CupertinoActionSheetAction,
-        CupertinoActivityIndicator,
-        CupertinoButton,
-        CupertinoTextField,
-        showCupertinoModalPopup;
+    show CupertinoActivityIndicator, CupertinoButton, CupertinoTextField;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/services.dart';
@@ -19,11 +15,9 @@ import 'package:material_ui/material_ui.dart'
         CircularProgressIndicator,
         IconButton,
         InputDecoration,
-        ListTile,
         OutlineInputBorder,
         TextField,
-        Theme,
-        showModalBottomSheet;
+        Theme;
 
 import '../app.dart' show appFilledIconButtonStyle, appTonalIconButtonStyle;
 import '../models/messages/send_input.dart';
@@ -32,6 +26,7 @@ import 'theme/app_radius.dart';
 import 'theme/app_size.dart';
 import 'theme/app_space.dart';
 import 'theme/app_type.dart';
+import 'theme/chrome_menu.dart';
 
 class Composer extends StatefulWidget {
   const Composer({
@@ -152,63 +147,38 @@ class ComposerState extends State<Composer> {
     }
   }
 
-  Future<void> _showSendOptions() async {
-    final bool ios = defaultTargetPlatform == TargetPlatform.iOS;
+  /// The long-press choices of the send control, on the platform menu of
+  /// R-33-033's `Menu from a control` row, anchored to the control itself.
+  /// Empty while the control has nothing to offer, so the menu never opens.
+  List<ChromeMenuItem> _sendOptions() {
     final bool canSubmit = widget.enabled && !_submitting && !widget.queued;
-    final Map<String, String> actions = <String, String>{
-      if (canSubmit) 'now': 'Send now',
+    return <ChromeMenuItem>[
+      if (canSubmit)
+        ChromeMenuItem(
+          label: 'Send now',
+          icon: Symbols.send_rounded,
+          onSelected: () => unawaited(_submit()),
+        ),
       if (widget.queued && widget.onSendQueuedNow != null)
-        'queuedNow': 'Send now',
-      if (canSubmit) 'idle': 'Send when the agent is done',
+        ChromeMenuItem(
+          label: 'Send now',
+          icon: Symbols.send_rounded,
+          onSelected: widget.onSendQueuedNow,
+        ),
+      if (canSubmit)
+        ChromeMenuItem(
+          label: 'Send when the agent is done',
+          icon: Symbols.schedule_rounded,
+          onSelected: () => unawaited(_submit(whenIdle: true)),
+        ),
       if (widget.queued && widget.onCancelQueued != null)
-        'cancel': 'Cancel queued send',
-    };
-    if (actions.isEmpty) return;
-    final String? choice = ios
-        ? await showCupertinoModalPopup<String>(
-            context: context,
-            builder: (BuildContext sheetContext) => CupertinoActionSheet(
-              actions: <Widget>[
-                for (final MapEntry<String, String> action in actions.entries)
-                  CupertinoActionSheetAction(
-                    onPressed: () => Navigator.of(sheetContext).pop(action.key),
-                    child: Text(
-                      action.value,
-                      style: const TextStyle(
-                        fontFamily: AppType.interfaceFontFamily,
-                      ),
-                    ),
-                  ),
-              ],
-              cancelButton: CupertinoActionSheetAction(
-                onPressed: () => Navigator.of(sheetContext).pop(),
-                child: const Text('Cancel'),
-              ),
-            ),
-          )
-        : await showModalBottomSheet<String>(
-            context: context,
-            builder: (BuildContext sheetContext) => SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  for (final MapEntry<String, String> action in actions.entries)
-                    ListTile(
-                      title: Text(action.value),
-                      onTap: () => Navigator.of(sheetContext).pop(action.key),
-                    ),
-                ],
-              ),
-            ),
-          );
-    if (!mounted) return;
-    if (choice == 'queuedNow') {
-      widget.onSendQueuedNow?.call();
-    } else if (choice == 'cancel') {
-      widget.onCancelQueued?.call();
-    } else if (choice != null) {
-      await _submit(whenIdle: choice == 'idle');
-    }
+        ChromeMenuItem(
+          label: 'Cancel queued send',
+          icon: Symbols.close_rounded,
+          onSelected: widget.onCancelQueued,
+          destructive: true,
+        ),
+    ];
   }
 
   @override
@@ -245,61 +215,63 @@ class ComposerState extends State<Composer> {
     final double height = ios ? AppSize.inputIos : AppSize.field;
     // R-32-537: growing the field must not grow its corner arcs into a pill.
     final BorderRadius fieldRadius = BorderRadius.circular(height / 2);
-    final Widget sendButton = ios
-        ? Semantics(
-            label: 'Send',
-            child: CupertinoButton(
-              key: const ValueKey<String>('composerSend'),
-              color: color.accentPrimary,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-              minimumSize: const Size.square(30),
-              padding: EdgeInsets.zero,
-              onPressed: widget.queued
-                  ? _showSendOptions
-                  : widget.enabled && !_submitting
-                  ? _submit
-                  : null,
-              child: widget.queued
-                  ? _queuedIcon(ios, color)
-                  : _submitting
-                  ? SizedBox.square(
-                      dimension: AppSize.iconMd,
-                      child: CupertinoActivityIndicator(
-                        radius: AppSize.iconMd / 2,
-                        color: color.fgOnAccent,
-                      ),
-                    )
-                  : Icon(
-                      Symbols.arrow_upward_rounded,
-                      size: AppSize.iconMd,
-                      color: color.fgOnAccent,
-                    ),
-            ),
-          )
-        : IconButton.filled(
-            style: appFilledIconButtonStyle(context),
-            onPressed: widget.queued
-                ? _showSendOptions
-                : widget.enabled && !_submitting
-                ? _submit
-                : null,
-            icon: widget.queued
-                ? _queuedIcon(ios, color)
-                : _submitting
-                ? const SizedBox.square(
-                    dimension: AppSize.iconMd,
-                    child: CircularProgressIndicator(),
-                  )
-                : const Icon(Symbols.send_rounded, size: AppSize.iconMd),
-          );
-    final Widget send = Semantics(
-      label: ios ? null : 'Send',
-      child: GestureDetector(
-        onLongPress: widget.queued || (widget.enabled && !_submitting)
-            ? _showSendOptions
-            : null,
-        child: sendButton,
-      ),
+    final List<ChromeMenuItem> options = _sendOptions();
+    final Widget send = ChromeMenuAnchor(
+      items: options,
+      builder: (BuildContext context, MenuController menu) {
+        final VoidCallback? open = options.isEmpty ? null : menu.open;
+        final Widget sendButton = ios
+            ? Semantics(
+                label: 'Send',
+                child: CupertinoButton(
+                  key: const ValueKey<String>('composerSend'),
+                  color: color.accentPrimary,
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                  minimumSize: const Size.square(30),
+                  padding: EdgeInsets.zero,
+                  onPressed: widget.queued
+                      ? open
+                      : widget.enabled && !_submitting
+                      ? _submit
+                      : null,
+                  child: widget.queued
+                      ? _queuedIcon(ios, color)
+                      : _submitting
+                      ? SizedBox.square(
+                          dimension: AppSize.iconMd,
+                          child: CupertinoActivityIndicator(
+                            radius: AppSize.iconMd / 2,
+                            color: color.fgOnAccent,
+                          ),
+                        )
+                      : Icon(
+                          Symbols.arrow_upward_rounded,
+                          size: AppSize.iconMd,
+                          color: color.fgOnAccent,
+                        ),
+                ),
+              )
+            : IconButton.filled(
+                style: appFilledIconButtonStyle(context),
+                onPressed: widget.queued
+                    ? open
+                    : widget.enabled && !_submitting
+                    ? _submit
+                    : null,
+                icon: widget.queued
+                    ? _queuedIcon(ios, color)
+                    : _submitting
+                    ? const SizedBox.square(
+                        dimension: AppSize.iconMd,
+                        child: CircularProgressIndicator(),
+                      )
+                    : const Icon(Symbols.send_rounded, size: AppSize.iconMd),
+              );
+        return Semantics(
+          label: ios ? null : 'Send',
+          child: GestureDetector(onLongPress: open, child: sendButton),
+        );
+      },
     );
     final OutlineInputBorder border = OutlineInputBorder(
       borderRadius: fieldRadius,

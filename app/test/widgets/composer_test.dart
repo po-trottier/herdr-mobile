@@ -193,7 +193,10 @@ void main() {
       await tester.longPress(send);
       await tester.pump(const Duration(seconds: 1));
       await tester.tap(find.text('Send now'));
+      // The platform menu fires its choice in a post-frame callback, so one more frame lands
+      // the rebuild; the queued spinner never settles.
       await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
       expect(immediateSends, 1);
       expect(submissions, <bool>[false, false, true, true]);
       expect(tester.widget<EditableText>(field).readOnly, isFalse);

@@ -14,7 +14,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/rendering.dart' show BoxConstraints, RenderBox;
 import 'package:flutter/widgets.dart'
-    show Icon, Semantics, Size, ValueChanged, Widget;
+    show Icon, ListView, Offset, Semantics, Size, ValueChanged, Widget;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/messages/pane_scroll_state.dart'
     show PaneScrollState;
@@ -137,7 +137,9 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 /// Opens the sheet from a plain button, the way `pane_actions_sheet_test.dart` opens its own:
-/// `showModalBottomSheet` pushes the sheet as a sibling route of `home`.
+/// `showChromeSheet` pushes the sheet as a sibling route of `home`. The Material sheet opens
+/// part-height under its own drag handle, and a `ListView` builds only the rows in view, so a
+/// drag up expands the sheet first and every row of the four-pane tree is built.
 Future<void> _openSheet(
   WidgetTester tester, {
   TreeSnapshot tree = _tree,
@@ -165,6 +167,15 @@ Future<void> _openSheet(
     ),
   );
   await tester.tap(find.text('open'));
+  await _settle(tester);
+  await _expandSheet(tester);
+}
+
+/// Drags the list up so the Material sheet expands and every row is built. An empty tree has
+/// no list, and the iOS sheet is full height already, so the drag then only scrolls.
+Future<void> _expandSheet(WidgetTester tester) async {
+  if (find.byType(ListView).evaluate().isEmpty) return;
+  await tester.drag(find.byType(ListView), const Offset(0, -400));
   await _settle(tester);
 }
 
@@ -349,7 +360,8 @@ void main() {
 
     await tester.tap(find.text('open'));
     await _settle(tester);
-    // The sheet opens part-height, so a lower row is reached by scrolling the list first.
+    // The sheet opens part-height, so a lower row is reached by expanding the sheet first.
+    await _expandSheet(tester);
     await tester.ensureVisible(find.text('review'));
     await _settle(tester);
     await tester.tap(find.text('review'));

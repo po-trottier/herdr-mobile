@@ -223,7 +223,10 @@ and no glyph.
 | Three destinations | `NavigationBar` with `NavigationDestination` | `CupertinoTabBar` |
 | Create | `FloatingActionButton` in the `Scaffold` slot, above the connection strip and the `NavigationBar`, per `R-33-034` (moved into the app bar 2026-09-09 and restored 2026-09-10, per the corrected `R-03-109`) | the same `FloatingActionButton`, floated over the body above the connection strip and the `CupertinoTabBar`, per `R-33-034` (the same dates and reason) |
 | Connection strip | a strip above the navigation bar | a strip above the tab bar |
-| Menu surface | bottom sheet | bottom sheet |
+| Menu surface, the create control | bottom sheet, per `R-33-037` and `R-33-079` | bottom sheet, per `R-33-037` and `R-33-079` |
+| Menu from a control | `MenuAnchor` with `MenuItemButton`, glyph leading, through `ChromeMenuAnchor`, per `R-33-078` | `CupertinoMenuAnchor` with `CupertinoMenuItem`, glyph trailing, through `ChromeMenuAnchor`, per `R-33-078` |
+| Content sheet | `showModalBottomSheet` with the drag handle, through `showChromeSheet`, per `R-33-079` | `CupertinoSheetRoute` over `CupertinoPageScaffold`, through `showChromeSheet`, per `R-33-079` |
+| Pane actions | the content sheet, rows as `ListTile` with a leading glyph, per `R-33-079` | `CupertinoActionSheet`, actions without a glyph, `Close pane` `isDestructiveAction`, per `R-33-079` |
 | Bottom offset | from the system-bar inset | from the safe area |
 | Back | `AppBar` leading, drawn by `BackButton`, plus predictive back | `CupertinoNavigationBar` leading, plus the interactive pop gesture |
 | Primary navigation on a pushed route | the parent layout and the primary destinations only | the tab bar stays visible |
@@ -243,7 +246,7 @@ and no glyph.
 | Segmented choice | `SegmentedButton`, filling its row, its colours and type from `segmentedButtonTheme`, in the component's own stadium and height (amended 2026-09-09, per the `R-03-059` addendum) | `CupertinoSlidingSegmentedControl` |
 | Switch between sibling views | `TabBar` of primary tabs, full width under the app bar, its indicator, ink, type and divider from `tabBarTheme`; not a `SegmentedButton`, which is a choice, not a view switch (added 2026-09-09, per `R-03-102`) | `CupertinoSlidingSegmentedControl`, in the navigation bar area (added 2026-09-09, per `R-03-102`) |
 | Discrete value from a short fixed list, the terminal text size | `Slider` with `divisions` set to one less than the count of permitted values, its colours the component's own, no value label bubble; the title row above it carries the current value at its trailing edge (added 2026-09-09, per `R-03-110`; it replaces the `Stepper` row, whose two `IconButton.filledTonal` controls are gone) | `CupertinoSlider` with the same `divisions`, the same title row and value (added 2026-09-09, per `R-03-110`) |
-| Choice among destructive actions from an app bar action, the Phones removes | `MenuAnchor` opened by the `IconButton` app bar action, one `MenuItemButton` per choice with the `treat.destructive` glyph; each choice then opens the confirmation of `R-33-074` (added 2026-09-09, per `R-03-111`) | `CupertinoActionSheet` with one `isDestructiveAction` action per choice and a `Cancel` action; each choice then opens the confirmation of `R-33-074` (added 2026-09-09, per `R-03-111`) |
+| Choice among destructive actions from an app bar action, the Phones removes | the `Menu from a control` row, each choice then the confirmation of `R-33-074` (added 2026-09-09, per `R-03-111`; the iOS `CupertinoActionSheet` became the pull-down menu on 2026-09-18, per `R-33-078`) | the `Menu from a control` row (same dates) |
 | Key cap, in the terminal key row | `OutlinedButton`, or `FilledButton` while a modifier is latched, in the component's own pill; colours from `outlinedButtonTheme` and `filledButtonTheme`, the label type and a layout floor (`size.keycap` high, the column module wide, `space.2` of padding) from the key row's own button theme, per `docs/32-design-language.md` section 7.12 (added 2026-09-09, per `R-03-059`; the latched form became `FilledButton` on 2026-09-10, per `R-03-118`: it was `FilledButton.tonal`, which is not the platform's high-emphasis form, and its label went upper case for state) | `CupertinoButton.tinted`, or `CupertinoButton.filled` while latched, in the component's own corner; the row hands it the same floor and the label ink `color.accent.text`, per section 7.12 (added 2026-09-09, per `R-03-059`) |
 | Row control, the bank toggle of the terminal key row | `TextButton`, no outline and no fill, the glyph in `color.accent.text`; the same layout floor as the key cap from the key row's own `TextButtonTheme` (added 2026-09-10 by the product owner: the `…` and `×` caps were not discernible from the keys, and a control is not a key; a key has a border, the control has none) | a plain `CupertinoButton`, no fill, `foregroundColor` `color.accent.text`, the same minimum size and padding the row hands its keys (added 2026-09-10, same reason) |
 | Page surface, including Welcome and Lock | `Scaffold` | `CupertinoPageScaffold`; Lock stays opaque, per `R-33-015` |
@@ -483,12 +486,34 @@ and no glyph.
      place them. The app MUST NOT hardcode a row order, a button position or a focus order.
   5. A destructive action MUST still reach a confirmation, per `R-30-005` and the owning screen
      rule. This rule changes the actions, not the decision to ask.
-  6. Each role carries its own composition from `docs/32-design-language.md` section 7.17 on both
-     platforms: the destructive verb is `treat.destructive` and the safe action is
-     `type.body.strong` in `color.fg.primary`. The platform component keeps its own order, its
-     own role flag (`isDestructiveAction` on iOS) and its own press feedback; the composition is
-     the child of the action, never a replacement for it (added 2026-09-08 by the product owner's
-     design pass: the Material branch drew two plain text buttons).
+  6. Each action is the platform component's own, and the app composes none of it (amended
+     2026-09-18 by the product owner, who found the dialogs did not look native): a plain
+     label, no glyph, no leading bar. The destructive role is `isDestructiveAction` on iOS and
+     a `TextButton` whose label is `color.status.error` on Android; the safe action is the
+     component's own text button. The dialog's shape, surface and elevation are the component's
+     own, from `dialogTheme` on Android; the app MUST NOT pass a `shape`. (Until 2026-09-18 the
+     destructive verb carried `treat.destructive` and the Material dialog a custom
+     `RoundedRectangleBorder` with a hairline side.)
+- **R-33-078** **A menu from a control.** A short choice attached to one control, such as the
+  long press on `Send`, the `Remove phones` app bar action and the notification row's `⋮`,
+  MUST open the platform's own menu, anchored to that control, and MUST NOT open a sheet: on
+  Android a Material `MenuAnchor` with one `MenuItemButton` per choice and its glyph of
+  `R-32-401` leading; on iOS a `CupertinoMenuAnchor` with one `CupertinoMenuItem` per choice
+  and the same glyph in the trailing slot, where an SF Symbol sits in a system menu. A
+  destructive choice takes `isDestructiveAction` on iOS and the `color.status.error` glyph and
+  label on Android. One widget draws it for both platforms,
+  `app/lib/widgets/theme/chrome_menu.dart` (`ChromeMenuAnchor`), and a screen MUST compose it.
+  The create control stays a sheet, per `R-33-037`.
+- **R-33-079** **A content sheet.** A modal sheet that carries content, such as the pane
+  switcher, the phone-name editor, the create menu, the App Lock offer and the scan-screen help,
+  MUST be the platform's own sheet through `app/lib/widgets/theme/chrome_sheet.dart`
+  (`showChromeSheet`): on Android `showModalBottomSheet` with the Material 3 drag handle and
+  the component's own corner, surface and elevation from `bottomSheetTheme`; on iOS a
+  `CupertinoSheetRoute` with its own grabber over a `CupertinoPageScaffold` in
+  `color.bg.raised`, because that route paints no surface. The content MUST NOT draw a grab
+  handle, a corner or a surface of its own. A short list of actions with a title, the pane
+  actions, MAY stay a sheet on Android and MUST be a `CupertinoActionSheet` on iOS, whose
+  actions carry no glyph, as the platform's own do.
 - **R-33-075** **A compose task.** A compose surface and its close control are platform controls,
   not one shared route with one shared glyph.
   1. On iOS a compose task MUST be a full-height sheet, pushed as `CupertinoSheetRoute` or through

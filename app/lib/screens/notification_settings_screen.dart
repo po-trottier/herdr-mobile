@@ -41,12 +41,12 @@ import 'package:cupertino_ui/cupertino_ui.dart'
         Column,
         CrossAxisAlignment,
         CupertinoButton,
-        CupertinoColors,
         CupertinoDatePicker,
         CupertinoDatePickerMode,
         CupertinoListTile,
         CupertinoNavigationBar,
         CupertinoPageScaffold,
+        CupertinoPopupSurface,
         CustomScrollView,
         EdgeInsets,
         ExcludeSemantics,
@@ -741,35 +741,42 @@ Future<TimeOfDay?> _pickMaterialTime(BuildContext context, TimeOfDay initial) =>
       ),
     );
 
+/// The iOS picker sits on the platform's own `CupertinoPopupSurface`, the surface an action
+/// sheet draws on, with a `Done` action above the wheel; the screen paints no surface of its
+/// own (R-03-059).
 Future<TimeOfDay?> _pickCupertinoTime(BuildContext context, TimeOfDay initial) {
   TimeOfDay selected = initial;
   final DateTime base = DateTime(2000, 1, 1, initial.hour, initial.minute);
   return showCupertinoModalPopup<TimeOfDay>(
     context: context,
-    builder: (BuildContext sheetContext) => Container(
-      height: 260,
-      color: CupertinoColors.systemBackground.resolveFrom(sheetContext),
-      child: Column(
-        children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+    builder: (BuildContext sheetContext) => CupertinoPopupSurface(
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 260,
+          child: Column(
             children: <Widget>[
-              CupertinoButton(
-                onPressed: () => Navigator.of(sheetContext).pop(selected),
-                child: const Text('Done'),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: <Widget>[
+                  CupertinoButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(selected),
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  initialDateTime: base,
+                  use24hFormat: true,
+                  onDateTimeChanged: (DateTime dt) =>
+                      selected = TimeOfDay(hour: dt.hour, minute: dt.minute),
+                ),
               ),
             ],
           ),
-          Expanded(
-            child: CupertinoDatePicker(
-              mode: CupertinoDatePickerMode.time,
-              initialDateTime: base,
-              use24hFormat: true,
-              onDateTimeChanged: (DateTime dt) =>
-                  selected = TimeOfDay(hour: dt.hour, minute: dt.minute),
-            ),
-          ),
-        ],
+        ),
       ),
     ),
   );

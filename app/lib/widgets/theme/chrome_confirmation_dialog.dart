@@ -18,24 +18,17 @@ import 'package:cupertino_ui/cupertino_ui.dart'
         PopScope,
         SizedBox,
         Text,
+        TextStyle,
         Widget,
         WidgetsBinding,
         showCupertinoDialog;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:material_ui/material_ui.dart'
-    show
-        AlertDialog,
-        BorderRadius,
-        BorderSide,
-        RoundedRectangleBorder,
-        TextButton,
-        showDialog;
+    show AlertDialog, TextButton, showDialog;
 
 import '../key_label.dart';
-import '../treatments.dart';
 import 'app_color.dart';
-import 'app_radius.dart';
 import 'app_space.dart';
 import 'app_type.dart';
 import 'chrome_confirmation_outcome.dart';
@@ -57,12 +50,11 @@ bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
 /// order is chosen here, only the role order the widget's own layout
 /// then arranges.
 ///
-/// Each role carries its own composition from `docs/32` section 7.17 on
-/// both platforms (amended 2026-09-08): the destructive verb is
-/// `treat.destructive`, its hue in the icon and the leading bar and its
-/// text `color.fg.primary`, per R-32-527; the safe action is
-/// `type.body.strong` in `color.fg.primary`. The platform component keeps
-/// its own order, its own role flag and its own press feedback.
+/// Each action is the platform's own, composed by the component and not by
+/// this file (R-33-074.6, amended 2026-09-18): a plain label, no glyph. The
+/// destructive role is `isDestructiveAction` on iOS and the
+/// `color.status.error` label on Android; the dialog's shape, surface and
+/// elevation are the component's own from `dialogTheme`.
 Future<ChromeConfirmationOutcome?> showChromeConfirmationDialog({
   required BuildContext context,
   required String title,
@@ -78,13 +70,13 @@ Future<ChromeConfirmationOutcome?> showChromeConfirmationDialog({
     content: _body(body, color),
     actions: <_Action<ChromeConfirmationOutcome>>[
       (
-        child: _safe(_isIos ? 'Cancel' : cancelLabel, color),
+        child: Text(_isIos ? 'Cancel' : cancelLabel),
         result: ChromeConfirmationOutcome.cancel,
         isDefault: false,
         isDestructive: false,
       ),
       (
-        child: Treatment.destructive(label: destructiveLabel),
+        child: Text(destructiveLabel),
         result: ChromeConfirmationOutcome.destructive,
         isDefault: false,
         isDestructive: true,
@@ -110,11 +102,10 @@ typedef ChromeAlertAction<T> = ({String label, T result});
 /// The shared anatomy of `docs/32` section 7.17 (R-32-547): the title in
 /// `type.heading` and the body in `type.body`, both `color.fg.primary`; the
 /// detail in `type.mono.code` in `color.fg.secondary`, the raw-error
-/// treatment the terminal's own state block used until R-03-119. The default
-/// action is `type.body.strong` and the other action `type.body`, both
-/// `color.fg.primary`, so the default reads the way the platform marks it:
-/// bold on iOS, where `isDefaultAction` is set too, and trailing on both,
-/// per R-33-074.2.
+/// treatment the terminal's own state block used until R-03-119. The
+/// actions are the component's own: the default action is `isDefaultAction`
+/// on iOS, bold as the platform marks it, and trailing on both, per
+/// R-33-074.2.
 ChromeDialogHandle<T> showChromeAlertDialog<T>({
   required BuildContext context,
   required String title,
@@ -149,16 +140,13 @@ ChromeDialogHandle<T> showChromeAlertDialog<T>({
     actions: <_Action<T>>[
       if (otherAction != null)
         (
-          child: Text(
-            otherAction.label,
-            style: AppType.body.copyWith(color: color.fgPrimary),
-          ),
+          child: Text(otherAction.label),
           result: otherAction.result,
           isDefault: false,
           isDestructive: false,
         ),
       (
-        child: _safe(defaultAction.label, color),
+        child: Text(defaultAction.label),
         result: defaultAction.result,
         isDefault: true,
         isDestructive: false,
@@ -207,10 +195,9 @@ class ChromeDialogHandle<T> {
   }
 }
 
-/// One action of [_show], composed for its role: [child] is the role's own
-/// composition from `docs/32` section 7.17, [result] what the handle's future
-/// completes with, and the two flags the platform component's own role marks
-/// (R-33-074.2).
+/// One action of [_show], named by role: [child] is its plain label, [result]
+/// what the handle's future completes with, and the two flags the platform
+/// component's own role marks (R-33-074.2).
 typedef _Action<T> = ({
   Widget child,
   T result,
@@ -249,24 +236,23 @@ ChromeDialogHandle<T> _show<T>({
                 CupertinoDialogAction(
                   isDefaultAction: action.isDefault,
                   isDestructiveAction: action.isDestructive,
+                  textStyle: const TextStyle(
+                    fontFamily: AppType.interfaceFontFamily,
+                  ),
                   onPressed: () => choose(action),
                   child: action.child,
                 ),
             ],
           )
         : AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              side: BorderSide(
-                color: color.borderSubtle,
-                width: AppBorder.hairline,
-              ),
-            ),
             title: title,
             content: content,
             actions: <Widget>[
               for (final _Action<T> action in actions)
                 TextButton(
+                  style: action.isDestructive
+                      ? TextButton.styleFrom(foregroundColor: color.statusError)
+                      : null,
                   onPressed: () => choose(action),
                   child: action.child,
                 ),
@@ -296,8 +282,3 @@ Widget _body(String body, AppColor color) => keyedText(
   style: AppType.body.copyWith(color: color.fgPrimary),
   color: color,
 );
-
-/// A safe action's own composition: `type.body.strong` in `color.fg.primary`
-/// (section 7.17).
-Widget _safe(String label, AppColor color) =>
-    Text(label, style: AppType.bodyStrong.copyWith(color: color.fgPrimary));

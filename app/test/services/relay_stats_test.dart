@@ -362,6 +362,8 @@ void main() {
       RelayRegistrationErrorCode.hostInUse,
     );
     expect(cause.message, 'host_in_use');
+    // The state stream delivers on a later microtask than the returned future.
+    await Future<void>.delayed(Duration.zero);
     expect(
       states.whereType<RelayRegistrationError>().single.code,
       RelayRegistrationErrorCode.hostInUse,

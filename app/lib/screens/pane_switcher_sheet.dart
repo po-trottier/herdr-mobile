@@ -19,23 +19,15 @@
 /// over a listenable tree; add it when a person reports a stale row.
 library;
 
-import 'dart:math' as math;
-
 import 'package:flutter/widgets.dart'
     show
-        AnimationStyle,
-        BorderRadius,
-        BoxDecoration,
         BuildContext,
-        Center,
         Column,
         ColoredBox,
         DraggableScrollableSheet,
-        Container,
         CrossAxisAlignment,
         EdgeInsets,
         EdgeInsetsDirectional,
-        ExcludeSemantics,
         Expanded,
         Icon,
         ListView,
@@ -45,7 +37,6 @@ import 'package:flutter/widgets.dart'
         Padding,
         PlaceholderAlignment,
         PositionedDirectional,
-        Radius,
         Row,
         SafeArea,
         ScrollController,
@@ -64,8 +55,6 @@ import 'package:flutter/widgets.dart'
         Widget,
         WidgetSpan;
 import 'package:material_symbols_icons/symbols.dart' show Symbols;
-import 'package:material_ui/material_ui.dart'
-    show Colors, Material, RoundedRectangleBorder, showModalBottomSheet;
 
 import '../models/messages/pane_summary.dart' show PaneSummary;
 import '../models/messages/tree_snapshot.dart' show TreeSnapshot;
@@ -74,12 +63,12 @@ import '../services/tree.dart'
 import '../widgets/app_section_header.dart' show AppSectionHeader;
 import '../widgets/status_bar.dart' show BarState, StatusBar;
 import '../widgets/theme/app_color.dart';
-import '../widgets/theme/app_motion.dart' show AppMotion;
-import '../widgets/theme/app_radius.dart' show AppBorder, AppRadius;
+import '../widgets/theme/app_radius.dart' show AppBorder;
 import '../widgets/theme/app_size.dart' show AppSize;
 import '../widgets/theme/app_space.dart' show AppSpace;
 import '../widgets/theme/app_type.dart' show AppType;
 import '../widgets/theme/chrome_list_row.dart';
+import '../widgets/theme/chrome_sheet.dart';
 
 /// The switcher's own ladder of tiers: a workspace header keeps `AppSectionHeader.tier1`'s
 /// text edge, and the tab header and the pane rows under it start one `space.10` in, so the
@@ -87,75 +76,50 @@ import '../widgets/theme/chrome_list_row.dart';
 /// in than the tier above (R-03-057's "tiers read apart").
 const double _tierInset = AppSpace.space10;
 
-/// Section 7.16's sheet motion, the same values `pane_actions_sheet.dart` applies:
-/// `motion.duration.base` both ways, `motion.curve.enter` in and `motion.curve.exit` out; under
-/// reduce motion no animation at all (R-32-606).
-AnimationStyle _sheetAnimationStyle(BuildContext context) =>
-    MediaQuery.disableAnimationsOf(context)
-    ? AnimationStyle.noAnimation
-    : const AnimationStyle(
-        duration: AppMotion.durationBase,
-        reverseDuration: AppMotion.durationBase,
-        curve: AppMotion.curveEnter,
-        reverseCurve: AppMotion.curveExit,
-      );
-
-/// Shows [PaneSwitcherSheet] as the modal bottom sheet of section 7.16 on both platforms
-/// (R-33-037, R-03-108: the platform's own draggable sheet), on the root navigator like every
-/// other sheet: `radius.lg` top corners and `color.bg.raised`. [currentPaneId] marks the row
-/// that is already on screen; [onSwitchPane] receives any other pane a person chooses, after
-/// the sheet has closed.
+/// Shows [PaneSwitcherSheet] on the platform's content sheet of R-33-033 through
+/// [showChromeSheet] (R-33-037, R-03-108): the Material 3 modal bottom sheet with its own drag
+/// handle on Android, `CupertinoSheetRoute` on iOS, both on the root navigator like every
+/// other sheet. [currentPaneId] marks the row that is already on screen; [onSwitchPane]
+/// receives any other pane a person chooses, after the sheet has closed.
 Future<void> showPaneSwitcherSheet(
   BuildContext context, {
   required TreeSnapshot tree,
   required String currentPaneId,
   required ValueChanged<String> onSwitchPane,
 }) async {
-  final double bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-  await showModalBottomSheet<void>(
+  await showChromeSheet<void>(
     context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    useSafeArea: false,
-    backgroundColor: Colors.transparent,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
-    ),
-    sheetAnimationStyle: _sheetAnimationStyle(context),
-    builder: (BuildContext sheetContext) => Padding(
-      // The keyboard the grid raised (R-03-054) may still be up: the sheet sits above it, the
-      // way the pane action sheet does (R-31-10-09).
-      padding: EdgeInsets.only(
-        bottom: math.max(
-          bottomInset,
-          MediaQuery.viewInsetsOf(sheetContext).bottom,
+    builder: (BuildContext sheetContext, ScrollController? controller) {
+      Widget sheet(ScrollController? scrollController) => Padding(
+        // The keyboard the grid raised (R-03-054) may still be up: the sheet sits above it, the
+        // way the pane action sheet does (R-31-10-09).
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
         ),
-      ),
-      // Material's own scrollable-sheet pattern: the sheet opens part-height so the scrim
-      // stays tappable, the list scrolls inside it, and a drag past the top of the list pulls
-      // the sheet down and dismisses it. A `shrinkWrap` list in an `isScrollControlled` sheet
-      // grew a long tree to the whole screen and swallowed every drag, so the only way out was
-      // the back gesture (product owner, 2026-09-14).
-      child: DraggableScrollableSheet(
+        child: PaneSwitcherSheet(
+          tree: tree,
+          currentPaneId: currentPaneId,
+          onSwitchPane: onSwitchPane,
+          scrollController: scrollController,
+        ),
+      );
+      // iOS: the sheet's own controller, so a drag past the top of the list dismisses it
+      // (R-33-075.2).
+      if (controller != null) return sheet(controller);
+      // Android: Material's own scrollable-sheet pattern: the sheet opens part-height so the
+      // scrim stays tappable, the list scrolls inside it, and a drag past the top of the list
+      // pulls the sheet down and dismisses it. A `shrinkWrap` list in an `isScrollControlled`
+      // sheet grew a long tree to the whole screen and swallowed every drag, so the only way
+      // out was the back gesture (product owner, 2026-09-14).
+      return DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.55,
         minChildSize: 0.3,
         maxChildSize: 0.9,
-        builder: (BuildContext context, ScrollController scrollController) =>
-            Material(
-              color: AppColor.of(context).bgRaised,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(AppRadius.lg),
-              ),
-              child: PaneSwitcherSheet(
-                tree: tree,
-                currentPaneId: currentPaneId,
-                onSwitchPane: onSwitchPane,
-                scrollController: scrollController,
-              ),
-            ),
-      ),
-    ),
+        builder: (BuildContext _, ScrollController scrollController) =>
+            sheet(scrollController),
+      );
+    },
   );
 }
 
@@ -246,7 +210,6 @@ class _PaneSwitcherSheetState extends State<PaneSwitcherSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const _GrabHandle(),
             Padding(
               padding: const EdgeInsets.fromLTRB(
                 AppSpace.space4,
@@ -284,31 +247,6 @@ class _PaneSwitcherSheetState extends State<PaneSwitcherSheet> {
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The grab handle: `size.grab` at `radius.full` in `color.fg.disabled`, centred, `space.2`
-/// from the top, excluded from the semantics tree (R-32-546); the copy every sheet carries.
-class _GrabHandle extends StatelessWidget {
-  const _GrabHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpace.space2),
-      child: Center(
-        child: ExcludeSemantics(
-          child: Container(
-            width: AppSize.grabWidth,
-            height: AppSize.grabHeight,
-            decoration: BoxDecoration(
-              color: AppColor.of(context).fgDisabled,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-            ),
-          ),
         ),
       ),
     );

@@ -34,10 +34,9 @@ import 'package:flutter/widgets.dart'
         Navigator,
         Padding,
         PreferredSize,
-        Radius,
-        RoundedRectangleBorder,
         Row,
         SafeArea,
+        ScrollController,
         Semantics,
         Size,
         SizedBox,
@@ -54,15 +53,7 @@ import 'package:flutter/widgets.dart'
         Widget;
 import 'package:local_auth/local_auth.dart' show LocalAuthentication;
 import 'package:material_ui/material_ui.dart'
-    show
-        AppBar,
-        ButtonSegment,
-        ExcludeSemantics,
-        FocusNode,
-        Scaffold,
-        SegmentedButton,
-        Slider,
-        showModalBottomSheet;
+    show AppBar, ButtonSegment, FocusNode, Scaffold, SegmentedButton, Slider;
 
 import '../core/result/result.dart' show Ok, Err;
 import '../services/app_settings.dart'
@@ -82,12 +73,12 @@ import '../widgets/input_field.dart' show InputField;
 import '../widgets/theme/app_color.dart' show AppColor;
 import '../widgets/theme/app_haptic.dart' show AppHaptic;
 import '../widgets/theme/app_radius.dart' show AppRadius, AppBorder;
-import '../widgets/theme/app_size.dart' show AppSize;
 import '../widgets/theme/app_space.dart' show AppSpace;
 import '../widgets/theme/app_type.dart' show AppType;
 import '../widgets/theme/chrome_list_row.dart' show ChromeListRow;
 import '../widgets/theme/chrome_settings_section.dart'
     show ChromeSettingsSection;
+import '../widgets/theme/chrome_sheet.dart' show showChromeSheet;
 import '../widgets/theme/chrome_snackbar.dart' show showChromeSnackbar;
 import '../widgets/treatments.dart' show Treatment;
 
@@ -382,15 +373,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     final currentName = _deviceName ?? defaultName;
-    final result = await showModalBottomSheet<String>(
+    final result = await showChromeSheet<String>(
       context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      backgroundColor: AppColor.of(context).bgRaised,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
-      ),
-      builder: (sheetContext) => _NameSheet(
+      builder: (BuildContext sheetContext, ScrollController? _) => _NameSheet(
         currentName: currentName,
         connectedComputerName: _connectedHostName,
       ),
@@ -973,8 +958,6 @@ class _NameSheetState extends State<_NameSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const _GrabHandle(),
-              const SizedBox(height: AppSpace.space4),
               Text(
                 "This phone's name",
                 style: AppType.heading.copyWith(color: color.fgPrimary),
@@ -1017,24 +1000,4 @@ class _NameSheetState extends State<_NameSheet> {
       ),
     );
   }
-}
-
-/// The grab handle: `size.grab` at `radius.full` in `color.fg.disabled`, mirroring
-/// `create_sheet.dart`'s own private `_GrabHandle` copy (R-32-546).
-class _GrabHandle extends StatelessWidget {
-  const _GrabHandle();
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: ExcludeSemantics(
-      child: Container(
-        width: AppSize.grabWidth,
-        height: AppSize.grabHeight,
-        decoration: BoxDecoration(
-          color: AppColor.of(context).fgDisabled,
-          borderRadius: BorderRadius.circular(AppRadius.full),
-        ),
-      ),
-    ),
-  );
 }

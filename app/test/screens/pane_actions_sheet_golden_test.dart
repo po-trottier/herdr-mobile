@@ -22,7 +22,7 @@ import 'package:flutter/widgets.dart' show Brightness, MediaQueryData;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/screens/pane_actions_sheet.dart';
 import 'package:material_ui/material_ui.dart'
-    show Builder, ElevatedButton, Scaffold, Text;
+    show Builder, ElevatedButton, MaterialApp, Scaffold, Text;
 
 import 'golden_support.dart';
 
@@ -179,8 +179,10 @@ void main() {
               findsNWidgets(testCase.linkStateDetail == null ? 0 : 1),
             );
 
+            // The whole app, not the content alone: the sheet's surface, corner and handle
+            // are the platform component's own, drawn around the content (R-33-033).
             await expectLater(
-              find.byType(PaneActionsSheet),
+              find.byType(MaterialApp),
               matchesGoldenFile(
                 'goldens/pane_actions_sheet_${testCase.name}_$platformName$themeName.png',
               ),

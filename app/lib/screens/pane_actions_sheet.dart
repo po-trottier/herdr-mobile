@@ -7,49 +7,54 @@ library;
 import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show
+        CupertinoActionSheet,
+        CupertinoActionSheetAction,
+        showCupertinoModalPopup;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter/widgets.dart'
     show
         AnimationStyle,
-        BorderRadius,
         BoxConstraints,
-        BoxDecoration,
         BuildContext,
-        Center,
         Column,
         ConstrainedBox,
         Container,
         CrossAxisAlignment,
         EdgeInsets,
-        ExcludeSemantics,
         Flexible,
         Icon,
         IconData,
+        IgnorePointer,
         MainAxisSize,
         MediaQuery,
+        MergeSemantics,
         ModalRoute,
         Navigator,
+        Opacity,
         Padding,
-        Radius,
         SafeArea,
+        Semantics,
         SingleChildScrollView,
         SizedBox,
         StatelessWidget,
         Text,
         TextDirection,
+        TextStyle,
         View,
         ValueChanged,
         VoidCallback,
         Widget;
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:material_ui/material_ui.dart'
-    show Colors, Material, RoundedRectangleBorder, showModalBottomSheet;
+import 'package:material_ui/material_ui.dart' show showModalBottomSheet;
 
 import '../widgets/app_strip.dart';
 import '../widgets/app_text_button.dart';
 import '../widgets/theme/app_color.dart';
 import '../widgets/theme/app_motion.dart' show AppMotion;
-import '../widgets/theme/app_radius.dart' show AppRadius;
 import '../widgets/theme/app_size.dart' show AppSize;
 import '../widgets/theme/app_space.dart' show AppSpace;
 import '../widgets/theme/app_type.dart' show AppType;
@@ -57,6 +62,14 @@ import '../widgets/theme/chrome_confirmation_dialog.dart';
 import '../widgets/theme/chrome_confirmation_outcome.dart';
 import '../widgets/theme/chrome_list_row.dart';
 import '../widgets/treatments.dart';
+
+bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
+
+/// `opacity.disabled`, per the opacity table beside R-32-330, for an iOS action whose
+/// target is gone: `CupertinoActionSheetAction` has no disabled state of its own, so this
+/// file dims the whole action the way `ChromeListRow.destructive` dims its Cupertino tile
+/// (R-32-502).
+const double _opacityDisabled = 0.38;
 
 /// `border.hairline`, per `docs/32-design-language.md` R-32-330; a local constant beside its
 /// callers, matching every other screen's own `_hairlineWidth`.
@@ -97,11 +110,11 @@ AnimationStyle _sheetAnimationStyle(BuildContext context) =>
         reverseCurve: AppMotion.curveExit,
       );
 
-/// Shows [PaneActionsSheet] as the modal bottom sheet section 7.16 fixes: `radius.lg` top
-/// corners and `color.bg.raised` (Flutter's own modal-route shadow already gives a floating
-/// sheet its elevation; this call fixes only the surface and the corners, which the
-/// platform default does not supply). Opens from the terminal screen's overflow control
-/// (`08-terminal.md` callout 5) or a long press on an agent row, the "In:" entries the
+/// Shows [PaneActionsSheet] on the platform's own action surface, per R-33-033's `Pane
+/// actions` row: on Android the Material 3 modal bottom sheet, its drag handle, corner,
+/// colour and elevation the component's own; on iOS a `CupertinoActionSheet`, the pane title
+/// its title and the status line its message. Opens from the terminal screen's overflow
+/// control (`08-terminal.md` callout 5) or a long press on an agent row, the "In:" entries the
 /// mockup's Navigation section names.
 Future<void> showPaneActionsSheet(
   BuildContext context, {
@@ -117,16 +130,34 @@ Future<void> showPaneActionsSheet(
   ValueChanged<String>? onSplit,
   VoidCallback? onClosePane,
 }) async {
+  final Widget sheet = PaneActionsSheet(
+    paneTitle: paneTitle,
+    currentLabel: currentLabel,
+    agentKind: agentKind,
+    agentStatusLine: agentStatusLine,
+    visibleScreenText: visibleScreenText,
+    linkState: linkState,
+    linkStateDetail: linkStateDetail,
+    onTapDiagnostics: onTapDiagnostics,
+    onOpenPluginActions: onOpenPluginActions,
+    onSplit: onSplit,
+    onClosePane: onClosePane,
+  );
+  if (_isIos) {
+    await showCupertinoModalPopup<void>(
+      context: context,
+      useRootNavigator: true,
+      builder: (BuildContext sheetContext) => sheet,
+    );
+    return;
+  }
   final double bottomInset = MediaQuery.viewPaddingOf(context).bottom;
   await showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
     isScrollControlled: true,
-    useSafeArea: false,
-    backgroundColor: Colors.transparent,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
-    ),
+    useSafeArea: true,
+    showDragHandle: true,
     sheetAnimationStyle: _sheetAnimationStyle(context),
     builder: (BuildContext sheetContext) => Padding(
       // R-31-10-09: the sheet's height is bounded by the keyboard inset while a keyboard the
@@ -138,25 +169,7 @@ Future<void> showPaneActionsSheet(
           MediaQuery.viewInsetsOf(sheetContext).bottom,
         ),
       ),
-      child: Material(
-        color: AppColor.of(sheetContext).bgRaised,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppRadius.lg),
-        ),
-        child: PaneActionsSheet(
-          paneTitle: paneTitle,
-          currentLabel: currentLabel,
-          agentKind: agentKind,
-          agentStatusLine: agentStatusLine,
-          visibleScreenText: visibleScreenText,
-          linkState: linkState,
-          linkStateDetail: linkStateDetail,
-          onTapDiagnostics: onTapDiagnostics,
-          onOpenPluginActions: onOpenPluginActions,
-          onSplit: onSplit,
-          onClosePane: onClosePane,
-        ),
-      ),
+      child: sheet,
     ),
   );
 }
@@ -250,14 +263,74 @@ class PaneActionsSheet extends StatelessWidget {
     }
   }
 
+  /// The rows of the wireframe, in its order, as one platform-neutral list: each platform
+  /// then draws them with its own control. Section 7.16's groups survive as [_PaneAction.group].
+  List<_PaneAction> _actions(BuildContext context) {
+    final bool screenReaderOn = MediaQuery.accessibleNavigationOf(context);
+    final bool linkNormal = linkState == PaneActionsLinkState.normal;
+    return <_PaneAction>[
+      // Callout 5 (R-03-055): the pane-scoped plugin actions screen of mockup 18. Local: it
+      // opens a screen, and that screen reports the link state itself (R-30-807), so the row
+      // is never disabled here.
+      _PaneAction(
+        group: 0,
+        label: 'Plugin actions',
+        icon: Symbols.extension_rounded,
+        onTap: onOpenPluginActions == null
+            ? null
+            : () => _actAndClose(context, onOpenPluginActions),
+        navigation: true,
+      ),
+      if (screenReaderOn)
+        _PaneAction(
+          group: 1,
+          label: 'Read the last 20 lines',
+          // `Read the last 20 lines` in the R-32-401 map (added 2026-09-08).
+          icon: Symbols.text_to_speech_rounded,
+          onTap: () => _readLast20Lines(context),
+        ),
+      for (final (String direction, String label, IconData icon) in [
+        ('right', 'Split right', Symbols.splitscreen_right_rounded),
+        ('down', 'Split down', Symbols.splitscreen_bottom_rounded),
+      ])
+        _PaneAction(
+          group: 2,
+          label: label,
+          icon: icon,
+          onTap: !linkNormal || onSplit == null
+              ? null
+              : () => _actAndClose(context, () => onSplit!(direction)),
+        ),
+      _PaneAction(
+        group: 2,
+        label: 'Close pane',
+        icon: Symbols.delete_outline_rounded,
+        destructive: true,
+        onTap: !linkNormal || onClosePane == null
+            ? null
+            : () => unawaited(_closePane(context)),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool showLinkLine =
         linkState != PaneActionsLinkState.normal && linkStateDetail != null;
+    final Widget? linkLine = showLinkLine
+        ? _LinkStateLine(
+            linkState: linkState,
+            detail: linkStateDetail!,
+            onTap: linkState == PaneActionsLinkState.offline
+                ? onTapDiagnostics
+                : null,
+          )
+        : null;
+    final List<_PaneAction> actions = _actions(context);
+    if (_isIos) return _iosSheet(context, actions, linkLine);
     return ConstrainedBox(
-      // R-31-10-09: the sheet MUST NOT be asked to draw more than it can fit. The grab
-      // handle, the header and Cancel stay put; only the action list between them scrolls
-      // past this bound.
+      // R-31-10-09: the sheet MUST NOT be asked to draw more than it can fit. The header and
+      // Cancel stay put; only the action list between them scrolls past this bound.
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.9,
       ),
@@ -267,21 +340,13 @@ class PaneActionsSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const _GrabHandle(),
             _Header(
               paneTitle: paneTitle,
               agentKind: agentKind,
               agentStatusLine: agentStatusLine,
             ),
-            if (showLinkLine)
-              _LinkStateLine(
-                linkState: linkState,
-                detail: linkStateDetail!,
-                onTap: linkState == PaneActionsLinkState.offline
-                    ? onTapDiagnostics
-                    : null,
-              ),
-            _buildActionList(context),
+            ?linkLine,
+            _buildActionList(context, actions),
             _CancelRow(onTap: () => Navigator.of(context).pop()),
           ],
         ),
@@ -289,115 +354,121 @@ class PaneActionsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildActionList(BuildContext context) {
+  /// The iOS surface: the platform's own `CupertinoActionSheet`. Its actions carry no glyph,
+  /// as the platform's own do; `Close pane` takes `isDestructiveAction`; a disabled action
+  /// dims to `opacity.disabled` and ignores the tap. The label takes the interface family, as
+  /// `app.dart`'s `actionTextStyle` does for every `CupertinoButton` (R-03-104, R-32-212):
+  /// the sheet reads no theme slot, so the family is set on the label.
+  Widget _iosSheet(
+    BuildContext context,
+    List<_PaneAction> actions,
+    Widget? linkLine,
+  ) {
+    Widget label(String text) => Text(
+      text,
+      style: const TextStyle(fontFamily: AppType.interfaceFontFamily),
+    );
+    final bool hasStatus = agentKind != null && agentStatusLine != null;
+    final Widget? message = hasStatus || linkLine != null
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              if (hasStatus) label(agentStatusLine!),
+              if (hasStatus && linkLine != null)
+                const SizedBox(height: AppSpace.space2),
+              ?linkLine,
+            ],
+          )
+        : null;
+    return CupertinoActionSheet(
+      title: label(paneTitle),
+      message: message,
+      actions: <Widget>[
+        for (final _PaneAction action in actions)
+          MergeSemantics(
+            child: Semantics(
+              hint: action.destructive ? 'destructive' : null,
+              enabled: action.onTap != null,
+              child: action.onTap != null
+                  ? CupertinoActionSheetAction(
+                      isDestructiveAction: action.destructive,
+                      onPressed: action.onTap!,
+                      child: label(action.label),
+                    )
+                  : IgnorePointer(
+                      child: Opacity(
+                        opacity: _opacityDisabled,
+                        child: CupertinoActionSheetAction(
+                          isDestructiveAction: action.destructive,
+                          onPressed: () {},
+                          child: label(action.label),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+      ],
+      cancelButton: CupertinoActionSheetAction(
+        onPressed: () => Navigator.of(context).pop(),
+        child: label('Cancel'),
+      ),
+    );
+  }
+
+  /// The Android action list: one `ListTile` per action through `ChromeListRow.sheet`, its
+  /// glyph leading, with section 7.16's group divider above every group so the header, each
+  /// group and `Cancel` read as separate bands, the way the wireframe draws them. Callout 5's
+  /// navigation row opens a screen instead of acting at once.
+  Widget _buildActionList(BuildContext context, List<_PaneAction> actions) {
     final AppColor color = AppColor.of(context);
-    final bool screenReaderOn = MediaQuery.accessibleNavigationOf(context);
-    // Section 7.16's group divider sits above every group, so the header, each group and
-    // `Cancel` read as separate bands, the way the wireframe draws them; a row inside a
-    // group carries no divider of its own. Callout 5's chevron marks the one row that opens
-    // a screen instead of acting at once.
-    final List<Widget> groups = <Widget>[
-      _ActionGroup(
-        children: <Widget>[
-          // Callout 5 (R-03-055): the pane-scoped plugin actions screen of mockup 18. Local:
-          // it opens a screen, and that screen reports the link state itself (R-30-807), so
-          // the row is never disabled here.
-          _ActionRow(
-            label: 'Plugin actions',
-            icon: Symbols.extension_rounded,
-            onTap: onOpenPluginActions == null
-                ? null
-                : () => _actAndClose(context, onOpenPluginActions),
-            navigation: true,
+    final List<Widget> rows = <Widget>[];
+    int? group;
+    for (final _PaneAction action in actions) {
+      if (action.group != group) {
+        group = action.group;
+        rows.add(_GroupDivider(color: color));
+      }
+      rows.add(
+        ChromeListRow.sheet(
+          title: action.label,
+          leading: Icon(
+            action.icon,
+            size: AppSize.iconMd,
+            color: action.destructive ? color.statusError : color.fgPrimary,
           ),
-        ],
-      ),
-      if (screenReaderOn)
-        _ActionGroup(
-          children: <Widget>[
-            _ActionRow(
-              label: 'Read the last 20 lines',
-              // `Read the last 20 lines` in the R-32-401 map (added 2026-09-08).
-              icon: Symbols.text_to_speech_rounded,
-              onTap: () => _readLast20Lines(context),
-            ),
-          ],
+          onTap: action.onTap,
+          destructive: action.destructive,
+          navigation: action.navigation,
         ),
-      _ActionGroup(
-        children: <Widget>[
-          for (final (String direction, String label, IconData icon) in [
-            ('right', 'Split right', Symbols.splitscreen_right_rounded),
-            ('down', 'Split down', Symbols.splitscreen_bottom_rounded),
-          ])
-            _ActionRow(
-              label: label,
-              icon: icon,
-              enabled: linkState == PaneActionsLinkState.normal,
-              onTap: onSplit == null
-                  ? null
-                  : () => _actAndClose(context, () => onSplit!(direction)),
-            ),
-          _ActionRow(
-            label: 'Close pane',
-            icon: Symbols.delete_outline_rounded,
-            destructive: true,
-            enabled: linkState == PaneActionsLinkState.normal,
-            onTap: onClosePane == null
-                ? null
-                : () => unawaited(_closePane(context)),
-          ),
-        ],
-      ),
-    ];
+      );
+    }
     return Flexible(
       child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            for (final Widget group in groups) ...<Widget>[
-              _GroupDivider(color: color),
-              group,
-            ],
-          ],
-        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: rows),
       ),
     );
   }
 }
 
-/// A native sheet row. Destructive actions keep their hue in the glyph.
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
+/// One row of the wireframe, before a platform draws it. [onTap] `null` is the disabled
+/// state. [group] is the section 7.16 group the row belongs to.
+class _PaneAction {
+  const _PaneAction({
+    required this.group,
     required this.label,
     required this.icon,
-    this.enabled = true,
+    required this.onTap,
     this.destructive = false,
-    this.onTap,
     this.navigation = false,
   });
 
+  final int group;
   final String label;
   final IconData icon;
-  final bool enabled;
-  final bool destructive;
   final VoidCallback? onTap;
+  final bool destructive;
   final bool navigation;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    return ChromeListRow.sheet(
-      title: label,
-      leading: Icon(
-        icon,
-        size: AppSize.iconMd,
-        color: destructive ? color.statusError : color.fgPrimary,
-      ),
-      onTap: enabled ? onTap : null,
-      destructive: destructive,
-      navigation: navigation,
-    );
-  }
 }
 
 /// Section 7.16's group divider: `border.hairline` in `color.border.subtle`, full width.
@@ -411,36 +482,9 @@ class _GroupDivider extends StatelessWidget {
       Container(height: _hairlineWidth, color: color.borderSubtle);
 }
 
-/// The grab handle: `size.grab` at `radius.full` in `color.fg.disabled`, centred, `space.2`
-/// from the top, excluded from the semantics tree (R-32-546). Mirrors
-/// `qr_scan_screen.dart`'s `HelpSheetContent` handle. The gap under it belongs to [_Header].
-class _GrabHandle extends StatelessWidget {
-  const _GrabHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColor color = AppColor.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpace.space2),
-      child: Center(
-        child: ExcludeSemantics(
-          child: Container(
-            width: AppSize.grabWidth,
-            height: AppSize.grabHeight,
-            decoration: BoxDecoration(
-              color: color.fgDisabled,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Callout 4: the pane title in `type.body.strong`, then — only while the pane holds an
 /// agent — the pre-composed status line in `type.caption`/`color.fg.secondary`. `space.4`
-/// under the handle, `space.3` above the first group divider.
+/// under the platform's drag handle, `space.3` above the first group divider.
 class _Header extends StatelessWidget {
   const _Header({
     required this.paneTitle,
@@ -505,18 +549,6 @@ class _LinkStateLine extends StatelessWidget {
         ? Treatment.warning(label: detail)
         : Treatment.error(label: detail, inStrip: true),
   );
-}
-
-/// One action group of the wireframe: its rows, with no divider between them. The divider
-/// above each group is [_GroupDivider], placed by the action list.
-class _ActionGroup extends StatelessWidget {
-  const _ActionGroup({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) =>
-      Column(mainAxisSize: MainAxisSize.min, children: children);
 }
 
 /// Callout 8: the fixed `Cancel` row under the scrolling action list, centred,

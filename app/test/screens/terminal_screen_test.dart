@@ -590,7 +590,7 @@ void main() {
   });
 
   testWidgets(
-    'ordinary upward scrolling loads history beyond the live viewport',
+    'ordinary upward scrolling grows history only near the top and preserves the reader',
     (tester) async {
       final harness = _Harness();
       await _pumpScreen(tester, harness);
@@ -615,34 +615,88 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(harness.scrollRequests, hasLength(1));
-      expect(harness.scrollRequests.single.lines, 1000);
+      expect(harness.scrollRequests.single.lines, 150);
       harness.emit(
         Message.scrollResponse(
           ScrollResponse(
             paneId: _paneId,
-            text: List.generate(1000, (i) => 'history row $i').join('\r\n'),
-            lines: 1000,
+            text: List.generate(
+              150,
+              (i) => 'history row ${850 + i}',
+            ).join('\r\n'),
+            lines: 150,
             truncated: true,
           ),
         ),
       );
       await tester.pumpAndSettle();
       final view = tester.widget<TerminalView>(find.byType(TerminalView));
-      expect(view.terminal.buffer.getText(), contains('history row 0'));
-      // Real scroll extent must extend far past one phone screen.
-      expect(
-        view.scrollController!.position.maxScrollExtent,
-        greaterThan(10000),
+      expect(view.terminal.buffer.getText(), contains('history row 850'));
+      expect(view.terminal.buffer.lines.length, 150);
+      final scroll = view.scrollController!;
+      final cell = tester
+          .state<TerminalViewState>(find.byType(TerminalView))
+          .renderTerminal
+          .cellSize;
+      // Waiting and scrolling within the loaded window must not fetch more.
+      await tester.pump(const Duration(seconds: 1));
+      await tester.dragFrom(
+        tester.getCenter(find.byKey(_gridKey)),
+        const Offset(0, 80),
       );
+      await tester.pumpAndSettle();
+      expect(harness.scrollRequests, hasLength(1));
+      scroll.jumpTo(10 * cell.height);
+      await tester.pumpAndSettle();
+      expect(harness.scrollRequests, hasLength(1));
+      await tester.dragFrom(
+        tester.getCenter(find.byKey(_gridKey)),
+        const Offset(0, 45),
+      );
+      await tester.pumpAndSettle();
+      expect(harness.scrollRequests.map((r) => r.lines), [150, 250]);
+      final offsetBefore = scroll.offset;
+      final topBefore = (offsetBefore / cell.height).floor();
+      final lineBefore = view.terminal.buffer.lines[topBefore].getText();
+      harness.emit(
+        Message.scrollResponse(
+          ScrollResponse(
+            paneId: _paneId,
+            text: List.generate(
+              250,
+              (i) => 'history row ${750 + i}',
+            ).join('\r\n'),
+            lines: 250,
+            truncated: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(offsetBefore + 100 * cell.height, 0.1));
+      expect(
+        view.terminal.buffer.lines[(scroll.offset / cell.height).floor()]
+            .getText(),
+        lineBefore,
+      );
+      expect(
+        tester
+            .widget<Semantics>(
+              find.byKey(const ValueKey('terminalGridSemantics')),
+            )
+            .properties
+            .label,
+        startsWith(lineBefore.trimRight()),
+      );
+      expect(harness.scrollRequests, hasLength(2));
       view.scrollController!.jumpTo(0);
       await tester.pumpAndSettle();
       expect(
         find.text(
           'This is the most recent output. Older lines stay on the computer.',
         ),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(harness.scrollRequests, hasLength(1));
+      expect(harness.scrollRequests, hasLength(2));
       await tester.tap(find.text('to bottom'));
       // The native terminal cursor keeps animating after the button receives focus.
       await tester.pump();
@@ -656,6 +710,92 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  for (final availableRows in [175, 1000]) {
+    testWidgets(
+      'progressive history stops at $availableRows rows and resets on return to live',
+      (tester) async {
+        Future<void> settleGrid() async {
+          for (var frame = 0; frame < 5; frame++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        final harness = _Harness();
+        await _pumpScreen(tester, harness);
+        await _attachLive(tester, harness, columns: 80, rows: 50);
+        final view = tester.widget<TerminalView>(find.byType(TerminalView));
+        for (
+          var requested = 150;
+          ;
+          requested = (requested + 100).clamp(1, 1000)
+        ) {
+          view.scrollController!.jumpTo(0);
+          await settleGrid();
+          final previousRequests = harness.scrollRequests.length;
+          await tester.dragFrom(
+            tester.getCenter(find.byKey(_gridKey)),
+            const Offset(0, 70),
+          );
+          await settleGrid();
+          expect(harness.scrollRequests.length, previousRequests + 1);
+          expect(harness.scrollRequests.last.lines, requested);
+          // A second gesture while the reply is pending shares the same request.
+          await tester.dragFrom(
+            tester.getCenter(find.byKey(_gridKey)),
+            const Offset(0, 70),
+          );
+          await settleGrid();
+          expect(harness.scrollRequests.length, previousRequests + 1);
+          final returned = requested.clamp(1, availableRows);
+          harness.emit(
+            Message.scrollResponse(
+              ScrollResponse(
+                paneId: _paneId,
+                text: List.generate(
+                  returned,
+                  (i) => 'history row $i',
+                ).join('\r\n'),
+                lines: returned,
+                // Some Hosts flag truncation even when returning fewer rows than requested.
+                truncated: true,
+              ),
+            ),
+          );
+          await settleGrid();
+          expect(view.terminal.buffer.lines.length, returned);
+          if (returned == availableRows) break;
+        }
+        final count = harness.scrollRequests.length;
+        view.scrollController!.jumpTo(0);
+        await settleGrid();
+        await tester.dragFrom(
+          tester.getCenter(find.byKey(_gridKey)),
+          const Offset(0, 70),
+        );
+        await settleGrid();
+        expect(harness.scrollRequests, hasLength(count));
+        expect(
+          find.text(
+            'This is the most recent output. Older lines stay on the computer.',
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('to bottom'));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        await tester.dragFrom(
+          tester.getCenter(find.byKey(_gridKey)),
+          const Offset(0, 250),
+        );
+        await tester.pump();
+        expect(harness.scrollRequests, hasLength(count + 1));
+        expect(harness.scrollRequests.last.lines, 150);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
 
   setUpAll(loadAppFonts);
 
@@ -1476,7 +1616,7 @@ void main() {
 
     expect(harness.scrollRequests, hasLength(1));
     expect(harness.scrollRequests.single.paneId, _paneId);
-    expect(harness.scrollRequests.single.lines, 1000);
+    expect(harness.scrollRequests.single.lines, 150);
 
     // A pull that starts below the top edge is a scrollback drag, not a
     // force read.

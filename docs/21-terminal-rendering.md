@@ -1134,16 +1134,31 @@ high-frequency stream. The measured `pane.read` round-trip p50 is 1 ms and p95 i
 
 **R-21-045.** A normal upward drag MUST request the most recent history window when the reader
 approaches the first available row. The gesture MUST work when the live grid fits the phone, on
-both platforms.
+both platforms. The first request MUST add 100 lines to the Host viewport row count, capped at
+1,000. Each further upward gesture near the oldest loaded rows MUST grow the requested window
+by 100 lines, up to R-10-019's limit. Waiting or scrolling inside the loaded window MUST NOT
+fetch more. A short reply or `truncated: false` MUST stop further growth for that reading session.
+Returning live MUST reset the next request to the initial size.
+
+The current Host API supplies recent windows, so each request retransmits that complete window.
+This is progressive window expansion, not offset paging. Only a Host API extension can remove
+the limit; see Open questions below.
 Only one fetch may be in flight. A fetched window MUST replace the grid as one independent
 snapshot; it MUST NOT be stitched to a live frame. Its columns stay fixed and all returned rows
-remain available. Preserve the reader's distance from the bottom when the window opens.
+remain available. Preserve the reader's distance from the bottom when the window opens or grows.
+That distance does not identify the same text if new Host output shifts the snapshot between reads.
 
 Live frames MUST wait during the fetch and while the reader uses the history window. A selection
 MUST prevent a fetched reply from replacing its source grid. Returning to the bottom or leaving
 the pane MUST invalidate an in-flight fetch, including its later error. A cancelled request MUST
 NOT put a healthy live pane into the read-failed state. Select visible screen MUST clamp both
 anchors to the rows visible in the phone's viewport. The truncated strip follows R-31-08-19.
+Show that strip only when no larger window can be fetched.
+
+Scrolling MUST retain the renderer's text cache while its colours and font stay unchanged.
+The grid's accessibility text MUST include only visible rows, at full Host width, and MUST be
+reused until those rows or their content change. Neither painting nor accessibility text
+generation may traverse every loaded row on each scroll update.
 
 **R-21-035**: The scrollback already held by the emulator MUST repaint from the same new payload.
 After the forced `pane.read` completes, the emulator repaints the entire visible viewport from the

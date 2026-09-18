@@ -84,6 +84,51 @@ Terminal _terminal({String? feed}) {
 }
 
 void main() {
+  testWidgets(
+    'scrolling history preserves the renderer theme and bounds accessibility work',
+    (tester) async {
+      final terminal = Terminal(maxLines: 0)..resize(231, 1000);
+      terminal.write(List.generate(1000, (i) => 'history row $i').join('\r\n'));
+      addTearDown(terminal.dispose);
+      await tester.pumpWidget(
+        _harness(
+          child: TerminalViewWidget(
+            palette: AppColor.dark,
+            phase: TerminalGridPhase.live,
+            terminal: terminal,
+            historyVisible: true,
+          ),
+        ),
+      );
+      await tester.pump();
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      final render = tester
+          .state<TerminalViewState>(find.byType(TerminalView))
+          .renderTerminal;
+      view.scrollController!.jumpTo(500 * render.cellSize.height);
+      await tester.pump();
+      await tester.pump();
+      // xterm's theme uses identity equality; replacing it clears its paragraph cache.
+      expect(
+        tester.widget<TerminalView>(find.byType(TerminalView)).theme,
+        same(view.theme),
+      );
+      final label = tester
+          .widget<Semantics>(
+            find.byKey(const ValueKey('terminalGridSemantics')),
+          )
+          .properties
+          .label!;
+      expect(label, contains('history row 500'));
+      expect(label, isNot(contains('history row 499')));
+      expect(label, isNot(contains('history row 999')));
+      expect(label.split('\n').length, lessThan(50));
+      final (first, last) = render.debugVisibleLineRange();
+      expect(last - first, lessThan(50));
+      expect(terminal.buffer.lines.length, 1000);
+    },
+  );
+
   testWidgets('Select visible screen stays inside a fetched history window', (
     tester,
   ) async {

@@ -296,6 +296,8 @@ class TerminalViewWidget extends StatefulWidget {
     this.truncatedAtTop = false,
     this.historyVisible = false,
     this.historyTruncated = false,
+    this.historyCanLoadMore = false,
+    this.historyGeneration = 0,
     this.onRequestScrollback,
     this.maxScrollOffsetFromBottom = 0,
     this.onGridTap,
@@ -369,6 +371,11 @@ class TerminalViewWidget extends StatefulWidget {
   /// The grid currently holds an independent fetched history window.
   final bool historyVisible;
   final bool historyTruncated;
+  final bool historyCanLoadMore;
+
+  /// Changes only when a history reply replaces the grid. The terminal itself is
+  /// mutable, so comparing its old and new row counts in didUpdateWidget is too late.
+  final int historyGeneration;
 
   /// Load older output when a drag approaches the first currently available row.
   final VoidCallback? onRequestScrollback;
@@ -452,6 +459,10 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   bool _truncatedDismissed = false;
   ScrollPhysics? _nativeScrollPhysics;
   ScrollPhysics? _historyScrollPhysics;
+  (AppColor, String?, String?)? _themeKey;
+  TerminalTheme? _cachedTheme;
+  (int, int)? _semanticsRows;
+  String? _cachedSemantics;
 
   late final ScrollController _verticalScroll;
   late final TerminalController _controller;
@@ -462,6 +473,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
 
   HorizontalDragGestureRecognizer? _panRecognizer;
   double _viewportColumns = 0;
+  double _viewportHeight = 0;
 
   /// The readable [TerminalViewWidget.textSize], or the corrected fit size in overview.
   /// A width, column count, readable size, or mode change recomputes this value.
@@ -538,7 +550,8 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   @override
   void didUpdateWidget(TerminalViewWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.historyVisible != widget.historyVisible) {
+    if (oldWidget.historyVisible != widget.historyVisible ||
+        oldWidget.historyGeneration != widget.historyGeneration) {
       _truncatedDismissed = false;
       _historyViewportPending = widget.historyVisible;
       if (widget.historyVisible) {
@@ -631,6 +644,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
 
   void _onTerminalContentChanged() {
     _terminalContentDirty = true;
+    _cachedSemantics = null;
     _scheduleMetricsAdoption();
   }
 
@@ -704,6 +718,9 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     } finally {
       _adjustingViewport = false;
     }
+    // The jump happens after layout and suppresses the user-scroll listener.
+    // Rebuild the semantics for the restored window as well as moving its paint.
+    setState(() {});
   }
 
   void _onControllerChanged() {
@@ -1020,16 +1037,32 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// clipped to the columns the pan window currently shows, because a
   /// screen reader cannot pan (R-21-037 point 4).
   String _semanticsLabel(Terminal terminal) {
-    final rawLines = terminal.buffer.getText().split('\n');
-    final trimmed = rawLines.map((line) => line.replaceAll(RegExp(r' +$'), ''));
+    final lines = terminal.buffer.lines;
+    if (lines.length == 0) return '';
+    final position = _verticalScroll.hasClients
+        ? _verticalScroll.position
+        : null;
+    final top = position?.hasContentDimensions == true ? position!.pixels : 0.0;
+    final height = _viewportHeight;
+    final first = (top / _cellHeight).floor().clamp(0, lines.length - 1);
+    final end = ((top + height) / _cellHeight).ceil().clamp(
+      first + 1,
+      lines.length,
+    );
+    final rows = (first, end);
+    if (_cachedSemantics != null && _semanticsRows == rows) {
+      return _cachedSemantics!;
+    }
+    _semanticsRows = rows;
     final collapsed = <String>[];
-    for (final line in trimmed) {
+    for (var row = first; row < end; row++) {
+      final line = lines[row].getText().trimRight();
       if (line.isEmpty && collapsed.isNotEmpty && collapsed.last.isEmpty) {
         continue;
       }
       collapsed.add(line);
     }
-    return collapsed.join('\n');
+    return _cachedSemantics = collapsed.join('\n');
   }
 
   @override
@@ -1052,6 +1085,8 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
         // change, a viewport change or a Host column change lands here.
         final double availableWidth =
             constraints.maxWidth - _cutoutSafeInset(context).horizontal;
+        _viewportHeight =
+            constraints.maxHeight - _cutoutSafeInset(context).vertical;
         // Recompute the candidate only when an input moved; the adopted
         // painted cell and any taken correction survive untouched
         // rebuilds, so the metrics never oscillate under setState.
@@ -1301,7 +1336,15 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
         parent: nativePhysics,
       );
     }
-    final theme = terminalThemeFrom(color, widget.hostTheme?.value);
+    // xterm's TerminalTheme has identity equality. Recreating it on each scroll
+    // clears the glyph paragraph cache even when every colour is unchanged.
+    final hostTheme = widget.hostTheme?.value;
+    final themeKey = (color, hostTheme?.text, hostTheme?.surfaceDim);
+    if (_themeKey != themeKey) {
+      _themeKey = themeKey;
+      _cachedTheme = terminalThemeFrom(color, hostTheme);
+    }
+    final theme = _cachedTheme!;
     final cutoutInset = _cutoutSafeInset(context);
     final label = _semanticsLabel(terminal);
 
@@ -1361,7 +1404,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
                       !_hasSelection &&
                       widget.phase == TerminalGridPhase.live &&
                       widget.maxScrollOffsetFromBottom > 0 &&
-                      !widget.historyVisible &&
+                      (!widget.historyVisible || widget.historyCanLoadMore) &&
                       !_historyRequested &&
                       notification.metrics.pixels <=
                           notification.metrics.viewportDimension) {

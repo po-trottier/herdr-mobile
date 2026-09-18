@@ -786,8 +786,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
   void _onForceRead() => unawaited(_loadScrollback());
 
   Future<void> _loadScrollback() async {
-    if (_phase != TerminalGridPhase.live) return;
-    final result = await _service.requestScrollback(lines: 1000);
+    if (_phase != TerminalGridPhase.live || !_service.canLoadMoreScrollback) {
+      return;
+    }
+    final result = await _service.requestScrollback(
+      lines: _service.nextScrollbackLines,
+    );
     if (!mounted) return;
     if (result case Err(:final message, :final cause)) {
       if (cause is TerminalScrollbackException && cause.cancelled) return;
@@ -1104,7 +1108,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
           _treePane?.scroll.maxOffsetFromBottom ??
           frame.scroll.maxOffsetFromBottom,
       historyVisible: _service.showingScrollback,
-      historyTruncated: _service.scrollbackTruncated,
+      historyTruncated:
+          _service.scrollbackTruncated && !_service.canLoadMoreScrollback,
+      historyCanLoadMore: _service.canLoadMoreScrollback,
+      historyGeneration: _service.scrollbackGeneration,
       onRequestScrollback: () => unawaited(_loadScrollback()),
       onDiagnostics: widget.onDiagnostics,
       onRevoked: widget.onRevoked,

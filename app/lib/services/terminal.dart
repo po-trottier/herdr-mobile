@@ -311,12 +311,27 @@ final class TerminalService {
   bool _readingScrollback = false;
   bool _showingScrollback = false;
   bool _scrollbackTruncated = false;
+  int _scrollbackRequestedLines = 0;
+  int _scrollbackRows = 0;
+  int _scrollbackGeneration = 0;
   int _scrollEpoch = 0;
   Future<Result<ScrollResponse>>? _scrollFuture;
 
   /// A fetched window replaces the live grid in memory until the reader returns.
   bool get showingScrollback => _showingScrollback;
   bool get scrollbackTruncated => _scrollbackTruncated;
+  int get scrollbackGeneration => _scrollbackGeneration;
+
+  /// The Host exposes recent windows, not offsets. Expand by 100 rows per gesture
+  /// without fetching the wire maximum on the first read (R-21-045).
+  int get nextScrollbackLines =>
+      ((_showingScrollback ? _scrollbackRequestedLines : _state.rows) + 100)
+          .clamp(1, 1000);
+  bool get canLoadMoreScrollback =>
+      !_showingScrollback ||
+      (_scrollbackTruncated &&
+          _scrollbackRequestedLines < 1000 &&
+          _scrollbackRows >= _scrollbackRequestedLines);
   DateTime? _pendingFrameReceivedAt;
   Timer? _coalesceTimer;
   bool _flushingFrame = false;
@@ -555,6 +570,9 @@ final class TerminalService {
       xterm.write('\x1b[2J\x1b[H${value.text}');
       _showingScrollback = true;
       _scrollbackTruncated = value.truncated;
+      _scrollbackRequestedLines = cappedLines;
+      _scrollbackRows = rows;
+      _scrollbackGeneration++;
       _publish(_state.copyWith(status: TerminalPaneStatus.paused));
     } else {
       _readingScrollback = false;

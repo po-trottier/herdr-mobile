@@ -1988,16 +1988,10 @@ class _RowBox extends StatelessWidget {
 /// Priority puts the status beside the tab title and the age beside the breadcrumb.
 /// Workspace puts the kind, pane, status, and age on one line.
 class _RowLine extends StatelessWidget {
-  const _RowLine({
-    required this.leading,
-    this.trailing,
-    this.pinned = false,
-    this.workspace,
-  });
+  const _RowLine({required this.leading, this.trailing, this.workspace});
 
   final Widget leading;
   final Widget? trailing;
-  final bool pinned;
   final String? workspace;
 
   @override
@@ -2006,14 +2000,6 @@ class _RowLine extends StatelessWidget {
     textBaseline: TextBaseline.alphabetic,
     children: <Widget>[
       Expanded(child: leading),
-      if (pinned) ...<Widget>[
-        const SizedBox(width: AppSpace.space2),
-        Icon(
-          Symbols.keep_rounded,
-          size: AppSize.iconSm,
-          color: AppColor.of(context).fgSecondary,
-        ),
-      ],
       if (trailing != null) ...<Widget>[
         const SizedBox(width: AppSpace.space3),
         trailing!,
@@ -2085,26 +2071,45 @@ class _ShellRowContent extends StatelessWidget {
           ),
           const SizedBox(width: _slotGap),
           Expanded(
-            child: Text.rich(
-              TextSpan(
-                text: row.paneDisplayName,
-                style: AppType.body.copyWith(color: color.fgSecondary),
-                children: [
-                  if (row.title.isNotEmpty)
-                    const WidgetSpan(
-                      alignment: PlaceholderAlignment.baseline,
-                      baseline: TextBaseline.alphabetic,
-                      child: SizedBox(width: AppSpace.space2),
-                    ),
-                  if (row.title.isNotEmpty)
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text.rich(
                     TextSpan(
-                      text: row.title,
-                      style: AppType.caption.copyWith(color: color.fgSecondary),
+                      text: row.paneDisplayName,
+                      style: AppType.body.copyWith(color: color.fgSecondary),
+                      children: [
+                        if (row.title.isNotEmpty)
+                          const WidgetSpan(
+                            alignment: PlaceholderAlignment.baseline,
+                            baseline: TextBaseline.alphabetic,
+                            child: SizedBox(width: AppSpace.space2),
+                          ),
+                        if (row.title.isNotEmpty)
+                          TextSpan(
+                            text: row.title,
+                            style: AppType.caption.copyWith(
+                              color: color.fgSecondary,
+                            ),
+                          ),
+                      ],
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (showWorkspace) ...<Widget>[
+                  const SizedBox(width: AppSpace.space2),
+                  Flexible(
+                    child: Text(
+                      row.workspaceName,
+                      style: AppType.caption.copyWith(color: color.fgSecondary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              ],
             ),
           ),
           if (pinned) ...<Widget>[
@@ -2113,17 +2118,6 @@ class _ShellRowContent extends StatelessWidget {
               Symbols.keep_rounded,
               size: AppSize.iconSm,
               color: color.fgSecondary,
-            ),
-          ],
-          if (showWorkspace) ...<Widget>[
-            const SizedBox(width: AppSpace.space2),
-            Flexible(
-              child: Text(
-                row.workspaceName,
-                style: AppType.caption.copyWith(color: color.fgSecondary),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
             ),
           ],
         ],
@@ -2210,7 +2204,6 @@ class _AgentRowContent extends StatelessWidget {
               Expanded(
                 child: axis == AgentListAxis.workspace
                     ? _RowLine(
-                        pinned: pinned,
                         workspace: showWorkspace ? row.workspaceName : null,
                         leading: Row(
                           crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -2261,7 +2254,6 @@ class _AgentRowContent extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           _RowLine(
-                            pinned: pinned,
                             leading: Text(
                               title,
                               style:
@@ -2295,6 +2287,14 @@ class _AgentRowContent extends StatelessWidget {
                         ],
                       ),
               ),
+              if (pinned) ...<Widget>[
+                const SizedBox(width: AppSpace.space2),
+                Icon(
+                  Symbols.keep_rounded,
+                  size: AppSize.iconSm,
+                  color: color.fgSecondary,
+                ),
+              ],
             ],
           ),
         ),

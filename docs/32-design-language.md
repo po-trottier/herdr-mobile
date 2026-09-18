@@ -2055,6 +2055,8 @@ is `app/lib/widgets/key_label.dart`.
 ### 7.34 Pinned rows
 
 - **R-32-708** A pinned row MUST show a pin glyph at `size.icon.sm` in `color.fg.secondary`.
+  The glyph MUST occupy a trailing column after a `space.2` gap, vertically centred in the whole
+  row, including both text lines in `Priority`.
   Use `Symbols.keep_rounded` for the row glyph and the `Pin` action.
   Use `Symbols.keep_off_rounded` for the `Unpin` action.
   Each action MUST contain its icon and label in the native button of `R-33-077`, with the

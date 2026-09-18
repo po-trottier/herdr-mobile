@@ -1822,7 +1822,6 @@ class _PaneRowTile extends StatelessWidget {
         color: color,
         leadingInset: leadingInset,
         slotWidth: slotWidth,
-        pinned: pinned,
         showWorkspace: showWorkspace,
         onTap: () => onOpenPane(row.paneId),
       ),
@@ -1833,7 +1832,6 @@ class _PaneRowTile extends StatelessWidget {
         showDivider: showDivider,
         leadingInset: leadingInset,
         slotWidth: slotWidth,
-        pinned: pinned,
         showWorkspace: showWorkspace,
         onTap: () => onOpenPane(row.paneId),
       ),
@@ -2032,7 +2030,6 @@ class _ShellRowContent extends StatelessWidget {
     required this.color,
     required this.leadingInset,
     required this.slotWidth,
-    required this.pinned,
     required this.showWorkspace,
     required this.onTap,
   });
@@ -2041,7 +2038,6 @@ class _ShellRowContent extends StatelessWidget {
   final AppColor color;
   final double leadingInset;
   final double slotWidth;
-  final bool pinned;
   final bool showWorkspace;
   final VoidCallback onTap;
 
@@ -2071,53 +2067,37 @@ class _ShellRowContent extends StatelessWidget {
           ),
           const SizedBox(width: _slotGap),
           Expanded(
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text.rich(
+            child: Text.rich(
+              TextSpan(
+                text: row.paneDisplayName,
+                style: AppType.body.copyWith(color: color.fgSecondary),
+                children: [
+                  if (row.title.isNotEmpty)
+                    const WidgetSpan(
+                      alignment: PlaceholderAlignment.baseline,
+                      baseline: TextBaseline.alphabetic,
+                      child: SizedBox(width: AppSpace.space2),
+                    ),
+                  if (row.title.isNotEmpty)
                     TextSpan(
-                      text: row.paneDisplayName,
-                      style: AppType.body.copyWith(color: color.fgSecondary),
-                      children: [
-                        if (row.title.isNotEmpty)
-                          const WidgetSpan(
-                            alignment: PlaceholderAlignment.baseline,
-                            baseline: TextBaseline.alphabetic,
-                            child: SizedBox(width: AppSpace.space2),
-                          ),
-                        if (row.title.isNotEmpty)
-                          TextSpan(
-                            text: row.title,
-                            style: AppType.caption.copyWith(
-                              color: color.fgSecondary,
-                            ),
-                          ),
-                      ],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (showWorkspace) ...<Widget>[
-                  const SizedBox(width: AppSpace.space2),
-                  Flexible(
-                    child: Text(
-                      row.workspaceName,
+                      text: row.title,
                       style: AppType.caption.copyWith(color: color.fgSecondary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
                 ],
-              ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (pinned) ...<Widget>[
+          if (showWorkspace) ...<Widget>[
             const SizedBox(width: AppSpace.space2),
-            Icon(
-              Symbols.keep_rounded,
-              size: AppSize.iconSm,
-              color: color.fgSecondary,
+            Flexible(
+              child: Text(
+                row.workspaceName,
+                style: AppType.caption.copyWith(color: color.fgSecondary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ],
@@ -2140,7 +2120,6 @@ class _AgentRowContent extends StatelessWidget {
     required this.showDivider,
     required this.leadingInset,
     required this.slotWidth,
-    required this.pinned,
     required this.showWorkspace,
     this.onTap,
   });
@@ -2156,7 +2135,6 @@ class _AgentRowContent extends StatelessWidget {
 
   /// The leading slot's width; an agent row leaves it empty ([_PaneRowTile.slotWidth]).
   final double slotWidth;
-  final bool pinned;
   final bool showWorkspace;
   final VoidCallback? onTap;
 
@@ -2287,14 +2265,6 @@ class _AgentRowContent extends StatelessWidget {
                         ],
                       ),
               ),
-              if (pinned) ...<Widget>[
-                const SizedBox(width: AppSpace.space2),
-                Icon(
-                  Symbols.keep_rounded,
-                  size: AppSize.iconSm,
-                  color: color.fgSecondary,
-                ),
-              ],
             ],
           ),
         ),

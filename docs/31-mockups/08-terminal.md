@@ -465,7 +465,7 @@ other mocks in this repository are 40 columns.
   the `pane gone` alert dialog of `R-31-08-27` offers, and it is the same back navigation the bar's
   back control makes, per `R-30-031`. `Back` on the `read failed` and `protocol mismatch` alert
   dialogs is that navigation too.
-- Out, banner `Why`: `/hosts/:hostId/diagnostics`, mockup `13-connection.md`.
+- Out, banner `Connection details`: `/hosts/:hostId/diagnostics`, mockup `13-connection.md`.
 - Out, offline strip: `/hosts/:hostId/diagnostics`, mockup `13-connection.md`, per `R-30-806`.
 - The Device watches exactly one pane at a time, so leaving this route sends `unwatch_pane` and ends
   the pane watch. See `R-02-013` and `R-11-050`.

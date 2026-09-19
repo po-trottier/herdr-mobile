@@ -551,6 +551,40 @@ void main() {
     expect(find.textContaining('isconnect'), findsNothing);
   });
 
+  testWidgets(
+    'host_in_use on a scoped screen draws the R-30-940 banner alone: no second '
+    'Could not connect strip, and the action reads Connection details (R-30-941)',
+    (tester) async {
+      final harness = _Harness(
+        hosts: <PairedHostRecord>[_record(hostId: 'a', hostName: 'alpha-box')],
+        connectedHostId: 'a',
+        switchOutcome: const SwitchFailed(
+          hostId: 'a',
+          reason: SwitchFailureReason.hostInUse,
+          detail: 'in use',
+        ),
+      );
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(harness.build());
+      await tester.pumpAndSettle();
+      harness.connectionState.add(
+        const RelayRegistrationError(
+          RelayRegistrationErrorCode.hostInUse,
+          'in use',
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('alpha-box'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Computer in use on another phone'), findsOneWidget);
+      expect(find.textContaining('Could not connect'), findsNothing);
+      expect(find.text('Connection details'), findsOneWidget);
+      expect(find.text('Why'), findsNothing);
+    },
+  );
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets(
       '$platform: the trailing slot holds exactly one control at a time: chevron, spinner, Try again, or '

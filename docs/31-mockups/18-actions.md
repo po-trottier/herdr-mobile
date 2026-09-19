@@ -550,7 +550,7 @@ stays in `## Open questions` with its recommended default.
   the pane strip of `R-31-18-13`. Back returns here, per `R-30-031`.
 - Out, a row tap that named no pane: no route change at all. The result arrives as the snackbar of
   callout 15.
-- Out, the `Why` action of the `host_in_use` banner, and the offline strip:
+- Out, the `Connection details` action of the `host_in_use` banner, and the offline strip:
   `/hosts/:hostId/diagnostics`, mockup `13-connection.md`, per `R-30-941` and `R-30-806`.
 - Out, nothing else. No row and no header opens a screen. The pane strip is the only row-shaped
   thing on this screen that routes anywhere.

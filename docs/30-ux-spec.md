@@ -1109,7 +1109,8 @@ A computer serves exactly one phone. `docs/03-product-decisions.md` sets that po
   The banner says `Computer`, because `R-30-001` keeps `Host` out of the interface. The wire error
   stays `host_in_use` and the close code stays `4006`. Only the visible words change.
   This banner belongs to a computer the app has already saved. The pairing screens carry a
-  name-free variant with no `Why` action, owned by `docs/31-mockups/02-pair-scan.md` `R-31-02-08`.
+  name-free variant with no `Connection details` action, owned by
+  `docs/31-mockups/02-pair-scan.md` `R-31-02-08`.
   `R-11-119` sends `host_in_use` before the Noise tunnel exists, so during a first pairing nothing
   is saved, no name is known and no row exists to name.
   The second line names no recovery on the computer, and that is deliberate. The Relay pane removes
@@ -1118,8 +1119,10 @@ A computer serves exactly one phone. `docs/03-product-decisions.md` sets that po
   because `R-30-946` closes every per-Host route except diagnostics while nothing is connected.
   So the only true recovery is on the other phone, and the line names that one.
 - **R-30-941** The banner MUST carry exactly two actions: `Try again`, which makes one connection
-  attempt, and `Why`, which routes to `/hosts/:hostId/diagnostics`. It MUST NOT offer to disconnect
-  the other phone, because this phone has no authority over it.
+  attempt, and `Connection details`, which routes to `/hosts/:hostId/diagnostics`. It MUST NOT
+  offer to disconnect the other phone, because this phone has no authority over it. The banner
+  replaces the failed-attempt strip of `R-31-05-18` for that attempt: one fact, one strip
+  (amended 2026-09-18, renamed from `Why` by the product owner).
 - **R-30-942** The app MUST NOT retry `host_in_use` on the reconnect schedule when another phone
   holds the computer. It is not a transport failure, and a retry loop would fight the other phone
   for the slot. One attempt per press of `Try again`. One exception (amended 2026-09-10): within 45

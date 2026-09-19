@@ -202,8 +202,9 @@ The four values the app takes from it:
   handle and no name. This screen MUST then show a name-free variant of the `R-30-940` banner: the
   same first line, `Computer in use on another phone`, and one name-free line under it, `Another
   phone is connected to that computer. Disconnect there, or remove that phone in the Relay pane,
-  then try again.` It MUST carry `Try again` only. The `Why` action of `R-30-941` MUST NOT appear,
-  because no `:hostId` exists to route it to. `/pair/manual` MUST use this same variant.
+  then try again.` It MUST carry `Try again` only. The `Connection details` action of `R-30-941`
+  MUST NOT appear, because no `:hostId` exists to route it to. `/pair/manual` MUST use this same
+  variant.
 - **R-31-02-09** The `(i)` sheet MUST repeat the three setup steps of `R-31-01-07` word for word and
   MUST hold no other action. The sheet MUST pause the preview while it is open, and the scanner MUST
   resume when it closes, so the camera indicator never stays lit behind a sheet that covers the

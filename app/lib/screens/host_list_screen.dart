@@ -196,8 +196,8 @@ class HostListScreen extends StatefulWidget {
   /// `+` (callout 2) and `Pair again` on a rejected row: routes to `/pair/scan`.
   final VoidCallback? onPairAnother;
 
-  /// The `Switch failed`/`Offline` strip and the `host_in_use` banner's `Why`: routes to
-  /// `/hosts/:hostId/diagnostics` for the named computer (R-31-05-18).
+  /// The `Switch failed`/`Offline` strip and the `host_in_use` banner's `Connection details`:
+  /// routes to `/hosts/:hostId/diagnostics` for the named computer (R-31-05-18).
   final ValueChanged<String>? onOpenDiagnostics;
 
   /// R-31-05-16: `true` for the one cold-start build of this screen, which then makes exactly
@@ -565,7 +565,9 @@ class _HostListScreenState extends State<HostListScreen> {
             },
           )
         else if (_lastAttempt case final attempt?
-            when _liveState is! RelayConnected)
+            // R-30-941: `host_in_use` draws its own banner above; a second
+            // `Could not connect` strip for the same attempt would say one fact twice.
+            when _liveState is! RelayConnected && !_hostInUseBanner)
           AppStrip(
             // R-31-05-18 (amended 2026-09-16): name the computer; the row carries the
             // raw failure text (R-30-803).
@@ -630,7 +632,7 @@ class _HostListScreenState extends State<HostListScreen> {
             ),
             const SizedBox(width: AppSpace.space3),
             AppTextButton(
-              label: 'Why',
+              label: 'Connection details',
               onPressed: () {
                 final id = _connectedHostId;
                 if (id != null) widget.onOpenDiagnostics?.call(id);

@@ -269,8 +269,9 @@ and `What it does` columns as one `type.caption` line under it, in that order. T
 
 ## Navigation
 
-- In: `Connection` on `15-appearance.md`, the `Why` action of the `host_in_use` banner that
-  `R-30-941` defines, or any offline indicator elsewhere in the app, all of which route here.
+- In: `Connection` on `15-appearance.md`, the `Connection details` action of the `host_in_use`
+  banner that `R-30-941` defines, or any offline indicator elsewhere in the app, all of which route
+  here.
   `:hostId` is the computer the caller names. It is usually the connected one, and `R-30-946` also
   permits a saved computer with no live connection, which is the case every failure route uses.
 - Out, back: the caller.

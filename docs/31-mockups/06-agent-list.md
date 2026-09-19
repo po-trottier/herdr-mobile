@@ -346,7 +346,7 @@ as a preview and lists the two actions under it, per `R-33-080`. The row does no
     screen and that badge.
 11. The `host_in_use` banner. The blocking banner of `R-32-550`, non dismissible, with
     `treat.warning` on `color.bg.raised`. The title uses `type.body.strong` and the explanation
-    `type.caption`. Two actions only, `Try again` and `Why`, per `R-30-941`, in the platform
+    `type.caption`. Two actions only, `Try again` and `Connection details`, per `R-30-941`, in the platform
     button's own sentence case (wireframe amended 2026-09-09 per `R-03-104`; it spelt them in
     upper case). The banner sits under the header block of callout 13 and pushes the list down.
     It MUST NOT float over a row.
@@ -547,7 +547,7 @@ as a preview and lists the two actions under it, per `R-33-080`. The row does no
 - Out, offline strip: `/hosts/:hostId/diagnostics`, mockup `13-connection.md`, per `R-30-806`.
 - Out, `Notifications`: `/hosts/:hostId/notifications`, mockup `07-notifications.md`.
 - Out, `Settings`: `/settings`, mockup `15-appearance.md`.
-- Out, banner `Why`: `/hosts/:hostId/diagnostics`, mockup `13-connection.md`.
+- Out, banner `Connection details`: `/hosts/:hostId/diagnostics`, mockup `13-connection.md`.
 - Out, alerts off marker: `/settings/notifications`, mockup `12-notifications.md`.
 - Out, `Status colours` action: `/settings/status-colours`, mockup `20-status-legend.md`, pushed
   on this branch so the bottom destinations stay (added 2026-09-09 per `R-03-112`).
@@ -830,11 +830,11 @@ as a preview and lists the two actions under it, per `R-33-080`. The row does no
   `Status colours` action, the Android search action and the alerts off marker when present
   (amended 2026-09-09 per `R-03-112`; corrected 2026-09-10 per `R-03-109`: the `New` action left
   this order with the bar), the two grouping segments, the banner when present with
-  `Try again` before `Why`, then each block top to bottom: its header, its worktree rows, its tab
-  headers and its pane rows in reading order, then the three bottom destinations (the `Computer
-  actions` control left this order on 2026-09-09, per `R-03-055`). A collapsed space MUST take its
-  rows out of the traversal order. An open action pane MUST place its actions directly after the
-  row that owns them.
+  `Try again` before `Connection details`, then each block top to bottom: its header, its
+  worktree rows, its tab headers and its pane rows in reading order, then the three bottom
+  destinations (the `Computer actions` control left this order on 2026-09-09, per `R-03-055`). A
+  collapsed space MUST take its rows out of the traversal order. An open action pane MUST place its
+  actions directly after the row that owns them.
 
 - **R-31-06-36** `Priority` MUST start with a `PINNED` section when it contains pinned agents.
   Pinned shells MUST appear only in `Workspace`. Each pinned agent MUST appear only once, outside

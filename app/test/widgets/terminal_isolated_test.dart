@@ -8,10 +8,23 @@ import 'dart:io' show File;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoButton, CupertinoListTile;
+import 'package:flutter/cupertino.dart'
+    show
+        CupertinoTextSelectionToolbar,
+        CupertinoTextSelectionToolbarButton,
+        DefaultCupertinoLocalizations,
+        cupertinoTextSelectionHandleControls;
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugDefaultTargetPlatformOverride;
+    show
+        TargetPlatform,
+        debugDefaultTargetPlatformOverride,
+        defaultTargetPlatform;
 import 'package:flutter/material.dart'
-    show AdaptiveTextSelectionToolbar, Colors, DefaultMaterialLocalizations;
+    show
+        Colors,
+        DefaultMaterialLocalizations,
+        materialTextSelectionHandleControls;
+import 'package:flutter/material.dart' as sdk_material;
 import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,32 +61,35 @@ ColorScheme _degenerateScheme(Brightness brightness) => ColorScheme.fromSeed(
   brightness: brightness,
 );
 
-/// [Localizations] providing the Flutter SDK's own `MaterialLocalizations`, not
-/// `material_ui`'s reimplementation `material_ui.MaterialApp` registers: R-21-042 names
-/// `package:flutter/material.dart`'s `AdaptiveTextSelectionToolbar` by class, and that SDK
-/// widget looks up the SDK's own `MaterialLocalizations` type, a different type identity from
-/// `material_ui`'s. Production wiring this exposes: `app/lib/app.dart` (`WP-12-b`) builds only
-/// a `material_ui.MaterialApp` today, so it does not yet satisfy this ancestor on its own — a
-/// gap outside this file's `Paths.` line, reported rather than patched here.
+/// A `material_ui.MaterialApp` with the Flutter SDK's own localization
+/// delegates at the root, exactly `app.dart`'s `sdkMaterialLocalizations`:
+/// the native selection toolbar (`package:flutter/material.dart`'s
+/// `AdaptiveTextSelectionToolbar`, built by the SDK `SelectionArea` the grid
+/// now lives in, R-21-042) renders in the root `Overlay` and looks up the
+/// SDK's own `MaterialLocalizations` type, a different type identity from
+/// `material_ui`'s reimplementation.
 Widget _harness({
   required Widget child,
   Brightness brightness = Brightness.dark,
   double width = 390,
   double height = 700,
-}) => MaterialApp(
-  theme: ThemeData(colorScheme: _degenerateScheme(brightness)),
-  home: Scaffold(
-    body: SizedBox(
-      width: width,
-      height: height,
-      child: Localizations(
-        locale: const Locale('en', 'US'),
-        delegates: const [
-          DefaultWidgetsLocalizations.delegate,
-          DefaultMaterialLocalizations.delegate,
-        ],
-        child: child,
-      ),
+}) =>
+// The app (material_ui) puts no SDK `Theme` in the tree, so the SDK selection
+// toolbar — rendered in the root overlay — reads `Theme.of`'s process-global
+// fallback, pinned by whichever test touched it first. Wrap the whole app in
+// an SDK `Theme` whose platform follows each test's own
+// `debugDefaultTargetPlatformOverride` instead.
+sdk_material.Theme(
+  data: sdk_material.ThemeData(platform: defaultTargetPlatform),
+  child: MaterialApp(
+    theme: ThemeData(colorScheme: _degenerateScheme(brightness)),
+    localizationsDelegates: const [
+      DefaultWidgetsLocalizations.delegate,
+      DefaultMaterialLocalizations.delegate,
+      DefaultCupertinoLocalizations.delegate,
+    ],
+    home: Scaffold(
+      body: SizedBox(width: width, height: height, child: child),
     ),
   ),
 );
@@ -256,54 +272,6 @@ void main() {
       expect(terminal.buffer.lines.length, 1000);
     },
   );
-
-  testWidgets('Select visible screen stays inside a fetched history window', (
-    tester,
-  ) async {
-    final terminal = Terminal(maxLines: 0)..resize(80, 1000);
-    terminal.write(List.generate(1000, (i) => 'history row $i').join('\r\n'));
-    final controller = TerminalController();
-    addTearDown(controller.dispose);
-    addTearDown(terminal.dispose);
-    await tester.pumpWidget(
-      _harness(
-        child: TerminalViewWidget(
-          palette: AppColor.dark,
-          phase: TerminalGridPhase.live,
-          terminal: terminal,
-          controller: controller,
-          historyVisible: true,
-        ),
-      ),
-    );
-    await tester.pump();
-    final view = tester.widget<TerminalView>(find.byType(TerminalView));
-    final cell = tester
-        .state<TerminalViewState>(find.byType(TerminalView))
-        .renderTerminal
-        .cellSize;
-    view.scrollController!.jumpTo(950 * cell.height);
-    await tester.pump();
-    controller.setSelection(
-      terminal.buffer.createAnchorFromOffset(const CellOffset(0, 950)),
-      terminal.buffer.createAnchorFromOffset(const CellOffset(10, 951)),
-    );
-    await tester.pump();
-    final toolbar = tester.widget<AdaptiveTextSelectionToolbar>(
-      find.byType(AdaptiveTextSelectionToolbar),
-    );
-    toolbar.buttonItems!
-        .singleWhere((item) => item.label == 'Select visible screen')
-        .onPressed!();
-    await tester.pump();
-    expect(tester.takeException(), isNull);
-    final selected = terminal.buffer.getText(
-      controller.selectionFor(terminal.buffer)!,
-    );
-    expect(selected, contains('history row 950'));
-    expect(selected, isNot(contains('history row 999')));
-    expect(selected.split('\n').length, lessThan(50));
-  });
 
   final reset = ThemePalette.fromJson({
     'name': '',
@@ -934,10 +902,13 @@ void main() {
     });
   });
 
-  testWidgets(
-    'long press extends into offscreen rows and Copy keeps the full span',
-    (tester) async {
-      String? copied;
+  group('native platform selection (R-21-042)', () {
+    String? copied;
+    final freezes = <bool>[];
+    var gridTaps = 0;
+    var scrollbackRequests = 0;
+
+    void mockClipboard(WidgetTester tester) {
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
         (call) async {
@@ -953,100 +924,315 @@ void main() {
           null,
         ),
       );
-      final terminal = Terminal(maxLines: 0)..resize(40, 80);
-      terminal.write(
-        List.generate(
-          80,
-          (i) => 'row${i.toString().padLeft(3, '0')} value',
-        ).join('\r\n'),
-      );
+    }
+
+    Future<({Terminal terminal, TerminalController controller})> pumpGrid(
+      WidgetTester tester, {
+      required Terminal terminal,
+      double height = 700,
+      bool history = false,
+    }) async {
       final controller = TerminalController();
       addTearDown(terminal.dispose);
       addTearDown(controller.dispose);
       await tester.pumpWidget(
         _harness(
-          height: 240,
+          height: height,
           child: TerminalViewWidget(
             palette: AppColor.dark,
             phase: TerminalGridPhase.live,
             terminal: terminal,
             controller: controller,
+            onGridTap: () => gridTaps++,
+            onSelectionLiveChanged: freezes.add,
+            maxScrollOffsetFromBottom: history ? 1000 : 0,
+            onRequestScrollback: () => scrollbackRequests++,
           ),
         ),
       );
       await tester.pump();
-      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      return (terminal: terminal, controller: controller);
+    }
+
+    /// Holds a long press at [point] (a position inside the visible grid)
+    /// until the platform's own recognizer fires, then releases, and returns
+    /// the pressed cell: the SDK default is 500 ms, so 600 ms always crosses
+    /// it.
+    Future<CellOffset> longPressGridPoint(WidgetTester tester, Offset point) async {
+      final gesture = await tester.startGesture(point);
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.up();
+      await tester.pump();
       final render = tester
           .state<TerminalViewState>(find.byType(TerminalView))
           .renderTerminal;
-      final grid = tester.getRect(
-        find.byKey(const ValueKey('terminalGridArea')),
-      );
-      final start = Offset(
-        grid.left + render.cellSize.width * 2,
-        grid.center.dy,
-      );
-      final selectedRow = render.getCellOffset(render.globalToLocal(start)).y;
-      final gesture = await tester.startGesture(start);
-      await tester.pump(const Duration(milliseconds: 450));
-      expect(
-        terminal.buffer.getText(controller.selection),
-        'row${selectedRow.toString().padLeft(3, '0')}',
-      );
-      final before = view.scrollController!.offset;
-      await gesture.moveTo(Offset(start.dx, grid.top + 2));
-      for (var i = 0; i < 25; i++) {
-        await tester.pump(const Duration(milliseconds: 50));
-      }
-      await gesture.up();
+      return render.getCellOffset(render.globalToLocal(point));
+    }
+
+    /// The global centre of [cell] as the painter currently shows it.
+    Offset cellCenter(WidgetTester tester, CellOffset cell) {
+      final render = tester
+          .state<TerminalViewState>(find.byType(TerminalView))
+          .renderTerminal;
+      return render.localToGlobal(render.getOffset(cell)) +
+          Offset(render.cellSize.width / 2, render.cellSize.height / 2);
+    }
+
+    tearDown(() {
+      copied = null;
+      freezes.clear();
+      gridTaps = 0;
+      scrollbackRequests = 0;
+    });
+
+    testWidgets(
+      'a long press selects the cell\'s word and the platform toolbar offers Copy and Select all',
+      (tester) async {
+        mockClipboard(tester);
+        final grid = await pumpGrid(
+          tester,
+          terminal: _terminal(feed: 'hello world'),
+        );
+        final cell = await longPressGridPoint(
+          tester,
+          cellCenter(tester, const CellOffset(1, 0)),
+        );
+        expect(cell, const CellOffset(1, 0));
+        expect(
+          grid.terminal.buffer.getText(grid.controller.selection),
+          'hello',
+        );
+        expect(find.text('Copy'), findsOneWidget);
+        expect(find.text('Select all'), findsOneWidget);
+        // The default test platform is Android, so the handles come from the
+        // SDK's Material handle controls.
+        expect(
+          tester
+              .widget<SelectableRegion>(find.byType(SelectableRegion))
+              .selectionControls,
+          same(materialTextSelectionHandleControls),
+        );
+        expect(freezes.first, true);
+
+        await tester.tap(find.text('Copy').hitTestable());
+        await tester.pump();
+        expect(copied, 'hello');
+        // The platform's own behaviour: on Android a copy clears the
+        // selection.
+        expect(grid.controller.selection, isNull);
+        expect(freezes.last, false);
+      },
+    );
+
+    testWidgets(
+      'dragging the end handle past the bottom edge autoscrolls and extends into offscreen rows',
+      (tester) async {
+        mockClipboard(tester);
+        final terminal = Terminal(maxLines: 0)..resize(40, 80);
+        terminal.write(
+          List.generate(
+            80,
+            (i) => 'row${i.toString().padLeft(3, '0')} value',
+          ).join('\r\n'),
+        );
+        final grid = await pumpGrid(tester, terminal: terminal, height: 240);
+        final controller = grid.controller;
+        final render = tester
+            .state<TerminalViewState>(find.byType(TerminalView))
+            .renderTerminal;
+        final view = tester.widget<TerminalView>(find.byType(TerminalView));
+        // The grid follows the live end; scroll up so the drag has room to
+        // pull the window back down into offscreen rows.
+        view.scrollController!.jumpTo(30 * render.cellSize.height);
+        await tester.pump();
+        final gridRect = tester.getRect(
+          find.byKey(const ValueKey('terminalGridArea')),
+        );
+        final pressedCell = await longPressGridPoint(
+          tester,
+          Offset(gridRect.left + render.cellSize.width * 2.5, gridRect.center.dy),
+        );
+        expect(
+          terminal.buffer.getText(controller.selection),
+          'row${pressedCell.y.toString().padLeft(3, '0')}',
+        );
+        final lastVisibleRow = render
+            .getCellOffset(
+              render.globalToLocal(gridRect.bottomCenter.translate(0, -1)),
+            )
+            .y;
+
+        final endpoints = tester
+            .state<SelectableRegionState>(find.byType(SelectableRegion))
+            .selectionEndpoints;
+        final drag = await tester.startGesture(endpoints.last.point);
+        await tester.pump();
+        await drag.moveTo(Offset(gridRect.center.dx, gridRect.bottom + 40));
+        await tester.pump();
+        final before = view.scrollController!.offset;
+        for (var i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        await drag.up();
+        await tester.pump();
+
+        expect(
+          view.scrollController!.offset,
+          greaterThan(before + 5 * render.cellSize.height),
+        );
+        final range = controller.selection!.normalized;
+        expect(range.begin.y, pressedCell.y);
+        expect(range.end.y, greaterThan(lastVisibleRow + 5));
+        final expected = terminal.buffer.getText(range);
+        await tester.tap(find.text('Copy').hitTestable());
+        await tester.pump();
+        expect(copied, expected);
+      },
+    );
+
+    testWidgets(
+      'dragging the start handle past the top edge autoscrolls and requests older history',
+      (tester) async {
+        final terminal = Terminal(maxLines: 0)..resize(40, 80);
+        terminal.write(
+          List.generate(
+            80,
+            (i) => 'row${i.toString().padLeft(3, '0')} value',
+          ).join('\r\n'),
+        );
+        final grid = await pumpGrid(
+          tester,
+          terminal: terminal,
+          height: 240,
+          history: true,
+        );
+        final controller = grid.controller;
+        final render = tester
+            .state<TerminalViewState>(find.byType(TerminalView))
+            .renderTerminal;
+        final view = tester.widget<TerminalView>(find.byType(TerminalView));
+        // Start midway down the buffer so there is somewhere to reach.
+        view.scrollController!.jumpTo(30 * render.cellSize.height);
+        await tester.pump();
+        final gridRect = tester.getRect(
+          find.byKey(const ValueKey('terminalGridArea')),
+        );
+        final pressedCell = await longPressGridPoint(
+          tester,
+          Offset(gridRect.left + render.cellSize.width * 2.5, gridRect.center.dy),
+        );
+
+        final endpoints = tester
+            .state<SelectableRegionState>(find.byType(SelectableRegion))
+            .selectionEndpoints;
+        final drag = await tester.startGesture(endpoints.first.point);
+        await tester.pump();
+        await drag.moveTo(Offset(gridRect.center.dx, gridRect.top - 40));
+        await tester.pump();
+        final before = view.scrollController!.offset;
+        for (var i = 0; i < 30; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        await drag.up();
+        await tester.pump();
+
+        expect(
+          view.scrollController!.offset,
+          lessThan(before - 5 * render.cellSize.height),
+        );
+        final range = controller.selection!.normalized;
+        expect(range.begin.y, lessThan(pressedCell.y - 5));
+        expect(range.end.y, pressedCell.y);
+        expect(scrollbackRequests, greaterThan(0));
+      },
+    );
+
+    testWidgets('Select all selects the whole buffer', (tester) async {
+      mockClipboard(tester);
+      final terminal = Terminal(maxLines: 0)
+        ..resize(40, 24)
+        ..write(List.generate(24, (i) => 'line $i').join('\r\n'));
+      final grid = await pumpGrid(tester, terminal: terminal);
+      await longPressGridPoint(tester, cellCenter(tester, const CellOffset(1, 0)));
+      await tester.tap(find.text('Select all').hitTestable());
       await tester.pump();
       expect(
-        view.scrollController!.offset,
-        lessThan(before - 10 * render.cellSize.height),
+        terminal.buffer.getText(grid.controller.selection),
+        terminal.buffer.getText(),
       );
-      final range = controller.selection!;
-      expect(range.end.y, selectedRow);
-      expect(range.begin.y, lessThan(selectedRow - 10));
-      final expected = terminal.buffer.getText(range);
       await tester.tap(find.text('Copy').hitTestable());
       await tester.pump();
-      expect(copied, expected);
-      expect(controller.selection, isNull);
-    },
-  );
+      expect(copied, terminal.buffer.getText());
+    });
 
-  group('selection toolbar exposes exactly Copy and Select visible screen (R-30-305)', () {
-    testWidgets('never offers Select all', (tester) async {
-      final terminal = _terminal(feed: 'alpha\r\nbeta\r\ngamma');
-      final controller = TerminalController();
-      addTearDown(controller.dispose);
+    testWidgets('a tap clears the selection', (tester) async {
+      final grid = await pumpGrid(
+        tester,
+        terminal: _terminal(feed: 'hello world'),
+      );
+      await longPressGridPoint(tester, cellCenter(tester, const CellOffset(1, 0)));
+      expect(grid.controller.selection, isNotNull);
+      await tester.tap(find.byKey(const ValueKey('terminalGridArea')));
+      await tester.pump();
+      expect(grid.controller.selection, isNull);
+      expect(find.text('Copy'), findsNothing);
+      expect(freezes.first, true);
+      expect(freezes.last, false);
+      expect(gridTaps, 1);
+    });
 
-      await tester.pumpWidget(
-        _harness(
-          child: TerminalViewWidget(
-            palette: AppColor.dark,
-            phase: TerminalGridPhase.live,
-            terminal: terminal,
-            controller: controller,
-          ),
-        ),
+    testWidgets('with no selection a tap still raises the grid tap', (
+      tester,
+    ) async {
+      final grid = await pumpGrid(
+        tester,
+        terminal: _terminal(feed: 'hello world'),
+      );
+      await tester.tap(find.byKey(const ValueKey('terminalGridArea')));
+      await tester.pump();
+      expect(gridTaps, 1);
+      expect(grid.controller.selection, isNull);
+      expect(find.text('Select all'), findsNothing);
+    });
+
+    testWidgets('a vertical drag without a selection still scrolls', (
+      tester,
+    ) async {
+      final terminal = Terminal(maxLines: 0)..resize(80, 100);
+      terminal.write(
+        List.generate(100, (i) => 'history row $i').join('\r\n'),
+      );
+      await pumpGrid(tester, terminal: terminal, history: true);
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      // The grid follows the live end; a downward drag scrolls back up.
+      final before = view.scrollController!.offset;
+      await tester.drag(
+        find.byKey(const ValueKey('terminalGridArea')),
+        const Offset(0, 80),
       );
       await tester.pump();
+      expect(view.scrollController!.offset, lessThan(before));
+      expect(freezes, isEmpty);
+    });
 
-      final base = terminal.buffer.createAnchorFromOffset(
-        const CellOffset(0, 0),
+    testWidgets('on iOS the handles and toolbar are Cupertino', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await pumpGrid(tester, terminal: _terminal(feed: 'hello world'));
+      await longPressGridPoint(tester, cellCenter(tester, const CellOffset(1, 0)));
+      // The toolbar is the Cupertino one, with Cupertino buttons.
+      expect(find.byType(CupertinoTextSelectionToolbar), findsOneWidget);
+      expect(find.byType(CupertinoTextSelectionToolbarButton), findsWidgets);
+      // The handles come from the platform-dispatched controls: iOS resolves
+      // to the SDK's Cupertino handle controls (whose handles are a plain
+      // CustomPaint, so the controls object is the public proof).
+      expect(
+        tester
+            .widget<SelectableRegion>(find.byType(SelectableRegion))
+            .selectionControls,
+        same(cupertinoTextSelectionHandleControls),
       );
-      final extent = terminal.buffer.createAnchorFromOffset(
-        CellOffset(terminal.viewWidth - 1, 1),
-      );
-      controller.setSelection(base, extent);
-      await tester.pump();
-
-      final toolbar = tester.widget<AdaptiveTextSelectionToolbar>(
-        find.byType(AdaptiveTextSelectionToolbar),
-      );
-      final labels = toolbar.buttonItems!.map((item) => item.label).toList();
-      expect(labels, ['Copy', 'Select visible screen']);
+      debugDefaultTargetPlatformOverride = null;
     });
   });
 
@@ -1690,42 +1876,6 @@ void main() {
         expect(find.byType(ColoredBox), findsWidgets);
       },
     );
-  });
-
-  group('long-press duration (R-30-301)', () {
-    testWidgets('a stationary press selects a word at 400ms, not before, overriding xterm2\'s own '
-        '500ms default', (tester) async {
-      final terminal = _terminal(feed: 'hello world');
-      await tester.pumpWidget(
-        _harness(
-          child: TerminalViewWidget(
-            palette: AppColor.dark,
-            phase: TerminalGridPhase.live,
-            terminal: terminal,
-          ),
-        ),
-      );
-      await tester.pump();
-
-      final gesture = await tester.startGesture(
-        tester.getTopLeft(find.byKey(const ValueKey('terminalGridArea'))) +
-            const Offset(5, 5),
-      );
-      addTearDown(() => gesture.removePointer());
-
-      // Just under R-30-301's 400 ms: not yet recognised.
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(find.byType(AdaptiveTextSelectionToolbar), findsNothing);
-
-      // Past 400 ms, still well under xterm2's own 500 ms default: this
-      // only passes if this file's own recognizer, not xterm2's, won
-      // the gesture arena.
-      await tester.pump(const Duration(milliseconds: 100));
-      await gesture.up();
-      await tester.pump();
-
-      expect(find.byType(AdaptiveTextSelectionToolbar), findsOneWidget);
-    });
   });
 
   group('scroll to dismiss the keyboard', () {

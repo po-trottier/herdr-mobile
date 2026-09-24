@@ -8,6 +8,7 @@ import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoTextThemeData, CupertinoThemeData;
+import 'package:flutter/cupertino.dart' show DefaultCupertinoLocalizations;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart'
@@ -100,12 +101,16 @@ import 'widgets/theme/chrome_snackbar.dart' show chromeSnackbarTheme;
 /// own `MaterialLocalizations` type by identity, a different type from
 /// `material_ui`'s reimplementation. `test/widgets/terminal_isolated_test.dart`
 /// found and worked around this gap locally; this is the real fix.
+/// `DefaultCupertinoLocalizations` rides along because the same toolbar
+/// builds Cupertino buttons on iOS, which read the SDK's
+/// `CupertinoLocalizations` type.
 /// `test/screens/golden_support.dart`'s `goldenApp` reuses this list so a
 /// golden renders under the same delegates as the real app root.
 const List<LocalizationsDelegate<dynamic>> sdkMaterialLocalizations =
     <LocalizationsDelegate<dynamic>>[
       DefaultWidgetsLocalizations.delegate,
       DefaultMaterialLocalizations.delegate,
+      DefaultCupertinoLocalizations.delegate,
     ];
 
 /// The Riverpod and `go_router` root. `main.dart` (`WP-0-b`) calls only

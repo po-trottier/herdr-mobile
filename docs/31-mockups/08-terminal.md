@@ -310,7 +310,7 @@ labeled action reads `Readable`; pressing it restores the current saved readable
 
 ```text
 +--------------------------------------+
-| x  3 lines selected                  |
+| <  * plugin v                      : |
 +--------------------------------------+
 |   Passed!  Failed: 0, Passed: 412    |
 |                                      |
@@ -319,7 +319,7 @@ labeled action reads `Readable`; pressing it restores the current saved readable
 | |[the socket reconnect path.     ]   |
 | |[                              ]    |
 |  +------------------------------+    |
-|  | Copy   Select visible screen |    |
+|  | Copy   Select all            |    |
 |  +------------------------------+    |
 | |   + 34 lines                       |
 | |                                    |
@@ -334,22 +334,15 @@ labeled action reads `Readable`; pressing it restores the current saved readable
 +--------------------------------------+
 ```
 
- 1. The app bar becomes the selection variant of `R-32-510`. It carries no action. `x` cancels the
-    selection, and `3 lines selected` is text and not a control. The cancel earns its place because
-    `R-31-08-08` gives a grid tap one job only, raising the keyboard, so this screen has no
-    tap-elsewhere-to-dismiss. The count earns its place because a selection may run past the
-    column window and past the viewport, so the person cannot always see how much they hold.
+ 1. The app bar stays unchanged. The native tap gesture clears the selection, per `R-31-08-08`.
  2. Selected cells take `color.term.selection` as the background, and the cell keeps its own
     foreground colour, per `R-32-144`.
- 3. The platform edit menu, anchored at the selection, with the platform's own selection handles.
-    `R-21-042` owns the mechanism and `R-31-08-22` owns the item set. There are exactly two items,
-    `Copy` and `Select visible screen`, and the grid offers no `Paste`. The platform positions the
-    menu, including above the keyboard, so this mockup fixes neither its place nor its shape. The
-    mock draws it over the middle of the grid because that is where a selection usually sits.
-    This is the one copy path on the phone (2026-09-09, `R-03-101`): the pane action sheet of
-    `10-pane-actions.md` offers no `Copy the whole screen`. A long press of `R-30-301`'s 400 ms
-    starts the selection and a drag extends it, per the gesture table of `docs/30-ux-spec.md`;
-    `Select visible screen` then `Copy` copies the whole screen.
+ 3. The native toolbar appears at the selection with the platform's own handles and magnifier.
+    `R-21-042` owns the mechanism. `R-31-08-22` owns the default item set and Select all scope.
+    The platform positions the toolbar, including above the keyboard. This mockup fixes neither its
+    position nor its shape. The drawn items illustrate Android, not a custom item list.
+    This is the phone's copy path under `R-03-101`. The pane action sheet has no copy command.
+    The gesture table in `docs/30-ux-spec.md` describes selection gestures.
  4. The status word reads `paused` while the selection is live, and the strip stays. The emulator is
     frozen, per `R-21-041`, so the text `Copy` returns is the text that was selected. `rev` keeps
     moving, which is how the person sees the link is still alive while the paint is held.
@@ -504,10 +497,10 @@ other mocks in this repository are 40 columns.
   the horizontal window and range of `R-21-037`, including at the default size. The labeled `Overview`
   action enables whole-grid fit; its label becomes `Readable` and restores the current readable size.
   No layout choice this screen makes may resize the Host pane, per `R-21-036`.
-- **R-31-08-08** A single tap on the grid MUST NOT send anything to the pane. It raises the
-  keyboard only, per `R-03-054`, and the keystrokes that follow are the sends (amended 2026-09-09
-  per `R-03-054`: the tap moved the focus to an input field until then). An accidental keystroke
-  into a running agent is the worst outcome this screen can produce.
+- **R-31-08-08** A single tap on the grid MUST NOT send anything to the pane.
+  When a selection is live, the native tap gesture MUST clear it without raising the keyboard.
+  Otherwise, the tap MUST focus the native composer and raise the keyboard, per `R-03-130`.
+  Amended 2026-09-24 under the native selection decision in `R-03-101`.
 - **R-31-08-09** The first paint MUST arrive inside 400 ms on a working mobile network. The measured
   payload is about 8 KB of ANSI for a 50 row pane, about 1.2 to 1.9 KB compressed, so this is a
   network round trip, not a bandwidth problem. See `R-02-015` and `R-02-016`.
@@ -574,15 +567,13 @@ other mocks in this repository are 40 columns.
   clears it on a switch. This screen owns one consequence: after a switch the app MUST NOT open the
   same `paneId` on the chosen computer. A pane id is unique inside one Herdr session only, so the
   same id can name a different pane, or no pane, on the computer the person switched to.
-- **R-31-08-22** Terminal selection MUST use the platform's own selection surface and handles, per
-  `R-21-042`. This screen MUST NOT draw a bar of its own for a selection action. The item set is
-  exactly two: `Copy`, and `Select visible screen`. The grid MUST NOT offer `Paste`, because the
-  grid is read only and the write path to the pane is the keyboard the grid raises, per
-  `R-03-054`, whose paste lands in the pane through `R-21-018`. The command MUST NOT be named
-  `Select all`: it selects the visible screen and not the pane's scrollback, and a name that
-  promises more than the command delivers is a defect on the one screen whose whole purpose is being
-  exact. The selection app bar keeps the cancel `x` and the count `3 lines selected`, and neither is
-  an action the selection surface already offers.
+- **R-31-08-22** The selection toolbar MUST use the SDK's default item set for the current platform.
+  Android offers `Copy` and `Select all`. iOS uses the Cupertino default set.
+  The grid remains read-only under `R-30-304`, which forbids `Paste`.
+  `Select all` MUST select the whole current buffer, including the visible grid and fetched history.
+  It MUST NOT request unfetched history. The app MUST NOT rename it `Select visible screen`.
+  The app bar MUST stay unchanged. The app MUST NOT draw a separate selection action bar.
+  `R-21-042` owns the SDK mechanism. Amended 2026-09-24 under `R-03-101`.
 - **R-31-08-23** The status word MUST read `paused` whenever the paint is held, per `R-21-041`. That
   is two cases: a live selection, and a Device scroll offset greater than zero. The grid MUST NOT be
   dimmed in either case, because `R-31-08-05` gives dimming one meaning on this screen, a lost or a

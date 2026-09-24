@@ -26,6 +26,7 @@ import 'package:flutter/widgets.dart'
         VoidCallback,
         Widget;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/app.dart' show sdkMaterialLocalizations;
 import 'package:herdr_mobile/widgets/terminal_view_widget.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
 import 'package:material_ui/material_ui.dart' show MaterialApp, Scaffold;
@@ -70,7 +71,12 @@ Future<List<String>> _pumpGrid(
       ),
     );
   }
-  await tester.pumpWidget(MaterialApp(home: Scaffold(body: body)));
+  await tester.pumpWidget(
+    MaterialApp(
+      localizationsDelegates: sdkMaterialLocalizations,
+      home: Scaffold(body: body),
+    ),
+  );
   return sentToPane;
 }
 

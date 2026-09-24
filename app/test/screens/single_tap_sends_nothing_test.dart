@@ -17,6 +17,7 @@ library;
 import 'package:flutter/widgets.dart'
     show Column, Expanded, Focus, FocusNode, SizedBox, ValueKey, Widget;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:herdr_mobile/app.dart' show sdkMaterialLocalizations;
 import 'package:herdr_mobile/widgets/terminal_view_widget.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
 import 'package:material_ui/material_ui.dart' show MaterialApp, Scaffold;
@@ -33,6 +34,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: sdkMaterialLocalizations,
         home: Scaffold(
           body: Column(
             children: <Widget>[

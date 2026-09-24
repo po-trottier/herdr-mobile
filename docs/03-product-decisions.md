@@ -243,6 +243,12 @@ product owner. `R-03-050` still states that the phone has full control of every 
 API exposes; this rule decides which of them the sheet shows. `docs/31-mockups/10-pane-actions.md`
 owns the sheet; `docs/31-mockups/11-prompt-composer.md` is retired.
 
+Owner amendment, 2026-09-24: terminal selection uses the Flutter SDK's native selection system
+directly on the live grid, not a custom gesture recognizer with a native-looking toolbar.
+`Select all` replaces `Select visible screen` and includes the current buffer's fetched history.
+`R-21-042` owns the SDK integration. `R-30-301` owns gesture timing.
+`R-31-08-22` owns the toolbar item set, and `R-31-08-08` owns the grid tap.
+
 **R-03-102**: Search MUST use the platform's own search control, and a switch between sibling
 views MUST use the platform's own view switcher. On Android, search is a search action in the top
 app bar that opens the Material 3 search view (`SearchAnchor`), and a view switch is a `TabBar` of

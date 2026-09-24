@@ -82,11 +82,9 @@ cursor-addressing VT state machine at all.
 **R-21-001.** The Device MUST use strategy B: a persistent `xterm2` `Terminal` instance fed after a
 clear-and-home reset on each `pane.updated` cycle.
 
-**Reasoning.** The reuse ladder ranks existing dependencies above new code. `xterm2` provides a
-complete Flutter terminal widget: `TerminalView` for rendering, `TerminalController` for selection,
-`ScrollController` for scrollback, `keyInput`/`charInput`/`paste` for input, and `TerminalStyle` for
-font configuration. Option D removes the `xterm2` dependency but requires building all of these from
-scratch, which the reuse rule forbids.
+`xterm2` provides `TerminalView` for the grid and `TerminalController` for the selection highlight.
+It also provides `ScrollController` for scrollback and `TerminalStyle` for fonts.
+The SDK owns selection interaction under R-21-042. Option D would require a new grid renderer.
 
 The measured SGR-only payload (R-10-016, R-10-017) makes strategy B provably safe rather than merely
 correct. A flattened grid with no cursor motion cannot desynchronise a persistent emulator. The
@@ -95,10 +93,10 @@ codes bounds our exposure to `xterm2`'s emulator gaps: we only exercise its SGR 
 simplest and most stable part of any terminal emulator. Complex VT features like cursor positioning,
 scroll regions, and alternate-screen switching are never triggered by the Host payload.
 
-**R-21-001a.** The Device depends on `xterm2` for its WIDGET: selection, scrollback, input handling,
-and Flutter rendering. The Device does NOT depend on `xterm2` for VT correctness, because the Host
-payload contains only SGR sequences (R-10-016). If `xterm2` has bugs in cursor motion, scroll
-regions, or OSC handling, those bugs are unreachable.
+**R-21-001a.** The Device depends on `xterm2` for its widget, scrollback and selection highlight.
+The SDK owns selection interaction under R-21-042. The Device does NOT depend on `xterm2` for VT correctness.
+The Host payload contains only SGR sequences (R-10-016).
+If `xterm2` has bugs in cursor motion, scroll regions or OSC handling, those bugs are unreachable.
 
 **R-21-002.** Before each feed, the Device MUST emit `ESC[2JESC[H` to the emulator. This clears the
 screen and homes the cursor. The emulator's scrollback does not grow because the clear wipes it.
@@ -152,7 +150,7 @@ parsing, and mobile platform support. SwiftTerm and Termux are native libraries 
 respectively; they would require two separate rendering paths. `xterm2` gives one codebase for both
 platforms.
 
-Per R-21-001a, the Device uses `xterm2` for its widget (selection, scrollback, input, rendering),
+Per R-21-001a, the Device uses `xterm2` for its widget and selection highlight,
 not for VT correctness. The Host payload contains only SGR sequences (R-10-016), so only `xterm2`'s
 SGR parser is exercised. The measured vocabulary of 9 SGR codes (R-10-017) is the simplest part of
 any terminal emulator, which reduces our exposure to `xterm2`'s single-maintainer risk. If `xterm2`
@@ -1076,8 +1074,8 @@ flowchart TD
   offset is greater than zero, and apply it when both clear (R-21-041).
 - [ ] Write a widget test that selects three rows, feeds ten further frames, then copies, and
   asserts the clipboard holds the text of the frame the selection was made in (R-21-041).
-- [ ] Build the selection surface from `AdaptiveTextSelectionToolbar.buttonItems` with exactly
-  `Copy` and `Select visible screen` (R-21-042, `R-31-08-22`).
+- [ ] Integrate the SDK `SelectionArea` with the live grid through a `Selectable` adapter
+  (R-21-042). Keep the native toolbar item set of `R-31-08-22`.
 - [ ] The bridge calls `pane.layout` on attach and on layout changes; the Device takes columns
   from the `pane_frame` relay message and rows from `scroll.viewport_rows`; call
   `terminal.resize()` (R-21-009, R-10-024, R-10-025).
@@ -1157,9 +1155,8 @@ That distance does not identify the same text if new Host output shifts the snap
 Live frames MUST wait during the fetch and while the reader uses the history window. A selection
 MUST prevent a fetched reply from replacing its source grid. Returning to the bottom or leaving
 the pane MUST invalidate an in-flight fetch, including its later error. A cancelled request MUST
-NOT put a healthy live pane into the read-failed state. Select visible screen MUST clamp both
-anchors to the rows visible in the phone's viewport. The truncated strip follows R-31-08-19.
-Show that strip only when no larger window can be fetched.
+NOT put a healthy live pane into the read-failed state. Native selection follows R-21-042.
+The truncated strip follows R-31-08-19. Show that strip only when no larger window can be fetched.
 
 Scrolling MUST retain the renderer's text cache while its colours and font stay unchanged.
 The grid's accessibility text MUST include only visible rows, at full Host width, and MUST be
@@ -1184,10 +1181,8 @@ not at fetch time.
 
 ### 11.1 The frame a selection holds
 
-`xterm2` reads the **live** buffer when the person invokes Copy. Source:
-`lib/src/ui/shortcut/actions.dart` lines 36 to 50, where `CopySelectionTextIntent` calls
-`controller.selectionFor(terminal.buffer)` and then `terminal.buffer.getText(selection, true)`.
-The selection is a pair of anchors into that buffer, not a copy of the text.
+Selection reads the live buffer when the person invokes Copy, through
+`terminal.buffer.getText(range)`. Its edges are cell anchors, not a copy of the text.
 
 R-21-002 clears and rewrites the whole buffer before each feed, and the bridge may send up to 8
 frames per second (R-10-030). So a selection made at one revision, copied at the next, returns the
@@ -1206,9 +1201,9 @@ Device feeds the pending frame through the normal clear-and-feed cycle of R-21-0
 5. If no frame arrived, the Device MUST restore the last live frame when leaving a fetched history
 window. A selection in a live frame needs no repaint.
 
-**The freeze stops live-frame writes.** It needs no immutable snapshot object and no second
-emulator. The buffer that `xterm2` reads at Copy time is correct by construction, because the buffer
-did not change. This is the whole fix.
+**The freeze stops live-frame writes.** It needs no immutable snapshot object or second emulator.
+The selected cells stay unchanged until the selection ends. History prepends preserve their anchors,
+per R-21-042.
 
 The status word MUST read `paused` while a freeze holds, which is the word the scrolled-back state
 already uses. One word covers both triggers, because they mean the same thing to the person: new
@@ -1217,12 +1212,9 @@ output has arrived and the screen is not showing it yet.
 A frozen grid MUST NOT be dimmed. Dimming means a lost or blocked link on this screen, per
 `R-31-08-05`, and a freeze is neither.
 
-**The scrolled-back case is the same defect.** The emulator holds `maxLines: 0`, so it holds one
-screen and nothing else. While the person reads scrollback, that one screen is the fetched
-`scroll_response` window, painted by the same clear-and-feed cycle (open question 2). A live frame
-arriving would therefore clear the fetched window and replace it with the live viewport, which yanks
-the person from the line they were reading to the bottom of the pane. The freeze is what makes
-`paused` true rather than aspirational.
+**The scrolled-back case is the same defect.** The buffer holds the fetched history window.
+A live frame would replace that window and move the person from the text they read to the bottom.
+The freeze prevents that replacement until the selection and scroll offset both clear.
 
 **The frames still earn their bandwidth.** The bridge keeps reading while the Device is frozen, and
 the Device discards all but the newest frame. That is deliberate. The pending frame is what makes
@@ -1236,38 +1228,34 @@ because both are local. `R-31-08-05` already keeps the last grid on screen for e
 
 ### 11.2 Selection actions
 
-**R-21-042.** Selection actions MUST be presented by the platform's own selection surface. The
-Device MUST use Flutter `AdaptiveTextSelectionToolbar.buttonItems`, which builds the iOS edit menu
-on iOS and the Material floating toolbar on Android through
-`AdaptiveTextSelectionToolbar.getAdaptiveButtons`, with the platform's own selection handles. The
-app MUST NOT draw a second bar, a bottom bar, or an app-bar action set that repeats a command the
-selection surface already offers. `docs/31-mockups/08-terminal.md` `R-31-08-22` owns the item set
-and what the screen draws.
+**R-21-042.** The Device MUST wrap the live terminal grid in Flutter's SDK `SelectionArea`.
+The SDK MUST own selection gestures, handles, the magnifier and the adaptive toolbar.
+`R-30-301` owns gesture timing. `R-31-08-22` owns the toolbar item set and screen state.
+`R-30-308` disables the terminal package's competing gestures.
 
-The Device supplies the item list rather than accepting the platform default. Two reasons, and each
-one is a rule the default breaks:
+A repository-owned leaf render object MUST implement the SDK `Selectable` interface over the grid.
+It MUST register with `SelectionContainer.maybeOf` and handle every SDK `SelectionEvent`.
+This includes edge updates, clear, select all, select word, and word or line granularity events.
+The adapter MUST use public `RenderTerminal.getCellOffset` and `getOffset` methods to map positions.
+It MUST use `Buffer.getWordBoundary` for words and `CellAnchor` for edges that survive history prepends.
+Installed package code MUST NOT change.
 
-| Default item | Why it is wrong on this grid |
-|---|---|
-| `Paste` | The grid is read only. The write path to the pane is the keyboard the grid raises and `pane_input`, per R-21-018 and `R-03-054` (amended 2026-09-09; until then it was the key row's input field). `xterm2` wires `PasteTextIntent` to `terminal.paste(text)` (`lib/src/ui/shortcut/actions.dart` lines 25 to 35), which writes into the emulator and bypasses `pane_input` completely, so the pasted text would never reach the Host. |
-| `Look Up`, `Translate`, `Share`, `Search Web` | Each one sends the selected text to a platform service or another app. Pane content is a person's private terminal output, which `SECURITY.md` names as sensitive. An action that leaves the device MUST be a choice the person makes on purpose, not a default the edit menu supplies. |
+The adapter MUST report `SelectionGeometry`, including both selection points, line heights, handle
+types, selection rectangles and status. Geometry MUST follow the cells when the grid scrolls.
+`getSelectedContent()` MUST return `terminal.buffer.getText(range)`.
+The adapter MUST drive `TerminalController.setSelection` and MUST NOT paint another highlight.
+The terminal theme supplies the existing selection colour, per R-32-144.
 
-`Select all` MUST NOT keep that name here. `xterm2` implements `SelectAllTextIntent` as anchors from
-`(0, 0)` to `(terminal.viewWidth, terminal.buffer.height - 1)`
-(`lib/src/ui/shortcut/actions.dart` lines 51 to 63). With `maxLines: 0` the buffer is one screen, so
-the command selects the visible screen and not the pane's scrollback. The platform command of the
-same name selects everything, so the name promises what this command cannot do. The command MUST be
-named `Select visible screen`.
+A handle drag near a vertical edge MUST scroll the grid and extend the selection.
+The adapter SHOULD use SDK `EdgeDraggingAutoScroller` with the grid's `ScrollableState`.
+A minimal timer MAY replace it only when that state is not accessible.
+At the top, the existing `onRequestScrollback` path MUST continue to request older history.
+History prepends MUST preserve the selected cell anchors. Live-frame writes remain frozen under R-21-041.
+The selection callback MUST continue to update `TerminalService.setSelectionLive`.
 
-Selecting the whole scrollback was considered and rejected. It would need a `scroll_request` round
-trip behind a menu item, it can fail, and it can return `truncated: true` (`R-31-08-19`), so a menu
-command would sometimes select 1000 lines, sometimes fewer, and sometimes nothing. An exact name on
-an exact command beats a familiar name on an unpredictable one.
-
-A selection MUST NOT reach past the window. A person may select cells that the pan of R-21-037 has
-moved off screen, and the selection keeps them, because the selection is measured in grid cells and
-not in visible pixels. Copy therefore returns full rows at their Host width, which is the same text
-the screen-reader label carries under R-21-037 point 4.
+The selection MAY extend beyond the phone's visible rows and columns within the current buffer.
+The SDK selects that buffer in place. The app MUST NOT use a separate text view for selection.
+The existing vertical scroll and pinch gestures MUST remain available.
 
 ## 12. Predictive local echo
 

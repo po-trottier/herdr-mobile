@@ -226,6 +226,7 @@ and no glyph.
 | Menu from a control | `MenuAnchor` with `MenuItemButton`, glyph leading, through `ChromeMenuAnchor`, per `R-33-078` | `CupertinoMenuAnchor` with `CupertinoMenuItem`, glyph trailing, through `ChromeMenuAnchor`, per `R-33-078` |
 | Content sheet | `showModalBottomSheet` with the drag handle, through `showChromeSheet`, per `R-33-079` | `CupertinoSheetRoute` over `CupertinoPageScaffold`, through `showChromeSheet`, per `R-33-079` |
 | Pane actions | the content sheet, rows as `ListTile` with a leading glyph, per `R-33-079` | `CupertinoActionSheet`, actions without a glyph, `Close pane` `isDestructiveAction`, per `R-33-079` |
+| Terminal selection | Flutter `SelectionArea` with Material selection handles, magnifier and adaptive toolbar, per `R-21-042` | Flutter `SelectionArea` with Cupertino selection handles, magnifier and adaptive toolbar, per `R-21-042` |
 | Bottom offset | from the system-bar inset | from the safe area |
 | Back | `AppBar` leading, drawn by `BackButton`, plus predictive back | `CupertinoNavigationBar` leading, plus the interactive pop gesture |
 | Primary navigation on a pushed route | the parent layout and the primary destinations only | the tab bar stays visible |

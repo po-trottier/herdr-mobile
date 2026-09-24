@@ -46,7 +46,8 @@ import 'package:flutter/widgets.dart'
         ValueKey,
         Widget;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:herdr_mobile/app.dart' show ResolvedChrome, appThemeFrom;
+import 'package:herdr_mobile/app.dart'
+    show ResolvedChrome, appThemeFrom, sdkMaterialLocalizations;
 import 'package:herdr_mobile/models/codes.dart' show ErrorCode;
 import 'package:herdr_mobile/models/message.dart'
     show
@@ -339,6 +340,9 @@ class _Harness {
 
   Widget build({bool themed = false}) => MaterialApp(
     theme: themed ? appThemeFrom(ChromeScheme.fixed(Brightness.dark)) : null,
+    // The grid's SelectionArea (SDK material) requires the SDK's own
+    // localization delegates; the real app root provides the same list.
+    localizationsDelegates: sdkMaterialLocalizations,
     builder: themed ? (context, child) => ResolvedChrome(child: child!) : null,
     onGenerateInitialRoutes:
         debugDefaultTargetPlatformOverride == TargetPlatform.iOS

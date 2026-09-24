@@ -547,14 +547,13 @@ positions. Keys stay at least 48 logical pixels and overflow reflows into pages,
 
 | Intent | Binding | Sends to the pane |
 | --- | --- | --- |
-| Raise the keyboard | Tap the native composer or the grid to focus the composer. The tap sends nothing, per `R-03-130` | no |
+| Raise the keyboard | Tap the native composer, or tap the grid when no selection is live, per `R-31-08-08` | no |
 | Dismiss the keyboard | A finger drag on the grid, the platform's own scroll-to-dismiss (iOS `keyboardDismissMode = .onDrag`). The composer loses focus; a latched modifier clears with it, per `R-31-09-19`. A scroll the app performs itself (jump to bottom, Host resync) does not dismiss (added 2026-09-16 by the product owner: "no way to close the keyboard on iOS") | no |
-| Select a word | Double tap on the grid | no |
-| Select a line | Triple tap on the grid | no |
-| Start a free selection | Long press 400 ms, then drag | no |
-| Extend a selection | Drag either selection handle | no |
-| Copy | `Copy` in the platform's own edit menu, per `R-21-042`, or a second long press inside the selection | no |
-| Select the visible screen | `Select visible screen` in that same edit menu. The item set is exactly two, per `R-31-08-22` | no |
+| Select a word | Long press on the grid with the native SDK gesture, per `R-30-301` | no |
+| Extend a selection | Drag either native selection handle | no |
+| Clear a selection | Tap the grid while a selection is live, per `R-31-08-08` | no |
+| Copy | `Copy` in the native selection toolbar, per `R-31-08-22` | no |
+| Select all | `Select all` in the native selection toolbar, per `R-31-08-22` | no |
 | Scroll the scrollback | One finger vertical drag | no |
 | Scroll by a page | Two finger vertical drag | no |
 | Jump to the bottom | Tap the `to bottom` pill, or drag to the bottom, which resumes the live follow on its own | no |
@@ -583,8 +582,9 @@ positions. Keys stay at least 48 logical pixels and overflow reflows into pages,
   modifier releases it
   (amended 2026-09-10 per R-03-122; until then any second tap locked).
   Each keystroke is still one explicit press, per `R-31-09-08` and `R-31-09-19`.
-- **R-30-301** A long press MUST be 400 ms. A double tap window MUST be 300 ms. A triple tap
-  window MUST be 300 ms between the second and the third tap.
+- **R-30-301** Terminal selection MUST use the SDK's default gesture timing, including the long press.
+  The app MUST NOT add a custom selection recognizer or a fixed long-press duration.
+  The key row's double-tap window MUST be 300 ms.
 - **R-30-302** A pinch MUST multiply the gesture-start painted font size by the cumulative
   two-finger scale, under R-21-008. It MUST NOT snap to Settings presets or produce haptic ticks.
   The portrait status strip MUST show the current size, rounded to one decimal for display only,
@@ -601,18 +601,14 @@ positions. Keys stay at least 48 logical pixels and overflow reflows into pages,
   it worked, it would break the one-to-one fidelity of `R-31-08-07`, and it would silently lose
   what the person pasted. An absent command is better than one that lies.
 - **R-30-305** Copy MUST place plain text on the clipboard, with every escape sequence removed
-  and with a trailing space stripped from each line. A person pastes into a chat or an issue, not
-  into a terminal. The second menu item is named `Select visible screen`, never `Select all`,
-  because it selects the visible screen and not the scrollback, and `Select all` means everything
-  on both platforms everywhere else.
+  and with trailing spaces stripped from each line. `R-31-08-22` owns the native toolbar item set.
 - **R-30-306** A vertical drag MUST scroll the local scrollback only. The app MUST NOT translate
   a scroll into an arrow key, a mouse wheel sequence, or an alternate screen scroll.
 - **R-30-307** The grid MUST NOT reflow the Host's wrapping at any font size. See `R-31-08-07`.
-- **R-30-308** Any gesture the terminal package binds by default that conflicts with this table
-  MUST be disabled. The requirements on the widget are behavioural: it MUST accept an ANSI chunk
-  written into it, it MUST support a text selection started by a long press and dragged, it MUST
-  expose the selected text as a string, and it MUST report its own visible column and row count.
-  `docs/21-terminal-rendering.md` owns which API delivers each one.
+- **R-30-308** The terminal package's selection gestures MUST be disabled in favour of `R-21-042`.
+  Other package gestures that conflict with this table MUST also be disabled.
+  The widget MUST accept ANSI content and report its visible column and row count.
+  `docs/21-terminal-rendering.md` owns the APIs for these operations and native selection.
 
 ## Pane pins
 

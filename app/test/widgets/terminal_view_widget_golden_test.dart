@@ -21,7 +21,12 @@ import 'package:herdr_mobile/widgets/terminal_view_widget.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart';
 import 'package:material_ui/material_ui.dart' show AppBar, Material;
 import 'package:xterm2/xterm.dart'
-    show CellOffset, Terminal, TerminalController;
+    show
+        CellOffset,
+        Terminal,
+        TerminalController,
+        TerminalView,
+        TerminalViewState;
 
 import '../screens/golden_support.dart' show goldenApp, loadAppFonts;
 
@@ -631,13 +636,25 @@ void main() {
           ),
           settle: (t) async {
             await t.pump();
-            final base = terminal.buffer.createAnchorFromOffset(
-              CellOffset(2, terminal.viewHeight - 5),
+            // Drive the real platform gesture: a long press on the word at
+            // (2, viewHeight - 5) — the 'W' of 'Waiting' in the sample feed —
+            // then a drag to the last column two rows down. The SelectionArea
+            // selects the word, extends it by cells, and raises its overlay.
+            final render = t
+                .state<TerminalViewState>(find.byType(TerminalView))
+                .renderTerminal;
+            Offset cellCenter(int x, int y) =>
+                render.localToGlobal(render.getOffset(CellOffset(x, y))) +
+                Offset(render.cellSize.width / 2, render.cellSize.height / 2);
+            final gesture = await t.startGesture(
+              cellCenter(2, terminal.viewHeight - 5),
             );
-            final extent = terminal.buffer.createAnchorFromOffset(
-              CellOffset(terminal.viewWidth - 1, terminal.viewHeight - 4),
+            await t.pump(const Duration(milliseconds: 600));
+            await gesture.moveTo(
+              cellCenter(terminal.viewWidth - 1, terminal.viewHeight - 3),
             );
-            controller.setSelection(base, extent);
+            await t.pump();
+            await gesture.up();
             await t.pump();
           },
         );

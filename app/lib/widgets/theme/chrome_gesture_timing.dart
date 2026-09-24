@@ -1,24 +1,19 @@
-/// The one gesture-recognition timing this app overrides from a Flutter SDK default, per
-/// `docs/30-ux-spec.md` R-30-301: "A long press MUST be 400 ms." Flutter's own
-/// `LongPressGestureRecognizer` defaults to `kLongPressTimeout` (500 ms); this is not one of
-/// `app_motion.dart`'s `AppMotion` perceived-motion durations either — R-32-600 fixes that
-/// catalogue at exactly four values for animation easing, and a gesture-recognition threshold is
-/// a different rule, for a different reason, owned here instead so no screen redeclares the
-/// literal.
+/// Gesture-recognition timings this app sets beside the Flutter SDK defaults.
 ///
-/// R-30-301 also fixes a 300 ms double-tap window and a 300 ms triple-tap window, but Flutter's
-/// own defaults (`kDoubleTapTimeout`) already equal 300 ms, so neither needs an override or a
-/// token here.
+/// The 400 ms long-press override R-30-301 once required is gone: the grid's
+/// selection is the platform's own now (`SelectionArea` in
+/// `app/lib/widgets/terminal_view_widget.dart`), so the SDK default
+/// (`kLongPressTimeout`, 500 ms) applies, and this catalogue keeps only the
+/// timing that is still the app's own. R-30-301's 300 ms double-tap and
+/// triple-tap windows always matched Flutter's `kDoubleTapTimeout` and never
+/// needed an entry here.
 library;
 
-/// R-30-301's 400 ms long-press threshold.
+/// The grid's selection edge-autoscroll cadence.
 class ChromeGestureTiming {
   const ChromeGestureTiming._();
 
-  /// The duration a press MUST be held before it is recognised as a long press.
-  static const Duration longPress = Duration(milliseconds: 400);
-
-  /// The step period of the edge autoscroll while a selection drag holds near the grid edge:
-  /// one row per step.
+  /// The step period of the edge autoscroll while a selection drag holds near
+  /// the grid edge: one row per step.
   static const Duration selectionAutoscrollStep = Duration(milliseconds: 50);
 }

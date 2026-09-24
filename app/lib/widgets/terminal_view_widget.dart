@@ -32,9 +32,13 @@
 /// this file drew a centred block over the grid).
 /// `scrolled` and `selection` are not distinct phases: the mockup's own wireframes show them as
 /// modifiers over `live` (the connection word turns `paused`, which `app/lib/widgets/status_strip.dart`
-/// draws, not this file) — this file tracks them as its own scroll and selection state and layers
-/// the jump-to-bottom pill (R-31-08-06, `R-90-010`) and the selection toolbar (R-21-042) over
-/// whatever phase is showing. `landscape` is not a phase either: the grid never changes its column
+/// draws, not this file) — this file tracks them as its own scroll state, layers
+/// the jump-to-bottom pill (R-31-08-06, `R-90-010`) over whatever phase is showing, and hands
+/// selection (R-21-042) to the platform: the live grid sits inside the SDK's `SelectionArea`,
+/// whose handles, magnifier and adaptive toolbar are drawn by the platform, while the
+/// [_TerminalSelectionAdapter] render object bridges the cell grid to it and the highlight keeps
+/// painting in the theme's `termSelection` colour through `TerminalController.setSelection`.
+/// `landscape` is not a phase either: the grid never changes its column
 /// count for orientation (R-21-036), so this file's only landscape-specific duty is to keep every
 /// offset stable across the rotation (R-31-08-10), which the same state fields that survive an app
 /// background and resume already provide.
@@ -44,30 +48,48 @@ import 'dart:async' show Timer;
 import 'dart:ui'
     show DisplayFeatureType, ParagraphBuilder, ParagraphConstraints;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ObserverList, ValueListenable;
 import 'package:flutter/gestures.dart'
     show
         Drag,
         GestureDisposition,
         HorizontalDragGestureRecognizer,
-        LongPressGestureRecognizer,
-        LongPressMoveUpdateDetails,
-        LongPressStartDetails,
         OneSequenceGestureRecognizer,
+        VerticalDragGestureRecognizer,
         kTouchSlop;
-import 'package:flutter/material.dart'
+import 'package:flutter/material.dart' show SelectionArea;
+import 'package:flutter/rendering.dart'
     show
-        AdaptiveTextSelectionToolbar,
-        ContextMenuButtonItem,
-        ContextMenuButtonType;
-import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+        ClearSelectionEvent,
+        DirectionallyExtendSelectionEvent,
+        GranularlyExtendSelectionEvent,
+        LeaderLayer,
+        PipelineOwner,
+        SelectAllSelectionEvent,
+        SelectParagraphSelectionEvent,
+        SelectWordSelectionEvent,
+        Selectable,
+        SelectedContent,
+        SelectedContentRange,
+        SelectionEdgeUpdateEvent,
+        SelectionEvent,
+        SelectionEventType,
+        SelectionGeometry,
+        SelectionPoint,
+        SelectionRegistrar,
+        SelectionRegistrant,
+        SelectionResult,
+        SelectionStatus,
+        TextGranularity;
 import 'package:flutter/widgets.dart';
 
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:xterm2/xterm.dart'
     show
+        Buffer,
         CellAnchor,
         CellOffset,
+        SelectionMode,
         Terminal,
         TerminalController,
         TerminalCursorType,
@@ -544,21 +566,26 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   ({int first, int last})? _reportedWindow;
   bool _windowReportScheduled = false;
 
-  // The 400 ms recognizer uses xterm's public word boundaries and cell anchors.
+  // The platform `SelectionArea` owns the selection gestures; the adapter
+  // render object under it maps them onto cells. This file keeps only the
+  // edge autoscroll: the SDK's `EdgeDraggingAutoScroller` binds the nearest
+  // *ancestor* `Scrollable`, and the grid's lives inside `TerminalView`,
+  // below the area, so a drag past the grid edge is stepped from here.
   final GlobalKey<TerminalViewState> _terminalViewKey =
       GlobalKey<TerminalViewState>();
-  LongPressGestureRecognizer? _longPressRecognizer;
-  CellAnchor? _selectionStart;
-  CellAnchor? _selectionEnd;
+  final GlobalKey _selectionAdapterKey = GlobalKey();
+  final FocusNode _selectionFocusNode = FocusNode(canRequestFocus: false);
   Offset? _selectionPointer;
   Timer? _selectionScrollTimer;
+  int _edgeDragIdleTicks = 0;
+  bool _edgeDragContinuous = false;
   int _selectionBufferRows = 0;
 
   @override
   void initState() {
     super.initState();
     _verticalScroll = ScrollController()..addListener(_onVerticalScroll);
-    _controller = widget.controller ?? TerminalController();
+    _controller = widget.controller ?? _GridSelectionController();
     _ownsController = widget.controller == null;
     _controller.addListener(_onControllerChanged);
     widget.terminal?.addListener(_onTerminalContentChanged);
@@ -599,7 +626,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller?.removeListener(_onControllerChanged);
       if (_ownsController) _controller.dispose();
-      _controller = widget.controller ?? TerminalController();
+      _controller = widget.controller ?? _GridSelectionController();
       _ownsController = widget.controller == null;
       _controller.addListener(_onControllerChanged);
     }
@@ -618,7 +645,8 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   @override
   void dispose() {
     _firstPaintTimer?.cancel();
-    _endSelectionDrag();
+    _stopSelectionAutoscroll();
+    _selectionFocusNode.dispose();
     widget.terminal?.removeListener(_onTerminalContentChanged);
     _twoFingerScroll?.cancel();
     _verticalScroll
@@ -627,7 +655,6 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     _controller.removeListener(_onControllerChanged);
     if (_ownsController) _controller.dispose();
     _panRecognizer?.dispose();
-    _longPressRecognizer?.dispose();
     _pinchRecognizer.dispose();
     super.dispose();
   }
@@ -765,7 +792,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
 
   void _onControllerChanged() {
     _selectionBufferRows = widget.terminal?.buffer.lines.length ?? 0;
-    if (!_hasSelection) _endSelectionDrag();
+    if (!_hasSelection) _stopSelectionAutoscroll();
     setState(() {});
     widget.onSelectionLiveChanged?.call(_hasSelection);
   }
@@ -863,7 +890,10 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     if (_gridFits) return;
     final insets = MediaQuery.systemGestureInsetsOf(context);
     final width = MediaQuery.sizeOf(context).width;
-    final dx = event.localPosition.dx;
+    // Global, not local: the recognizer now listens below the pan transform,
+    // whose local x shifts with the pan offset while the system gesture
+    // insets stay screen-relative.
+    final dx = event.position.dx;
     if (dx < insets.left || dx > width - insets.right) return;
     (_panRecognizer ??= HorizontalDragGestureRecognizer(debugOwner: this))
       ..onUpdate = _onPanUpdate
@@ -945,7 +975,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     _pinchPointers[event.pointer] = event.position;
     if (_pinchPointers.length >= 2) _pinchRecognizer.claim();
     if (_pinchPointers.length == 2) {
-      _endSelectionDrag();
+      _stopSelectionAutoscroll();
       final points = _pinchPointers.values.toList();
       _pinchStartPoints = points;
       _twoFingerScrollCenter = (points[0] + points[1]) / 2;
@@ -1032,109 +1062,103 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     });
   }
 
-  /// R-30-301: the long press that starts a free selection MUST be
-  /// 400 ms. `xterm2`'s own internal `LongPressGestureRecognizer` (its
-  /// selection gesture) uses the Flutter SDK default (`kLongPressTimeout`,
-  /// 500 ms) with no public override point, so this ancestor recognizer
-  /// wins the gesture arena first, at the correct duration — Flutter
-  /// resolves a `LongPressGestureRecognizer` arena in favour of whichever
-  /// competing recognizer's timer fires first, so `xterm2`'s slower one
-  /// is rejected before it ever calls its own selection code.
-  void _maybeStartLongPress(PointerDownEvent event) {
-    (_longPressRecognizer ??= LongPressGestureRecognizer(
-        debugOwner: this,
-        duration: ChromeGestureTiming.longPress,
-      ))
-      ..onLongPressStart = _onLongPressStart
-      ..onLongPressMoveUpdate = _onLongPressMoveUpdate
-      ..onLongPressEnd = ((_) => _endSelectionDrag())
-      ..addPointer(event);
-  }
-
-  /// Selects the word under the long press through `xterm2`'s own public
-  /// `RenderTerminal.selectWord` (reached via [_terminalViewKey]) — this
-  /// file never reimplements word-boundary detection.
-  void _onLongPressStart(LongPressStartDetails details) {
-    if (_pinchPointers.length >= 2) return;
-    _endSelectionDrag();
-    _forceReadPointer = null;
-    final render = _terminalViewKey.currentState?.renderTerminal;
-    final terminal = widget.terminal;
-    if (render == null || terminal == null) return;
-    render.selectWord(render.globalToLocal(details.globalPosition));
-    final range = _controller.selectionFor(terminal.buffer);
-    if (range == null) return;
-    _selectionStart = terminal.buffer.createAnchorFromOffset(range.begin);
-    _selectionEnd = terminal.buffer.createAnchorFromOffset(range.end);
-    _selectionBufferRows = terminal.buffer.lines.length;
-    _selectionPointer = details.globalPosition;
-    _historyRequested = false;
-  }
-
-  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
-    if (_pinchPointers.length >= 2) return;
-    _selectionPointer = details.globalPosition;
-    _extendSelection();
+  /// The adapter render object reports every selection-edge drag position
+  /// here. A position near the grid's top or bottom edge autoscrolls one row
+  /// per [ChromeGestureTiming.selectionAutoscrollStep]. For a handle drag the
+  /// adapter answers the SDK with `SelectionResult.pending`, so the platform
+  /// re-sends the edge event every frame; those events are the liveness
+  /// signal, and the selection extension itself rides on them. For a
+  /// long-press drag (word granularity, sent once per move) the timer
+  /// re-applies the last edge after each scroll step, and the gesture's end
+  /// arrives as the pointer-up on this widget's own Listener.
+  void _onSelectionEdgeDrag(
+    Offset globalPosition, {
+    required bool continuous,
+  }) {
+    _selectionPointer = globalPosition;
+    _edgeDragIdleTicks = 0;
+    _edgeDragContinuous = continuous;
+    if (_selectionDragDirection(globalPosition) == 0) {
+      _stopSelectionAutoscroll();
+      return;
+    }
     _selectionScrollTimer ??= Timer.periodic(
       ChromeGestureTiming.selectionAutoscrollStep,
-      (_) => _scrollSelection(),
+      (_) {
+        // Two steps without a fresh edge event can only mean a handle drag
+        // ended inside the platform's overlay, which this widget never sees.
+        if (_edgeDragContinuous && ++_edgeDragIdleTicks > 2) {
+          _stopSelectionAutoscroll();
+          return;
+        }
+        _scrollSelectionStep();
+        if (!_edgeDragContinuous) _adapterRenderObject?.reapplyEdgeDrag();
+      },
     );
   }
 
-  void _endSelectionDrag() {
+  void _stopSelectionAutoscroll() {
     _selectionScrollTimer?.cancel();
     _selectionScrollTimer = null;
     _selectionPointer = null;
-    _selectionStart?.dispose();
-    _selectionEnd?.dispose();
-    _selectionStart = null;
-    _selectionEnd = null;
+    _edgeDragIdleTicks = 0;
   }
 
-  void _extendSelection() {
-    final render = _terminalViewKey.currentState?.renderTerminal;
-    final terminal = widget.terminal;
-    final pointer = _selectionPointer;
-    final start = _selectionStart;
-    final end = _selectionEnd;
-    if (render == null ||
-        terminal == null ||
-        pointer == null ||
-        start == null ||
-        end == null ||
-        !start.attached ||
-        !end.attached) {
-      return;
-    }
-    final cell = render.getCellOffset(render.globalToLocal(pointer));
-    final word = terminal.buffer.getWordBoundary(cell);
-    if (word == null) return;
-    final first = word.begin.isBefore(start.offset) ? word.begin : start.offset;
-    final last = word.end.isAfter(end.offset) ? word.end : end.offset;
-    _controller.setSelection(
-      terminal.buffer.createAnchorFromOffset(first),
-      terminal.buffer.createAnchorFromOffset(last),
+  // The one-finger vertical drag on the grid, forwarded by the selection
+  // adapter (which absorbs the pointer so the platform selection gestures own
+  // the arena) into the grid's own scroll position — the same
+  // `position.drag` path the two-finger scroll uses, so every scroll
+  // notification, the keyboard dismissal and the history request behave as
+  // they did with the scrollable's own drag.
+  Drag? _gridDrag;
+
+  void _onGridDragStart(DragStartDetails details) {
+    _gridDrag?.cancel();
+    if (!_verticalScroll.hasClients) return;
+    _gridDrag = _verticalScroll.position.drag(
+      details,
+      () => _gridDrag = null,
     );
   }
 
-  void _scrollSelection() {
-    final pointer = _selectionPointer;
+  void _onGridDragUpdate(DragUpdateDetails details) {
+    _gridDrag?.update(details);
+  }
+
+  void _onGridDragEnd(DragEndDetails details) {
+    _gridDrag?.end(details);
+  }
+
+  void _onGridDragCancel() {
+    _gridDrag?.cancel();
+  }
+
+  _RenderTerminalSelection? get _adapterRenderObject =>
+      _selectionAdapterKey.currentContext?.findRenderObject()
+          as _RenderTerminalSelection?;
+
+  /// -1 when [globalPosition] is within one minimum touch target of the
+  /// grid's top edge, 1 near the bottom edge, 0 anywhere else.
+  int _selectionDragDirection(Offset globalPosition) {
     final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return 0;
+    final local = box.globalToLocal(globalPosition);
+    final inset = _cutoutSafeInset(context);
+    if (local.dy < inset.top + AppSize.targetMin) return -1;
+    if (local.dy > box.size.height - inset.bottom - AppSize.targetMin) {
+      return 1;
+    }
+    return 0;
+  }
+
+  void _scrollSelectionStep() {
+    final pointer = _selectionPointer;
     if (pointer == null ||
-        box == null ||
         !_verticalScroll.hasClients ||
         _terminalContentDirty) {
       return;
     }
-    final local = box.globalToLocal(pointer);
-    final inset = _cutoutSafeInset(context);
-    final top = inset.top;
-    final bottom = box.size.height - inset.bottom;
-    final direction = local.dy < top + AppSize.targetMin
-        ? -1
-        : local.dy > bottom - AppSize.targetMin
-        ? 1
-        : 0;
+    final direction = _selectionDragDirection(pointer);
     if (direction == 0) return;
     final position = _verticalScroll.position;
     final target = (position.pixels + direction * _cellHeight).clamp(
@@ -1142,6 +1166,8 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
       position.maxScrollExtent,
     );
     if (target != position.pixels) _verticalScroll.jumpTo(target);
+    // Reaching the top of the fetched rows asks the Host for older history,
+    // the same request the scroll notification path makes.
     if (direction < 0 &&
         target <= position.viewportDimension &&
         widget.maxScrollOffsetFromBottom > 0 &&
@@ -1150,7 +1176,6 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
       _historyRequested = true;
       widget.onRequestScrollback?.call();
     }
-    _extendSelection();
   }
 
   /// R-30-730: under reduced motion every `motion.duration.*` becomes 0 ms
@@ -1177,36 +1202,6 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
             if (mounted) _onVerticalScroll();
           }),
     );
-  }
-
-  Future<void> _copySelection() async {
-    final terminal = widget.terminal;
-    final range = _controller.selectionFor(terminal!.buffer);
-    if (range == null) return;
-    final text = terminal.buffer.getText(range);
-    await Clipboard.setData(ClipboardData(text: text));
-    if (mounted) _controller.clearSelection();
-  }
-
-  void _selectVisibleScreen() {
-    final terminal = widget.terminal;
-    if (terminal == null) return;
-    final double pixels = _verticalScroll.hasClients
-        ? _verticalScroll.position.pixels
-        : 0.0;
-    final height = _verticalScroll.hasClients
-        ? _verticalScroll.position.viewportDimension
-        : terminal.viewHeight * _cellHeight;
-    final lastRow = terminal.buffer.lines.length - 1;
-    final top = (pixels / _cellHeight).floor().clamp(0, lastRow);
-    final bottom =
-        ((pixels + height) / _cellHeight).ceil().clamp(top + 1, lastRow + 1) -
-        1;
-    final base = terminal.buffer.createAnchorFromOffset(CellOffset(0, top));
-    final extent = terminal.buffer.createAnchorFromOffset(
-      CellOffset(terminal.viewWidth, bottom),
-    );
-    _controller.setSelection(base, extent);
   }
 
   /// The grid's one semantics node, per R-30-710 and R-30-711: the visible
@@ -1308,8 +1303,6 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
                         _viewportTopRows <= 0.01 &&
                         !_truncatedDismissed))
                   _buildTruncatedStrip(color),
-                if (_hasSelection && widget.terminal != null)
-                  _buildSelectionToolbar(context, color),
               ],
             ),
           ),
@@ -1527,114 +1520,157 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     final cutoutInset = _cutoutSafeInset(context);
     final label = _semanticsLabel(terminal);
 
-    final grid = Padding(
-      padding: cutoutInset,
-      child: ClipRect(
-        child: Transform.translate(
-          offset: Offset(-_horizontalOffsetColumns * _cellWidth, 0),
-          // The grid box MUST be allowed to exceed the viewport: without
-          // the OverflowBox the tight `Positioned.fill` constraint clamps
-          // the child to the viewport width, and a panned window would
-          // move the readout while the paint stayed clipped to the first
-          // columns (observed 2026-09-08: the box measured 390 px for a
-          // 144-column pane at an explicit size).
-          child: OverflowBox(
-            alignment: Alignment.topLeft,
-            // Both bounds: `maxWidth` alone leaves the tight parent's
-            // minimum in force, and a grid narrower than the viewport (a
-            // small pane at an explicit size) would stretch to it instead
-            // of measuring its real column count (observed 2026-09-08).
-            minWidth: 0,
-            maxWidth: double.infinity,
-            child: SizedBox(
-              // The pannable grid rectangle: exactly [Terminal.viewWidth]
-              // cells of the painted width, so a test (and the e2e of
-              // WP-25) can prove the first and the last Host column sit
-              // inside the `terminalGridArea` viewport.
-              key: const ValueKey('terminalGridCells'),
-              width: _gridColumns * _cellWidth,
-              // A finger drag on the grid dismisses the software keyboard, the
-              // platform's own scroll-to-dismiss (iOS `keyboardDismissMode = .onDrag`,
-              // Flutter's `ScrollViewKeyboardDismissBehavior.onDrag`). Only a drag with
-              // pointer details counts: the widget's own `jumpTo`/`animateTo` and a
-              // Host-driven resync raise no `dragDetails` and leave focus alone.
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (ScrollNotification notification) {
-                  if (notification is ScrollStartNotification) {
-                    _userScrollInProgress = notification.dragDetails != null;
-                  } else if (notification is ScrollEndNotification) {
-                    _userScrollInProgress = false;
-                  }
-                  if (notification is ScrollStartNotification &&
-                      notification.dragDetails != null) {
-                    FocusManager.instance.primaryFocus?.unfocus();
-                    _historyRequested = false;
-                  }
-                  final movingUp = switch (notification) {
-                    ScrollUpdateNotification(:final scrollDelta) =>
-                      (scrollDelta ?? 0) < 0,
-                    OverscrollNotification(:final overscroll) => overscroll < 0,
-                    _ => false,
-                  };
-                  if (movingUp &&
-                      (_pinchPointers.length < 2 || _twoFingerScroll != null) &&
-                      _userScrollInProgress &&
-                      !_adjustingViewport &&
-                      interactive &&
-                      widget.phase == TerminalGridPhase.live &&
-                      widget.maxScrollOffsetFromBottom > 0 &&
-                      (!widget.historyVisible || widget.historyCanLoadMore) &&
-                      !_historyRequested &&
-                      notification.metrics.pixels <=
-                          notification.metrics.viewportDimension) {
-                    _historyRequested = true;
-                    widget.onRequestScrollback?.call();
-                  }
-                  return false;
-                },
-                child: ScrollConfiguration(
-                  behavior: behavior.copyWith(
-                    physics: widget.maxScrollOffsetFromBottom > 0
-                        ? _historyScrollPhysics
-                        : nativePhysics,
-                  ),
-                  child: TerminalView(
-                    terminal,
-                    key: _terminalViewKey,
-                    controller: interactive ? _controller : null,
-                    theme: theme,
-                    // The readable size or the explicit overview fit reaches the painter.
-                    // Glyphs, pan offsets, and pointer-to-cell mappings share the measured
-                    // cell size. The line height stays fixed at the R-21-010 token.
-                    textStyle: TerminalStyle(
-                      fontSize: _fontSize,
-                      height: AppType.monoTerminal().height!,
-                      fontFamily: AppType.monoFontFamily,
-                      fontFamilyFallback: _fallbackFontFamilies,
-                    ),
-                    // R-21-038: both differ from the xterm2 default. autoResize
-                    // false keeps the emulator at rect.width, set from the
-                    // outside, never from this widget's own measured size.
-                    // textScaler noScaling keeps the cell advance off the system
-                    // text-scale setting.
-                    autoResize: false,
-                    textScaler: TextScaler.noScaling,
-                    padding: EdgeInsets.zero,
-                    scrollController: _verticalScroll,
-                    cursorType: TerminalCursorType.block,
-                    // R-31-08-08: a single tap on the grid MUST NOT send
-                    // anything to the pane. readOnly stops every keystroke this
-                    // widget could otherwise forward.
-                    readOnly: true,
-                    onTapUp: interactive
-                        ? (_, _) => widget.onGridTap?.call()
-                        : null,
-                  ),
+    final terminalView = TerminalView(
+      terminal,
+      key: _terminalViewKey,
+      controller: interactive ? _controller : null,
+      theme: theme,
+      // The readable size or the explicit overview fit reaches the painter.
+      // Glyphs, pan offsets, and pointer-to-cell mappings share the measured
+      // cell size. The line height stays fixed at the R-21-010 token.
+      textStyle: TerminalStyle(
+        fontSize: _fontSize,
+        height: AppType.monoTerminal().height!,
+        fontFamily: AppType.monoFontFamily,
+        fontFamilyFallback: _fallbackFontFamilies,
+      ),
+      // R-21-038: both differ from the xterm2 default. autoResize
+      // false keeps the emulator at rect.width, set from the
+      // outside, never from this widget's own measured size.
+      // textScaler noScaling keeps the cell advance off the system
+      // text-scale setting.
+      autoResize: false,
+      textScaler: TextScaler.noScaling,
+      padding: EdgeInsets.zero,
+      scrollController: _verticalScroll,
+      cursorType: TerminalCursorType.block,
+      // R-31-08-08: a single tap on the grid MUST NOT send
+      // anything to the pane. readOnly stops every keystroke this
+      // widget could otherwise forward. The tap itself never reaches
+      // `xterm2`: the selection adapter above it absorbs the pointer and its
+      // tap reports through `_TerminalSelectionAdapter.onTap`.
+      readOnly: true,
+    );
+
+    // The grid below the pan transform: the clipped, translated, overflowing
+    // cell rectangle.
+    final gridContent = ClipRect(
+      child: Transform.translate(
+        offset: Offset(-_horizontalOffsetColumns * _cellWidth, 0),
+        // The grid box MUST be allowed to exceed the viewport: without
+        // the OverflowBox the tight `Positioned.fill` constraint clamps
+        // the child to the viewport width, and a panned window would
+        // move the readout while the paint stayed clipped to the first
+        // columns (observed 2026-09-08: the box measured 390 px for a
+        // 144-column pane at an explicit size).
+        child: OverflowBox(
+          alignment: Alignment.topLeft,
+          // Both bounds: `maxWidth` alone leaves the tight parent's
+          // minimum in force, and a grid narrower than the viewport (a
+          // small pane at an explicit size) would stretch to it instead
+          // of measuring its real column count (observed 2026-09-08).
+          minWidth: 0,
+          maxWidth: double.infinity,
+          child: SizedBox(
+            // The pannable grid rectangle: exactly [Terminal.viewWidth]
+            // cells of the painted width, so a test (and the e2e of
+            // WP-25) can prove the first and the last Host column sit
+            // inside the `terminalGridArea` viewport.
+            key: const ValueKey('terminalGridCells'),
+            width: _gridColumns * _cellWidth,
+            // A finger drag on the grid dismisses the software keyboard, the
+            // platform's own scroll-to-dismiss (iOS `keyboardDismissMode = .onDrag`,
+            // Flutter's `ScrollViewKeyboardDismissBehavior.onDrag`). Only a drag with
+            // pointer details counts: the widget's own `jumpTo`/`animateTo` and a
+            // Host-driven resync raise no `dragDetails` and leave focus alone.
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (ScrollNotification notification) {
+                if (notification is ScrollStartNotification) {
+                  _userScrollInProgress = notification.dragDetails != null;
+                } else if (notification is ScrollEndNotification) {
+                  _userScrollInProgress = false;
+                }
+                if (notification is ScrollStartNotification &&
+                    notification.dragDetails != null) {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  _historyRequested = false;
+                }
+                final movingUp = switch (notification) {
+                  ScrollUpdateNotification(:final scrollDelta) =>
+                    (scrollDelta ?? 0) < 0,
+                  OverscrollNotification(:final overscroll) => overscroll < 0,
+                  _ => false,
+                };
+                if (movingUp &&
+                    (_pinchPointers.length < 2 || _twoFingerScroll != null) &&
+                    _userScrollInProgress &&
+                    !_adjustingViewport &&
+                    interactive &&
+                    widget.phase == TerminalGridPhase.live &&
+                    widget.maxScrollOffsetFromBottom > 0 &&
+                    (!widget.historyVisible || widget.historyCanLoadMore) &&
+                    !_historyRequested &&
+                    notification.metrics.pixels <=
+                        notification.metrics.viewportDimension) {
+                  _historyRequested = true;
+                  widget.onRequestScrollback?.call();
+                }
+                return false;
+              },
+              child: ScrollConfiguration(
+                behavior: behavior.copyWith(
+                  physics: widget.maxScrollOffsetFromBottom > 0
+                      ? _historyScrollPhysics
+                      : nativePhysics,
                 ),
+                child: terminalView,
               ),
             ),
           ),
         ),
+      ),
+    );
+
+    // R-21-042: the live grid's selection is the platform's own. The SDK
+    // `SelectionArea` draws the handles, magnifier and adaptive toolbar and
+    // owns the long-press / handle-drag gestures; `_TerminalSelectionAdapter`
+    // lies over the grid as the area's one leaf `Selectable`, absorbing the
+    // pointer so `xterm2`'s own recognizers never join the arena, mapping the
+    // events onto cells, and leaving the highlight to the painter. The area's
+    // focus node never takes focus, so a long press never drops the
+    // composer's keyboard. Both sit *above* the pan transform: the
+    // `OverflowBox` hit-test rejects any touch whose translated position
+    // lands outside its own bounds, so anything below the transform stops
+    // seeing pointers once the pan passes one viewport.
+    // The tree shape never changes with `interactive`: the `TerminalView`
+    // keeps its slot under the area, so a phase flip never reparents its
+    // GlobalKey; the adapter alone turns off. The area and the adapter wrap
+    // the cutout padding itself: R-21-039's inset band above the first cell
+    // row is grid background whose gestures (pan, force-read, tap) must work,
+    // so the adapter covers it.
+    final grid = SelectionArea(
+      focusNode: _selectionFocusNode,
+      child: Stack(
+        children: [
+          Padding(padding: cutoutInset, child: gridContent),
+          Positioned.fill(
+            child: _TerminalSelectionAdapter(
+              leafKey: _selectionAdapterKey,
+              enabled: interactive,
+              terminal: terminal,
+              controller: _controller,
+              viewKey: _terminalViewKey,
+              scroll: _verticalScroll,
+              onEdgeDrag: _onSelectionEdgeDrag,
+              onTap: () => widget.onGridTap?.call(),
+              onMaybePan: (event) => _maybeStartPan(event, context),
+              onVerticalDragStart: _onGridDragStart,
+              onVerticalDragUpdate: _onGridDragUpdate,
+              onVerticalDragEnd: _onGridDragEnd,
+              onVerticalDragCancel: _onGridDragCancel,
+            ),
+          ),
+        ],
       ),
     );
 
@@ -1645,8 +1681,6 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
       behavior: HitTestBehavior.opaque,
       onPointerDown: interactive
           ? (event) {
-              _maybeStartPan(event, context);
-              _maybeStartLongPress(event);
               _onPinchPointerDown(event);
               _onForceReadPointerDown(event, cutoutInset.top);
             }
@@ -1661,13 +1695,14 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
           ? (event) {
               _onPinchPointerEnd(event.pointer);
               _onForceReadPointerEnd(event.pointer);
+              _stopSelectionAutoscroll();
             }
           : null,
       onPointerCancel: interactive
           ? (event) {
               _onPinchPointerEnd(event.pointer);
               _onForceReadPointerEnd(event.pointer);
-              _endSelectionDrag();
+              _stopSelectionAutoscroll();
             }
           : null,
       child: Semantics(
@@ -1742,53 +1777,6 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     );
   }
 
-  /// R-21-042: the platform's own selection surface, built from
-  /// `AdaptiveTextSelectionToolbar.buttonItems` with exactly `Copy` and
-  /// `Select visible screen` — no second bar, bottom bar or app-bar action
-  /// repeats either command.
-  Widget _buildSelectionToolbar(BuildContext context, AppColor color) {
-    final anchor = _selectionAnchor(context);
-    return Positioned.fill(
-      child: AdaptiveTextSelectionToolbar.buttonItems(
-        anchors: TextSelectionToolbarAnchors(primaryAnchor: anchor),
-        buttonItems: <ContextMenuButtonItem>[
-          ContextMenuButtonItem(
-            onPressed: () => unawaited(_copySelection()),
-            type: ContextMenuButtonType.copy,
-            label: 'Copy',
-          ),
-          ContextMenuButtonItem(
-            onPressed: _selectVisibleScreen,
-            label: 'Select visible screen',
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Keep the native toolbar inside the viewport when the selection extends offscreen.
-  Offset _selectionAnchor(BuildContext context) {
-    final terminal = widget.terminal;
-    final render = _terminalViewKey.currentState?.renderTerminal;
-    final box = context.findRenderObject() as RenderBox?;
-    final range = terminal == null
-        ? null
-        : _controller.selectionFor(terminal.buffer);
-    final scroll = _verticalScroll.hasClients ? _verticalScroll.offset : 0.0;
-    final global = render?.localToGlobal(
-      Offset(
-        (range?.begin.x ?? 0) * _cellWidth,
-        (range?.begin.y ?? 0) * _cellHeight - scroll,
-      ),
-    );
-    if (box == null || global == null) return Offset.zero;
-    final local = box.globalToLocal(global);
-    return Offset(
-      local.dx.clamp(0.0, box.size.width),
-      local.dy.clamp(AppSize.targetMin, box.size.height),
-    );
-  }
-
   String _formatCaptureTime(DateTime time) {
     final hh = time.hour.toString().padLeft(2, '0');
     final mm = time.minute.toString().padLeft(2, '0');
@@ -1809,4 +1797,720 @@ class _JumpToBottomPill extends StatelessWidget {
     icon: Symbols.vertical_align_bottom_rounded,
     child: const Text('to bottom'),
   );
+}
+
+/// The controller this widget creates when a caller passes none. `xterm2`'s
+/// own gesture layer (its long-press, double/triple tap and mouse-drag
+/// recognizers inside `TerminalGestureHandler`) writes straight to the
+/// controller; the platform `SelectionArea` owns the selection now, so those
+/// writes are dropped and only the adapter's writes land. `clearSelection`
+/// stays open to everyone: `TerminalView` uses it for tap-to-clear, which is
+/// exactly the platform's tap-clears-selection behaviour.
+class _GridSelectionController extends TerminalController {
+  bool _adapterWrite = false;
+
+  @override
+  void setSelection(CellAnchor base, CellAnchor extent, {SelectionMode? mode}) {
+    if (!_adapterWrite) {
+      // setSelection takes ownership of the anchors; a dropped write must
+      // dispose them itself.
+      base.dispose();
+      extent.dispose();
+      return;
+    }
+    super.setSelection(base, extent, mode: mode);
+  }
+
+  void setSelectionFromAdapter(CellAnchor base, CellAnchor extent) {
+    _adapterWrite = true;
+    try {
+      super.setSelection(base, extent);
+    } finally {
+      _adapterWrite = false;
+    }
+  }
+}
+
+/// The adapter that bridges the live grid to the SDK `SelectionArea` wrapped
+/// around it. It hit-tests *opaque* over the grid, so `xterm2`'s own gesture
+/// recognizers (its long-press, double tap, tap) never join the gesture
+/// arena: the arena closes when the pointer-down dispatch finishes, and
+/// `xterm2`'s recognizers — added from the deeper `TerminalView` — would win
+/// every long-press tie against the area's own, starving the platform
+/// selection gestures. With the adapter absorbing the pointer, the area's
+/// recognizers own the arena. The gestures the grid still needs are forwarded
+/// here instead: the vertical drag drives the grid's own [ScrollController]
+/// (the same `position.drag` path the two-finger scroll uses, so scroll
+/// notifications, keyboard-on-drag dismissal and the history request all keep
+/// working), the horizontal pan keeps its system-inset gate (R-21-040), and
+/// the platform's tap collapse reports through [onTap] for R-31-08-08.
+class _TerminalSelectionAdapter extends StatelessWidget {
+  const _TerminalSelectionAdapter({
+    required this.leafKey,
+    required this.enabled,
+    required this.terminal,
+    required this.controller,
+    required this.viewKey,
+    required this.scroll,
+    required this.onEdgeDrag,
+    required this.onTap,
+    required this.onMaybePan,
+    required this.onVerticalDragStart,
+    required this.onVerticalDragUpdate,
+    required this.onVerticalDragEnd,
+    required this.onVerticalDragCancel,
+  });
+
+  /// Reaches the leaf's render object (`_RenderTerminalSelection`) so the
+  /// edge-autoscroll timer can re-apply the drag after each scroll step.
+  final GlobalKey leafKey;
+
+  /// False on the dimmed, non-live phases: no selection, no pan, no grid tap.
+  /// The vertical scroll keeps working either way.
+  final bool enabled;
+
+  final Terminal terminal;
+  final TerminalController controller;
+  final GlobalKey<TerminalViewState> viewKey;
+  final ScrollController scroll;
+
+  /// Every selection-edge drag position, with `continuous` true for the SDK's
+  /// per-frame handle-drag stream and false for one-shot long-press moves.
+  final void Function(Offset globalPosition, {required bool continuous})
+  onEdgeDrag;
+
+  /// A tap on the grid collapsed or cleared the selection (R-31-08-08).
+  final VoidCallback onTap;
+
+  /// Starts the horizontal pan recognizer when the touch is outside the
+  /// system gesture insets.
+  final ValueChanged<PointerDownEvent> onMaybePan;
+
+  final GestureDragStartCallback onVerticalDragStart;
+  final GestureDragUpdateCallback onVerticalDragUpdate;
+  final GestureDragEndCallback onVerticalDragEnd;
+  final GestureDragCancelCallback onVerticalDragCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return RawGestureDetector(
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      gestures: <Type, GestureRecognizerFactory>{
+        VerticalDragGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
+              () => VerticalDragGestureRecognizer(debugOwner: this),
+              (instance) {
+                instance
+                  ..onStart = onVerticalDragStart
+                  ..onUpdate = onVerticalDragUpdate
+                  ..onEnd = onVerticalDragEnd
+                  ..onCancel = onVerticalDragCancel;
+              },
+            ),
+      },
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: enabled ? onMaybePan : null,
+        child: _TerminalSelectionLeaf(
+          key: leafKey,
+          enabled: enabled,
+          terminal: terminal,
+          controller: controller,
+          viewKey: viewKey,
+          scroll: scroll,
+          onEdgeDrag: onEdgeDrag,
+          onTap: onTap,
+        ),
+      ),
+    );
+  }
+}
+
+/// The leaf whose render object is the area's one registered [Selectable].
+/// It paints nothing itself — the selection highlight keeps painting through
+/// the `TerminalController`, in the theme's `termSelection` colour.
+class _TerminalSelectionLeaf extends LeafRenderObjectWidget {
+  const _TerminalSelectionLeaf({
+    super.key,
+    required this.enabled,
+    required this.terminal,
+    required this.controller,
+    required this.viewKey,
+    required this.scroll,
+    required this.onEdgeDrag,
+    required this.onTap,
+  });
+
+  final bool enabled;
+  final Terminal terminal;
+  final TerminalController controller;
+  final GlobalKey<TerminalViewState> viewKey;
+  final ScrollController scroll;
+  final void Function(Offset globalPosition, {required bool continuous})
+  onEdgeDrag;
+  final VoidCallback onTap;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderTerminalSelection(
+        enabled: enabled,
+        terminal: terminal,
+        controller: controller,
+        viewKey: viewKey,
+        scroll: scroll,
+        onEdgeDrag: onEdgeDrag,
+        onTap: onTap,
+        registrar: SelectionContainer.maybeOf(context),
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderTerminalSelection renderObject,
+  ) {
+    renderObject
+      ..enabled = enabled
+      ..terminal = terminal
+      ..controller = controller
+      ..viewKey = viewKey
+      ..scroll = scroll
+      ..onEdgeDrag = onEdgeDrag
+      ..onTap = onTap
+      ..registrar = SelectionContainer.maybeOf(context);
+  }
+}
+
+/// The one [Selectable] under the grid's `SelectionArea`. The controller's
+/// selection is the single source of truth: events write it, geometry reads
+/// it, so a selection set from anywhere (a drag, `Select all`, a test
+/// seeding the controller directly) reports the same.
+class _RenderTerminalSelection extends RenderBox
+    with Selectable, SelectionRegistrant {
+  _RenderTerminalSelection({
+    required this._enabled,
+    required this._terminal,
+    required this._controller,
+    required this._viewKey,
+    required this._scroll,
+    required this.onEdgeDrag,
+    required this.onTap,
+    required SelectionRegistrar? registrar,
+  }) {
+    this.registrar = registrar;
+  }
+
+  /// False on the dimmed, non-live phases: the selectable unregisters, so no
+  /// selection event ever reaches it.
+  bool get enabled => _enabled;
+  bool _enabled;
+  set enabled(bool value) {
+    if (value == _enabled) return;
+    _enabled = value;
+    _onSourceChanged();
+  }
+
+  void Function(Offset globalPosition, {required bool continuous})? onEdgeDrag;
+
+  /// A tap on the grid collapsed or cleared the selection (R-31-08-08).
+  VoidCallback? onTap;
+
+  Terminal get terminal => _terminal;
+  Terminal _terminal;
+  set terminal(Terminal value) {
+    if (identical(value, _terminal)) return;
+    if (attached) _terminal.removeListener(_onSourceChanged);
+    _terminal = value;
+    if (attached) _terminal.addListener(_onSourceChanged);
+    _onSourceChanged();
+  }
+
+  TerminalController get controller => _controller;
+  TerminalController _controller;
+  set controller(TerminalController value) {
+    if (identical(value, _controller)) return;
+    if (attached) _controller.removeListener(_onSourceChanged);
+    _controller = value;
+    if (attached) _controller.addListener(_onSourceChanged);
+    _onSourceChanged();
+  }
+
+  GlobalKey<TerminalViewState> get viewKey => _viewKey;
+  GlobalKey<TerminalViewState> _viewKey;
+  set viewKey(GlobalKey<TerminalViewState> value) {
+    if (identical(value, _viewKey)) return;
+    _viewKey = value;
+    _onSourceChanged();
+  }
+
+  ScrollController get scroll => _scroll;
+  ScrollController _scroll;
+  set scroll(ScrollController value) {
+    if (identical(value, _scroll)) return;
+    if (attached) _scroll.removeListener(_onSourceChanged);
+    _scroll = value;
+    if (attached) _scroll.addListener(_onSourceChanged);
+    _onSourceChanged();
+  }
+
+  // `RenderTerminal` is not exported by `xterm2`, so it is only ever a
+  // local, inferred from `_viewKey.currentState!.renderTerminal`.
+
+  // The word the last long press landed on; word-granularity edge drags keep
+  // it fully selected, the native extend-by-word behaviour.
+  CellOffset? _originStart;
+  CellOffset? _originEnd;
+
+  // The last edge event, re-applied by the widget's edge-autoscroll timer
+  // after each scroll step (the long-press path, which the SDK sends once
+  // per move rather than per frame).
+  SelectionEdgeUpdateEvent? _lastEdgeEvent;
+
+  // A start edge that arrived with no selection (a desktop mouse down): held
+  // until the matching end edge moves it or collapses it away.
+  CellOffset? _pendingStart;
+
+  // The cell the immediately preceding start-edge update landed on. A tap
+  // arrives as a start+end pair at one cell (the SDK's collapse); the end
+  // half of the pair clears the selection and reports the tap.
+  CellOffset? _collapseCandidate;
+
+  final ObserverList<VoidCallback> _listeners = ObserverList<VoidCallback>();
+
+  @override
+  void addListener(VoidCallback listener) => _listeners.add(listener);
+
+  @override
+  void removeListener(VoidCallback listener) => _listeners.remove(listener);
+
+  void _notifyListeners() {
+    for (final listener in List<VoidCallback>.of(_listeners)) {
+      listener();
+    }
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _controller.addListener(_onSourceChanged);
+    _terminal.addListener(_onSourceChanged);
+    _scroll.addListener(_onSourceChanged);
+    // The registrant subscribes this selectable only while the geometry
+    // reports hasContent, so the initial (selectionless) geometry must be
+    // computed as soon as the sources are known.
+    _updateGeometry();
+  }
+
+  @override
+  void detach() {
+    _controller.removeListener(_onSourceChanged);
+    _terminal.removeListener(_onSourceChanged);
+    _scroll.removeListener(_onSourceChanged);
+    super.detach();
+  }
+
+  /// The selection, the scroll offset and the content all move the handles:
+  /// every one of them funnels here.
+  void _onSourceChanged() => _updateGeometry();
+
+  @override
+  void performLayout() {
+    size = constraints.biggest;
+  }
+
+  // --- SelectionHandler -------------------------------------------------
+
+  SelectionGeometry _geometry = const SelectionGeometry(
+    status: SelectionStatus.none,
+    hasContent: false,
+  );
+
+  @override
+  SelectionGeometry get value => _geometry;
+
+  @override
+  int get contentLength => terminal.buffer.lines.length * (terminal.viewWidth + 1);
+
+  @override
+  List<Rect> get boundingBoxes => [paintBounds];
+
+  @override
+  SelectedContent? getSelectedContent() {
+    final range = _controller.selectionFor(terminal.buffer);
+    if (range == null || range.isCollapsed) return null;
+    return SelectedContent(plainText: terminal.buffer.getText(range));
+  }
+
+  @override
+  SelectedContentRange? getSelection() {
+    final range = _controller.selectionFor(terminal.buffer);
+    if (range == null || range.isCollapsed) return null;
+    final line = terminal.viewWidth + 1;
+    final normalized = range.normalized;
+    return SelectedContentRange(
+      startOffset: normalized.begin.y * line + normalized.begin.x,
+      endOffset: normalized.end.y * line + normalized.end.x,
+    );
+  }
+
+  void _updateGeometry() {
+    if (!attached) return;
+    final next = _computeGeometry();
+    if (next == _geometry) return;
+    _geometry = next;
+    _notifyListeners();
+    // The handle LeaderLayers bake the point offsets in at paint time.
+    markNeedsPaint();
+  }
+
+  SelectionGeometry _computeGeometry() {
+    const none = SelectionGeometry(
+      status: SelectionStatus.none,
+      hasContent: true,
+    );
+    if (!_enabled) {
+      // Unregistered either way; hasContent false keeps the registrant from
+      // subscribing this selectable at all.
+      return const SelectionGeometry(
+        status: SelectionStatus.none,
+        hasContent: false,
+      );
+    }
+    final render = _viewKey.currentState?.renderTerminal;
+    if (render == null || !attached) return none;
+    // A cell's caret point in this render object's local coordinates: the
+    // render terminal's own mapping (scroll-compensated), re-expressed here.
+    Offset toLocal(CellOffset cell) =>
+        globalToLocal(render.localToGlobal(render.getOffset(cell)));
+    final buffer = terminal.buffer;
+    final range = _controller.selectionFor(buffer);
+    // A collapsed selection is a tap's caret in editable text; the terminal
+    // shows nothing for it.
+    if (range == null || range.isCollapsed) return none;
+
+    final cellSize = render.cellSize;
+    final begin = range.begin;
+    final end = range.end;
+    final reversed = end.isBefore(begin);
+    final first = reversed ? end : begin;
+    final last = reversed ? begin : end;
+    final width = terminal.viewWidth;
+    final rects = <Rect>[];
+    for (var row = first.y; row <= last.y; row++) {
+      final leftCol = row == first.y ? first.x : 0;
+      final rightCol = row == last.y ? last.x : width;
+      if (rightCol <= leftCol) continue;
+      final topLeft = toLocal(CellOffset(leftCol, row));
+      rects.add(
+        Rect.fromLTWH(
+          topLeft.dx,
+          topLeft.dy,
+          (rightCol - leftCol) * cellSize.width,
+          cellSize.height,
+        ),
+      );
+    }
+    // The SelectionPoint convention, from the SDK's RenderParagraph: the
+    // point is the bottom-left of the caret at the edge.
+    final startPoint = toLocal(begin) + Offset(0, cellSize.height);
+    final endPoint = toLocal(end) + Offset(0, cellSize.height);
+    final (startHandle, endHandle) = reversed
+        ? (TextSelectionHandleType.right, TextSelectionHandleType.left)
+        : (TextSelectionHandleType.left, TextSelectionHandleType.right);
+    return SelectionGeometry(
+      startSelectionPoint: SelectionPoint(
+        localPosition: startPoint,
+        lineHeight: cellSize.height,
+        handleType: startHandle,
+      ),
+      endSelectionPoint: SelectionPoint(
+        localPosition: endPoint,
+        lineHeight: cellSize.height,
+        handleType: endHandle,
+      ),
+      selectionRects: rects,
+      status: SelectionStatus.uncollapsed,
+      hasContent: true,
+    );
+  }
+
+  // --- Selection events ---------------------------------------------------
+
+  @override
+  SelectionResult dispatchSelectionEvent(SelectionEvent event) {
+    switch (event) {
+      case final SelectionEdgeUpdateEvent edge:
+        return _handleEdgeUpdate(edge);
+      case final SelectWordSelectionEvent selectWord:
+        return _handleSelectWord(selectWord.globalPosition);
+      case final SelectParagraphSelectionEvent selectParagraph:
+        return _handleSelectParagraph(selectParagraph.globalPosition);
+      case SelectAllSelectionEvent():
+        _clearDragState();
+        _writeSelection(
+          const CellOffset(0, 0),
+          CellOffset(terminal.viewWidth, terminal.buffer.lines.length - 1),
+        );
+        return SelectionResult.none;
+      case ClearSelectionEvent():
+        _clearDragState();
+        _controller.clearSelection();
+        return SelectionResult.none;
+      case final GranularlyExtendSelectionEvent extend:
+        return _handleGranularlyExtend(extend);
+      case DirectionallyExtendSelectionEvent():
+        // Keyboard line/caret movement: not meaningful on a cell grid.
+        return SelectionResult.end;
+    }
+    return SelectionResult.none;
+  }
+
+  void _clearDragState() {
+    _originStart = null;
+    _originEnd = null;
+    _lastEdgeEvent = null;
+    _pendingStart = null;
+    _collapseCandidate = null;
+  }
+
+  /// Re-applies the last edge event after an autoscroll step: the scroll
+  /// moved the grid, so the same pointer position is a new cell now.
+  void reapplyEdgeDrag() {
+    final event = _lastEdgeEvent;
+    if (event == null || !attached) return;
+    dispatchSelectionEvent(event);
+  }
+
+  SelectionResult _handleSelectWord(Offset globalPosition) {
+    final render = _viewKey.currentState?.renderTerminal;
+    if (render == null) return SelectionResult.end;
+    final cell = render.getCellOffset(render.globalToLocal(globalPosition));
+    final word = terminal.buffer.getWordBoundary(cell);
+    // A long press on blank padding selects nothing, matching the old
+    // recognizer and `xterm2`'s own selectWord.
+    if (word == null) return SelectionResult.end;
+    _lastEdgeEvent = null;
+    _originStart = word.begin;
+    _originEnd = word.end;
+    _writeSelection(word.begin, word.end);
+    return SelectionResult.end;
+  }
+
+  SelectionResult _handleSelectParagraph(Offset globalPosition) {
+    final render = _viewKey.currentState?.renderTerminal;
+    if (render == null) return SelectionResult.end;
+    final cell = render.getCellOffset(render.globalToLocal(globalPosition));
+    final line = terminal.buffer.getLineBoundary(cell);
+    if (line == null) return SelectionResult.end;
+    _clearDragState();
+    _writeSelection(line.begin, line.end);
+    return SelectionResult.end;
+  }
+
+  SelectionResult _handleEdgeUpdate(SelectionEdgeUpdateEvent event) {
+    final render = _viewKey.currentState?.renderTerminal;
+    if (render == null) return SelectionResult.end;
+    final isEnd = event.type == SelectionEventType.endEdgeUpdate;
+    final granularity = event.granularity;
+    final local = render.globalToLocal(event.globalPosition);
+    final cell = render.getCellOffset(local);
+    final buffer = terminal.buffer;
+    final current = _controller.selectionFor(buffer);
+    if (granularity != TextGranularity.word) _clearGranularOriginOnly();
+    _lastEdgeEvent = event;
+
+    switch (granularity) {
+      case TextGranularity.word:
+        // The long-press drag. The word the press landed on stays fully
+        // selected; the dragged edge snaps to the word under the pointer.
+        if (current == null) return SelectionResult.end;
+        final word = buffer.getWordBoundary(cell);
+        final wordStart = word?.begin ?? cell;
+        final wordEnd = word?.end ?? CellOffset(cell.x + 1, cell.y);
+        final originStart = _originStart ?? current.normalized.begin;
+        final originEnd = _originEnd ?? current.normalized.end;
+        if (isEnd) {
+          if (cell.isBefore(originStart)) {
+            _writeSelection(originEnd, wordStart);
+          } else {
+            _writeSelection(originStart, wordEnd);
+          }
+        } else {
+          if (cell.isAfter(originEnd)) {
+            _writeSelection(wordEnd, originStart);
+          } else {
+            _writeSelection(wordStart, originEnd);
+          }
+        }
+      default:
+        // The cell under the handle is inside the selection: the end edge is
+        // exclusive, so it sits one cell past it.
+        if (isEnd) {
+          final candidate = _collapseCandidate;
+          _collapseCandidate = null;
+          if (current == null) {
+            final pending = _pendingStart;
+            if (pending == null) return SelectionResult.end;
+            _pendingStart = null;
+            if (pending == cell) {
+              // The second half of a tap's collapse pair.
+              _controller.clearSelection();
+              onTap?.call();
+              return SelectionResult.end;
+            }
+            _writeSelection(pending, CellOffset(cell.x + 1, cell.y));
+          } else if (candidate != null && candidate == cell) {
+            // A tap with a selection live: the collapse pair clears it, and
+            // the tap itself still counts as the grid tap (R-31-08-08).
+            _controller.clearSelection();
+            onTap?.call();
+          } else {
+            _writeSelection(current.begin, CellOffset(cell.x + 1, cell.y));
+          }
+        } else {
+          if (current == null) {
+            // A mouse down ahead of its drag: hold the edge until the end
+            // edge arrives.
+            _pendingStart = cell;
+          } else {
+            _writeSelection(cell, current.end);
+          }
+          _collapseCandidate = cell;
+        }
+    }
+
+    onEdgeDrag?.call(
+      event.globalPosition,
+      continuous: granularity != TextGranularity.word,
+    );
+    // The continuous handle-drag stream re-sends the event every frame while
+    // the result is pending, which is what drives the edge autoscroll.
+    final beyond =
+        local.dy < AppSize.targetMin ||
+        local.dy > render.size.height - AppSize.targetMin;
+    if (beyond && granularity != TextGranularity.word) {
+      return SelectionResult.pending;
+    }
+    return SelectionResult.end;
+  }
+
+  void _clearGranularOriginOnly() {
+    _originStart = null;
+    _originEnd = null;
+  }
+
+  SelectionResult _handleGranularlyExtend(GranularlyExtendSelectionEvent event) {
+    final buffer = terminal.buffer;
+    final current = _controller.selectionFor(buffer);
+    if (current == null) return SelectionResult.end;
+    final width = terminal.viewWidth;
+    final lastRow = buffer.lines.length - 1;
+    final edge = event.isEnd ? current.end : current.begin;
+    final CellOffset target = switch (event.granularity) {
+      TextGranularity.character => _stepCell(edge, event.forward, width, lastRow),
+      TextGranularity.word => _stepWord(buffer, edge, event.forward, width, lastRow),
+      TextGranularity.line ||
+      TextGranularity.paragraph => event.forward
+          ? CellOffset(width, edge.y)
+          : CellOffset(0, edge.y),
+      TextGranularity.document => event.forward
+          ? CellOffset(width, lastRow)
+          : const CellOffset(0, 0),
+    };
+    if (event.isEnd) {
+      _writeSelection(current.begin, target);
+    } else {
+      _writeSelection(target, current.end);
+    }
+    return SelectionResult.end;
+  }
+
+  CellOffset _stepCell(CellOffset cell, bool forward, int width, int lastRow) {
+    if (forward) {
+      if (cell.x >= width) {
+        return cell.y >= lastRow ? CellOffset(width, lastRow) : CellOffset(0, cell.y + 1);
+      }
+      return CellOffset(cell.x + 1, cell.y);
+    }
+    if (cell.x <= 0) {
+      return cell.y <= 0 ? const CellOffset(0, 0) : CellOffset(width, cell.y - 1);
+    }
+    return CellOffset(cell.x - 1, cell.y);
+  }
+
+  CellOffset _stepWord(
+    Buffer buffer,
+    CellOffset edge,
+    bool forward,
+    int width,
+    int lastRow,
+  ) {
+    final probe = forward
+        ? _stepCell(edge, true, width, lastRow)
+        : _stepCell(edge, false, width, lastRow);
+    final word = buffer.getWordBoundary(probe);
+    if (word == null) return probe;
+    return forward ? word.end : word.begin;
+  }
+
+  void _writeSelection(CellOffset begin, CellOffset end) {
+    final buffer = terminal.buffer;
+    final current = _controller.selectionFor(buffer);
+    if (current != null &&
+        current.begin.isEqual(begin) &&
+        current.end.isEqual(end)) {
+      return;
+    }
+    final controller = _controller;
+    if (controller is _GridSelectionController) {
+      controller.setSelectionFromAdapter(
+        buffer.createAnchorFromOffset(begin),
+        buffer.createAnchorFromOffset(end),
+      );
+    } else {
+      controller.setSelection(
+        buffer.createAnchorFromOffset(begin),
+        buffer.createAnchorFromOffset(end),
+      );
+    }
+  }
+
+  // --- Handle layers --------------------------------------------------------
+
+  LayerLink? _startHandleLayerLink;
+  LayerLink? _endHandleLayerLink;
+
+  @override
+  void pushHandleLayers(LayerLink? startHandle, LayerLink? endHandle) {
+    if (identical(startHandle, _startHandleLayerLink) &&
+        identical(endHandle, _endHandleLayerLink)) {
+      return;
+    }
+    _startHandleLayerLink = startHandle;
+    _endHandleLayerLink = endHandle;
+    // The registrar withdraws the layers while the tree is being torn down.
+    if (attached) markNeedsPaint();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final startLink = _startHandleLayerLink;
+    final startPoint = _geometry.startSelectionPoint;
+    if (startLink != null && startPoint != null) {
+      context.pushLayer(
+        LeaderLayer(link: startLink, offset: offset + startPoint.localPosition),
+        (context, offset) {},
+        Offset.zero,
+      );
+    }
+    final endLink = _endHandleLayerLink;
+    final endPoint = _geometry.endSelectionPoint;
+    if (endLink != null && endPoint != null) {
+      context.pushLayer(
+        LeaderLayer(link: endLink, offset: offset + endPoint.localPosition),
+        (context, offset) {},
+        Offset.zero,
+      );
+    }
+  }
 }

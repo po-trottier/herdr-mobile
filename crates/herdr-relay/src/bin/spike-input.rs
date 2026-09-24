@@ -244,6 +244,7 @@ fn ctrl_c_manual_test(client: &HerdrClient, workspace_id: &str) {
     let ack = bridge
         .send_input(SendInput {
             defer: None,
+            bypass_line: None,
             line: None,
             pane_id: pane_id.clone(),
             text: None,

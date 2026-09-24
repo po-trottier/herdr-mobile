@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart'
     show AdaptiveTextSelectionToolbar, Colors, DefaultMaterialLocalizations;
+import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:herdr_mobile/models/messages/theme_palette.dart';
@@ -933,17 +934,38 @@ void main() {
     });
   });
 
-  group('selection freeze contract (R-21-041)', () {
-    testWidgets('copy returns the text of the frame the selection was made in, unaffected by ten '
-        'further frames a freeze gate would have held', (tester) async {
-      final terminal = _terminal(
-        feed: 'alpha\r\nbeta\r\ngamma\r\ndelta\r\nepsilon',
+  testWidgets(
+    'long press extends into offscreen rows and Copy keeps the full span',
+    (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final terminal = Terminal(maxLines: 0)..resize(40, 80);
+      terminal.write(
+        List.generate(
+          80,
+          (i) => 'row${i.toString().padLeft(3, '0')} value',
+        ).join('\r\n'),
       );
       final controller = TerminalController();
+      addTearDown(terminal.dispose);
       addTearDown(controller.dispose);
-
       await tester.pumpWidget(
         _harness(
+          height: 240,
           child: TerminalViewWidget(
             palette: AppColor.dark,
             phase: TerminalGridPhase.live,
@@ -953,49 +975,45 @@ void main() {
         ),
       );
       await tester.pump();
-
-      // Select the first three rows.
-      final base = terminal.buffer.createAnchorFromOffset(
-        const CellOffset(0, 0),
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      final render = tester
+          .state<TerminalViewState>(find.byType(TerminalView))
+          .renderTerminal;
+      final grid = tester.getRect(
+        find.byKey(const ValueKey('terminalGridArea')),
       );
-      final extent = terminal.buffer.createAnchorFromOffset(
-        CellOffset(terminal.viewWidth - 1, 2),
+      final start = Offset(
+        grid.left + render.cellSize.width * 2,
+        grid.center.dy,
       );
-      controller.setSelection(base, extent);
-      await tester.pump();
-
-      final selectedText = terminal.buffer.getText(
-        controller.selectionFor(terminal.buffer),
-      );
-
-      // Ten further frames arrive. This file's `_gatedWrite` mirrors the
-      // freeze `app/lib/services/terminal.dart` (WP-16-a) must implement
-      // per R-21-041: it MUST NOT write while a selection is live. This
-      // test file has no dependency on that service, so it pins the
-      // contract locally and proves the Copy path this widget builds
-      // reads whatever was selected, unaffected by a write the real
-      // freeze would have held.
-      for (var i = 0; i < 10; i++) {
-        _gatedWrite(terminal, controller, 'zzz frame $i\r\n');
-      }
-
+      final selectedRow = render.getCellOffset(render.globalToLocal(start)).y;
+      final gesture = await tester.startGesture(start);
+      await tester.pump(const Duration(milliseconds: 450));
       expect(
-        terminal.buffer.getText(controller.selectionFor(terminal.buffer)),
-        selectedText,
-        reason: 'the freeze gate must have held every one of the ten frames',
+        terminal.buffer.getText(controller.selection),
+        'row${selectedRow.toString().padLeft(3, '0')}',
       );
-
-      final copied = selectedText;
-      expect(copied, contains('alpha'));
-      expect(copied, contains('beta'));
-      expect(copied, contains('gamma'));
-      expect(copied.contains('delta'), isFalse);
-
-      // ponytail: no Clipboard round-trip here — this test proves the
-      // freeze contract at the buffer level, which is where the bug
-      // R-21-041 guards against would actually manifest.
-    });
-  });
+      final before = view.scrollController!.offset;
+      await gesture.moveTo(Offset(start.dx, grid.top + 2));
+      for (var i = 0; i < 25; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      await gesture.up();
+      await tester.pump();
+      expect(
+        view.scrollController!.offset,
+        lessThan(before - 10 * render.cellSize.height),
+      );
+      final range = controller.selection!;
+      expect(range.end.y, selectedRow);
+      expect(range.begin.y, lessThan(selectedRow - 10));
+      final expected = terminal.buffer.getText(range);
+      await tester.tap(find.text('Copy').hitTestable());
+      await tester.pump();
+      expect(copied, expected);
+      expect(controller.selection, isNull);
+    },
+  );
 
   group('selection toolbar exposes exactly Copy and Select visible screen (R-30-305)', () {
     testWidgets('never offers Select all', (tester) async {
@@ -1769,18 +1787,6 @@ void main() {
       },
     );
   });
-}
-
-/// Mirrors the freeze `app/lib/services/terminal.dart` (`WP-16-a`, R-21-041) must implement:
-/// hold a write while a selection is live. This file has no dependency on that service; this
-/// helper exists only to pin the contract this test proves against.
-void _gatedWrite(
-  Terminal terminal,
-  TerminalController controller,
-  String data,
-) {
-  if (controller.selection != null) return;
-  terminal.write(data);
 }
 
 /// Strips `///`, `//` line comments and `/* */` block comments from [source], so a source-text

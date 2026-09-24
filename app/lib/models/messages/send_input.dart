@@ -27,6 +27,12 @@ abstract class SendInput with _$SendInput {
     /// (R-10-036 to R-10-039).
     @JsonKey(includeIfNull: false) String? defer,
     @JsonKey(includeIfNull: false) List<String>? keys,
+
+    /// R-11-254: forward `text`/`keys` past the pane's line shadow, so an
+    /// answer send never touches the held composer draft. Valid only with
+    /// `text` and/or `keys`, never with `line` or `defer`. Carried on the
+    /// wire only when true.
+    @JsonKey(name: 'bypass_line', includeIfNull: false) bool? bypassLine,
   }) = _SendInput;
 
   factory SendInput.fromJson(Map<String, dynamic> json) =>

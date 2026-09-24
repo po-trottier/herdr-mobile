@@ -30,25 +30,33 @@ impl<H: HerdrCalls> Bridge<H> {
     pub fn send_input(&mut self, request: SendInput) -> Result<Message, WatchError> {
         self.require_watched(&request.pane_id)?;
         validate_send_input(&request)?;
-        if request.keys.as_ref().is_some_and(|keys| {
-            keys.iter()
-                .any(|key| key.eq_ignore_ascii_case("Enter") || key.eq_ignore_ascii_case("ctrl+c"))
-        }) {
+        let bypass_line = request.bypass_line == Some(true);
+        if !bypass_line
+            && request.keys.as_ref().is_some_and(|keys| {
+                keys.iter().any(|key| {
+                    key.eq_ignore_ascii_case("Enter") || key.eq_ignore_ascii_case("ctrl+c")
+                })
+            })
+        {
             self.cancel_pending_inputs();
         }
         // ponytail: one global input lock. Use per-pane locks if concurrent Devices need them.
         let mut lines = lock_observed(&self.input_lines);
-        let old = lines.entry(request.pane_id.clone()).or_default();
-        let old_len = old.len();
-        let accepted = if let Some(line) = &request.line {
-            self.reconcile_line(&request.pane_id, old, line).is_ok()
+        let (accepted, changed) = if bypass_line {
+            (self.forward_input(&request, None).is_ok(), false)
         } else {
-            self.forward_input(&request, old).is_ok()
+            let old = lines.entry(request.pane_id.clone()).or_default();
+            let old_len = old.len();
+            let accepted = if let Some(line) = &request.line {
+                self.reconcile_line(&request.pane_id, old, line).is_ok()
+            } else {
+                self.forward_input(&request, Some(old)).is_ok()
+            };
+            if accepted && let Some(line) = request.line {
+                *old = line;
+            }
+            (accepted, old.len() != old_len)
         };
-        if accepted && let Some(line) = request.line {
-            *old = line;
-        }
-        let changed = old.len() != old_len;
         drop(lines);
         // R-10-071: restart the read schedule after a successful write.
         if (accepted || changed)
@@ -72,14 +80,29 @@ impl<H: HerdrCalls> Bridge<H> {
         Ok(())
     }
 
-    fn forward_input(&self, request: &SendInput, shadow: &mut String) -> Result<(), WatchError> {
+    fn forward_input(
+        &self,
+        request: &SendInput,
+        mut shadow: Option<&mut String>,
+    ) -> Result<(), WatchError> {
         if let Some(text) = &request.text {
             self.send_typed_text(&request.pane_id, text)?;
-            shadow.push_str(text);
+            // R-10-036: these bytes are keys, not composer text.
+            if let Some(shadow) = shadow.as_mut()
+                && !matches!(
+                    text.as_str(),
+                    "\x1b[H" | "\x1b[F" | "\x1b[5~" | "\x1b[6~" | "\x1b[3~" | "\x1b[2~"
+                )
+            {
+                shadow.push_str(text);
+            }
         }
         if let Some(keys) = &request.keys {
             self.herdr
                 .pane_send_input(&request.pane_id, None, Some(keys))?;
+            let Some(shadow) = shadow else {
+                return Ok(());
+            };
             if keys.iter().any(|key| {
                 key.eq_ignore_ascii_case("Enter")
                     || key.eq_ignore_ascii_case("Return")
@@ -309,6 +332,11 @@ impl<H: HerdrCalls> Bridge<H> {
 /// Device sends that as its own `agent_prompt` message (section 4.14), never as
 /// `send_input`.
 pub(super) fn validate_send_input(request: &SendInput) -> Result<(), WatchError> {
+    if request.bypass_line == Some(true) && (request.line.is_some() || request.defer.is_some()) {
+        return Err(WatchError::InvalidInput(
+            "bypass_line cannot include line or defer".to_owned(),
+        ));
+    }
     if request.defer.is_some() {
         return Err(WatchError::InvalidInput(
             "deferred input requires the deferred handler".to_owned(),
@@ -672,6 +700,7 @@ mod tests {
         });
         let request = || SendInput {
             pane_id: "p".into(),
+            bypass_line: None,
             line: None,
             text: None,
             keys: Some(vec!["Enter".into()]),
@@ -708,6 +737,7 @@ mod tests {
         bridge.handle_deferred_input(request(), Some("c".into()));
         let cancel = || SendInput {
             pane_id: "p".into(),
+            bypass_line: None,
             line: None,
             text: None,
             keys: None,

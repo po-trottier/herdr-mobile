@@ -246,8 +246,9 @@ and no glyph.
 | Switch between sibling views | `TabBar` of primary tabs, full width under the app bar, its indicator, ink, type and divider from `tabBarTheme`; not a `SegmentedButton`, which is a choice, not a view switch (added 2026-09-09, per `R-03-102`) | `CupertinoSlidingSegmentedControl`, in the navigation bar area (added 2026-09-09, per `R-03-102`) |
 | Discrete value from a short fixed list, the terminal text size | `Slider` with `divisions` set to one less than the count of permitted values, its colours the component's own, no value label bubble; the title row above it carries the current value at its trailing edge (added 2026-09-09, per `R-03-110`; it replaces the `Stepper` row, whose two `IconButton.filledTonal` controls are gone) | `CupertinoSlider` with the same `divisions`, the same title row and value (added 2026-09-09, per `R-03-110`) |
 | Choice among destructive actions from an app bar action, the Phones removes | the `Menu from a control` row, each choice then the confirmation of `R-33-074` (added 2026-09-09, per `R-03-111`; the iOS `CupertinoActionSheet` became the pull-down menu on 2026-09-18, per `R-33-078`) | the `Menu from a control` row (same dates) |
-| Key cap, in the terminal key row | `OutlinedButton`, or `FilledButton` while a modifier is latched, in the component's own pill; colours from `outlinedButtonTheme` and `filledButtonTheme`, the label type and a layout floor (`size.keycap` high, the column module wide, `space.2` of padding) from the key row's own button theme, per `docs/32-design-language.md` section 7.12 (added 2026-09-09, per `R-03-059`; the latched form became `FilledButton` on 2026-09-10, per `R-03-118`: it was `FilledButton.tonal`, which is not the platform's high-emphasis form, and its label went upper case for state) | `CupertinoButton.tinted`, or `CupertinoButton.filled` while latched, in the component's own corner; the row hands it the same floor and the label ink `color.accent.text`, per section 7.12 (added 2026-09-09, per `R-03-059`) |
-| Row control, the bank toggle of the terminal key row | `TextButton`, no outline and no fill, the glyph in `color.accent.text`; the same layout floor as the key cap from the key row's own `TextButtonTheme` (added 2026-09-10 by the product owner: the `…` and `×` caps were not discernible from the keys, and a control is not a key; a key has a border, the control has none) | a plain `CupertinoButton`, no fill, `foregroundColor` `color.accent.text`, the same minimum size and padding the row hands its keys (added 2026-09-10, same reason) |
+| Key cap, in the terminal key row | `OutlinedButton`, or `FilledButton` while a modifier is latched. Set `RoundedRectangleBorder` through the key row's button theme. R-32-535 owns the corner, floor, face, and name values. | `CupertinoButton.tinted`, or `CupertinoButton.filled` while latched. Set `borderRadius` to the same keycap corner under R-32-535. |
+| Key panel pager | `PageView` + Material `TabPageSelector`, per R-33-081 | Same SDK controls, per R-33-081 and the shared-control precedent of R-33-034 |
+| Answer `enter` cap | `FilledButton`, with the same keycap shape, per R-32-535 | `CupertinoButton.filled`, with the same keycap shape, per R-32-535 |
 | Page surface, including Welcome and Lock | `Scaffold` | `CupertinoPageScaffold`; Lock stays opaque, per `R-33-015` |
 | Pushed route | `MaterialPage` | `CupertinoPage`; the biometric lock uses a full-screen dialog route without an edge-swipe dismissal |
 | Content row | `ListTile`, including its selected state | `CupertinoListTile`, including its native selection surface |
@@ -295,12 +296,10 @@ and no glyph.
   icon button its own circle and a segmented control its own stadium. `cupertino_ui` 1.0.1 has no
   theme slot for a button's size or corner either, so an iOS button keeps the component's own,
   which `docs/32-design-language.md` sections 7.8 and 7.28 record. The `Key cap` row was added on
-  2026-09-09 by decision of the product owner, per `R-03-059`: a key cap is a button and the key
-  row has no exemption. `app/lib/widgets/key_row.dart` alone draws it for both platforms. The key
-  row's own button theme sets a `minimumSize` and a `padding` on the platform's own shape, and
-  nothing else: a layout floor, not a reshaping. The addendum forbids "a square, a fixed box or any
-  geometry the platform does not draw", and a minimum on the platform's own pill is none of those;
-  without the floor the arrows scroll off a portrait phone, which `R-31-09-16` forbids.
+  2026-09-09 by decision of the product owner. It remains a native button on both platforms.
+  The 2026-09-23 owner amendment permits its explicit keycap corner under R-32-535.
+  This exception also retains the key row's local minimum size and padding.
+  `app/lib/widgets/key_row.dart` alone builds the caps. R-31-09-40 owns overflow pages.
   The latched form of that row became the platform's high-emphasis button on 2026-09-10, per
   `R-03-118`, so `app/lib/widgets/key_row.dart` is the second file that builds a `FilledButton`
   and `R-32-525` names both. `docs/32-design-language.md` section 7.12 records the values and
@@ -553,6 +552,13 @@ and no glyph.
   substitute. The 4 points the bar takes from the vertical target is the one measured exception to
   `R-30-290` and `R-32-360`, recorded 2026-09-08: the terminal's `Shortcuts` and `Pane actions`
   controls both measure 48 by 44 in that bar.
+- **R-33-081** The Keys, Function keys, and Answer pages MUST use SDK `PageView` with Material `TabPageSelector`
+  on Android and iOS. A `TabController` MUST keep the indicator in sync with the selected page.
+  `cupertino_ui` 1.0.1 has no page control. The panel uses the Material SDK control on both
+  platforms, as R-33-034 does when Cupertino has no equivalent. The app MUST NOT draw its own
+  dots or add a pager dependency. R-31-09-40 owns spacing, spoken labels, state, and overflow.
+  Every page, including Answer and overflow pages, MUST participate in this pager and indicator.
+  Amended 2026-09-23 by the product owner, per R-03-117.
 
 ## 6. Accessibility once the palette is fixed
 

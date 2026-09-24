@@ -24,11 +24,11 @@ const _themes = <(String, Brightness)>[
 KeyRow _keyRow({
   bool landscape = false,
   bool panelOpen = true,
-  bool answerMode = false,
+  KeyPanelPage? requestedPage,
   KeyRowLinkState linkState = KeyRowLinkState.live,
 }) => KeyRow(
   panelOpen: panelOpen,
-  answerMode: answerMode,
+  requestedPage: requestedPage,
   paneId: 'w3:p1',
   send: (message, {corr}) {},
   sendInputAcks: const Stream<({String corr, SendInputAck ack})>.empty(),
@@ -69,7 +69,7 @@ Future<void> _goldenCase(
             key: _captureKey,
             child: KeyRow(
               panelOpen: keyRow.panelOpen,
-              answerMode: keyRow.answerMode,
+              requestedPage: keyRow.requestedPage,
               paneId: keyRow.paneId,
               send: keyRow.send,
               sendInputAcks: keyRow.sendInputAcks,
@@ -144,7 +144,7 @@ void main() {
           tester,
           name: 'answer_${platform.name}',
           brightness: brightness,
-          keyRow: _keyRow(answerMode: true),
+          keyRow: _keyRow(requestedPage: KeyPanelPage.answer),
         );
         debugDefaultTargetPlatformOverride = null;
       });

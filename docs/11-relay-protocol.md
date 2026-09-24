@@ -558,7 +558,7 @@ and correlation requirement. Sections 4.1 through 4.29 specify each message.
 | 9 | `pane_frame` | Host | No | No | ANSI pane content with revision, viewport rows, width |
 | 10 | `scroll_request` | Device | Host sends `scroll_response` | Yes | Request scrollback content |
 | 11 | `scroll_response` | Host | No (reply) | Yes | Scrollback content from `source:"recent"` |
-| 12 | `send_input` | Device | Host sends `send_input_ack` | Yes | Set the full composer line or send text/keys |
+| 12 | `send_input` | Device | Host sends `send_input_ack` | Yes | Set the full composer line or send text/keys, optionally with `bypass_line` |
 | 12a | `send_input_ack` | Host | No (reply) | Yes | Confirm the bridge accepted the input; carry no pane content |
 | 13 | `agent_status` | Host | No | No | Agent status change, the local-notification trigger |
 | 14 | `agent_prompt` | Device | Host sends `agent_prompt_ack` | Yes | Send a prompt to an agent |
@@ -864,6 +864,7 @@ The Device sends the full composer text or an explicit text/key operation to a p
 | `text` | string | No | Literal text or a raw sequence for an unnamed key (R-10-036). |
 | `keys` | array of strings | No | Named keys, such as `["Enter"]` or `["ctrl+c"]` (R-10-036 through R-10-039). |
 | `defer` | string | No | `until_idle` holds an Enter submit while the agent works. `cancel` cancels a held submit. |
+| `bypass_line` | boolean | No | `true` sends direct text/keys without changing the composer line shadow or held submits, per R-11-254. Absent or `false` preserves normal behavior. |
 
 **R-11-248**: Except for a standalone `defer: "cancel"` (R-11-253), each
 `send_input` MUST contain exactly one shape: `line`, or `text`
@@ -883,6 +884,7 @@ For explicit key operations, it MUST use the mapping in R-10-044:
 **R-11-055**: The Host MUST validate each `send_input` schema before it forwards
 input to Herdr (R-10-013, R-02-009). It MUST reject a frame that mixes `line` with
 `text` or `keys`, or contains neither shape nor standalone `defer: "cancel"`.
+It MUST also reject violations of R-11-254 through this validation path.
 A `line` frame MAY be resent.
 The Device MUST NOT resend a `text` or `keys` operation.
 
@@ -895,6 +897,29 @@ The separate `agent_prompt` operation uses `agent.prompt` without `wait` (R-10-0
 **R-11-252**: The Host MUST coalesce unapplied `line` frames per pane and apply only
 the newest line. It MUST acknowledge every correlation id, including those of
 superseded lines. It MUST NOT coalesce `text` or `keys` operations.
+
+**R-11-254**: `bypass_line: true` MUST contain `text` and/or `keys` and MUST NOT contain
+`line` or `defer`. The Host MUST forward text and keys through the existing path in R-11-056.
+It MUST leave the pane's line shadow unchanged, per R-10-076, and MUST NOT cancel held inputs.
+R-10-071 reads MUST still run. Absent or false `bypass_line` MUST preserve normal behavior.
+Added 2026-09-23 for interactive answers that leave the main prompt draft unchanged. Per
+`R-31-09-41`, the answer composer sends one `send_input` frame with optional nonempty `text`,
+`keys: ["Enter"]` and `bypass_line: true`. An empty answer omits `text` and is allowed.
+
+Example of an answer submission with text:
+
+```json
+{
+  "v": 1,
+  "type": "send_input",
+  "seq": 9,
+  "corr": "req-006",
+  "payload": {"pane_id":"w3:p2","text":"Other answer","keys":["Enter"],"bypass_line":true}
+}
+```
+
+An empty answer uses the same single frame with `keys: ["Enter"]` and `bypass_line: true`,
+and omits `text`.
 
 Example:
 

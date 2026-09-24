@@ -17,4 +17,8 @@ class ChromeGestureTiming {
 
   /// The duration a press MUST be held before it is recognised as a long press.
   static const Duration longPress = Duration(milliseconds: 400);
+
+  /// The step period of the edge autoscroll while a selection drag holds near the grid edge:
+  /// one row per step.
+  static const Duration selectionAutoscrollStep = Duration(milliseconds: 50);
 }

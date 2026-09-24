@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use herdr_relay::config::RelayConfig;
 use herdr_relay::ipc::IpcError;
 use herdr_relay::watch::{Bridge, HerdrCalls, HostIdentity};
-use herdr_relay_proto::messages::{Message, SendInput, WatchPane};
+use herdr_relay_proto::messages::{Defer, Message, SendInput, WatchPane};
 use serde_json::{Value, json};
 
 /// Capture text, keys, and whether the bridge used the raw-text method.
@@ -18,6 +18,7 @@ type SentCall = (Option<String>, Option<Vec<String>>, bool);
 struct StubHerdr {
     sent: Arc<Mutex<Vec<SentCall>>>,
     fail_text: Arc<std::sync::atomic::AtomicBool>,
+    agent_status: &'static str,
 }
 
 impl HerdrCalls for StubHerdr {
@@ -39,7 +40,7 @@ impl HerdrCalls for StubHerdr {
                 "revision": 0,
                 "scroll": {"offset_from_bottom": 0, "max_offset_from_bottom": 0, "viewport_rows": 50},
             }],
-            "agents": [],
+            "agents": [{"pane_id": "w1:p1", "agent": "test", "agent_status": self.agent_status}],
         }))
     }
 
@@ -140,11 +141,22 @@ fn watching_bridge_with_failure() -> (
     Arc<Mutex<Vec<SentCall>>>,
     Arc<std::sync::atomic::AtomicBool>,
 ) {
+    watching_bridge_with_agent_status("idle")
+}
+
+fn watching_bridge_with_agent_status(
+    agent_status: &'static str,
+) -> (
+    Bridge<StubHerdr>,
+    Arc<Mutex<Vec<SentCall>>>,
+    Arc<std::sync::atomic::AtomicBool>,
+) {
     let sent = Arc::new(Mutex::new(Vec::new()));
     let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let herdr = StubHerdr {
         sent: sent.clone(),
         fail_text: fail.clone(),
+        agent_status,
     };
     let identity = HostIdentity {
         host_id: "host-1".to_string(),
@@ -163,6 +175,7 @@ fn reconcile(bridge: &mut Bridge<StubHerdr>, line: &str) -> bool {
     let Message::SendInputAck(ack) = bridge
         .send_input(SendInput {
             defer: None,
+            bypass_line: None,
             pane_id: "w1:p1".to_string(),
             line: Some(line.to_owned()),
             text: None,
@@ -214,11 +227,18 @@ fn newline_tail_uses_paste() {
 }
 
 #[test]
-fn enter_clears_shadow() {
-    let (mut bridge, _) = watching_bridge();
-    assert!(reconcile(&mut bridge, "draft"));
+fn modal_escape_keeps_the_next_command_intact() {
+    let (mut bridge, sent) = watching_bridge();
+    assert!(reconcile(&mut bridge, "/btw"));
     send(&mut bridge, None, Some(&["Enter"])).unwrap();
-    assert_eq!(watched_line(&mut bridge), "");
+    send(&mut bridge, None, Some(&["Esc"])).unwrap();
+    sent.lock().expect("test calls").clear();
+    assert!(reconcile(&mut bridge, "/models"));
+    assert_eq!(
+        *sent.lock().expect("test calls"),
+        vec![(Some("/models".to_string()), None, true)]
+    );
+    assert_eq!(watched_line(&mut bridge), "/models");
 }
 
 #[test]
@@ -279,6 +299,7 @@ fn send(
 ) -> Result<Message, herdr_relay::watch::WatchError> {
     bridge.send_input(SendInput {
         defer: None,
+        bypass_line: None,
         line: None,
         pane_id: "w1:p1".to_string(),
         text: text.map(str::to_owned),
@@ -286,10 +307,9 @@ fn send(
     })
 }
 
-/// R-10-036: the six unnamed keys, sent by a compliant Device as their raw CSI
-/// sequence in `text` (R-11-054 step 2), MUST reach `pane.send_text` unchanged.
+/// Raw navigation keys must not become composer text or cause later deletions.
 #[test]
-fn every_row_of_the_r_10_036_table_reaches_herdr_as_the_exact_raw_sequence() {
+fn raw_navigation_preserves_the_composer_line() {
     for sequence in [
         "\u{1b}[H",
         "\u{1b}[F",
@@ -299,10 +319,19 @@ fn every_row_of_the_r_10_036_table_reaches_herdr_as_the_exact_raw_sequence() {
         "\u{1b}[2~",
     ] {
         let (mut bridge, sent) = watching_bridge();
+        assert!(reconcile(&mut bridge, "draft"));
+        sent.lock().unwrap().clear();
         send(&mut bridge, Some(sequence), None).unwrap();
         assert_eq!(
             *sent.lock().unwrap(),
             vec![(Some(sequence.to_string()), None, true)]
+        );
+        assert_eq!(watched_line(&mut bridge), "draft");
+        sent.lock().unwrap().clear();
+        assert!(reconcile(&mut bridge, "draft next"));
+        assert_eq!(
+            *sent.lock().unwrap(),
+            vec![(Some(" next".to_string()), None, true)]
         );
     }
 }
@@ -364,4 +393,92 @@ fn an_empty_send_input_is_rejected() {
             .expect("stub mutex is never poisoned")
             .is_empty()
     );
+}
+
+#[test]
+fn bypass_answer_preserves_draft_and_held_submit() {
+    let (mut bridge, sent, _) = watching_bridge_with_agent_status("working");
+    assert!(reconcile(&mut bridge, "draft"));
+    let held = bridge.handle_deferred_input(
+        SendInput {
+            pane_id: "w1:p1".into(),
+            line: None,
+            text: None,
+            keys: Some(vec!["Enter".into()]),
+            defer: Some(Defer::UntilIdle),
+            bypass_line: None,
+        },
+        Some("held".into()),
+    );
+    assert!(matches!(&held[..], [(Message::SendInputAck(ack), _)] if ack.accepted && ack.queued));
+    sent.lock().unwrap().clear();
+    let reply = bridge
+        .send_input(SendInput {
+            pane_id: "w1:p1".into(),
+            line: None,
+            text: Some("other answer".into()),
+            keys: Some(vec!["Enter".into()]),
+            defer: None,
+            bypass_line: Some(true),
+        })
+        .unwrap();
+    assert!(matches!(reply, Message::SendInputAck(ack) if ack.accepted));
+    assert_eq!(
+        *sent.lock().unwrap(),
+        vec![
+            (Some("other answer".into()), None, true),
+            (None, Some(vec!["Enter".into()]), false),
+        ]
+    );
+    assert!(bridge.take_input_replies().is_empty());
+    sent.lock().unwrap().clear();
+    assert!(reconcile(&mut bridge, "draft!"));
+    assert_eq!(*sent.lock().unwrap(), vec![(Some("!".into()), None, true)]);
+    bridge.handle_subscription_line(
+        r#"{"event":"pane_agent_status_changed","data":{"pane_id":"w1:p1","agent_status":"idle"}}"#,
+    ).unwrap();
+    let released = bridge.take_input_replies();
+    assert!(matches!(&released[..], [(Message::SendInputAck(ack), corr)]
+        if ack.accepted && !ack.queued && corr.as_deref() == Some("held")));
+    assert_eq!(
+        sent.lock().unwrap().last(),
+        Some(&(None, Some(vec!["Enter".into()]), false))
+    );
+}
+
+#[test]
+fn bypass_rejects_line_defer_and_missing_input() {
+    let (mut bridge, sent) = watching_bridge();
+    for payload in [
+        json!({"line": "draft", "bypass_line": true}),
+        json!({"keys": ["Enter"], "defer": "until_idle", "bypass_line": true}),
+        json!({"defer": "cancel", "bypass_line": true}),
+        json!({"bypass_line": true}),
+        json!({"keys": [], "bypass_line": true}),
+    ] {
+        let mut payload = payload;
+        payload["pane_id"] = json!("w1:p1");
+        let request: SendInput = serde_json::from_value(payload).unwrap();
+        assert!(bridge.send_input(request.clone()).is_err());
+        let replies = bridge.handle_deferred_input(request, Some("invalid".into()));
+        assert!(
+            matches!(&replies[..], [(Message::SendInputAck(ack), _)] if !ack.accepted && !ack.queued)
+        );
+    }
+    assert!(sent.lock().unwrap().is_empty());
+}
+
+#[test]
+fn false_bypass_keeps_normal_shadow_updates() {
+    let (mut bridge, _) = watching_bridge();
+    let mut request: SendInput = serde_json::from_value(json!({
+        "pane_id": "w1:p1", "line": "draft", "bypass_line": false,
+    }))
+    .unwrap();
+    bridge.send_input(request.clone()).unwrap();
+    assert_eq!(watched_line(&mut bridge), "draft");
+    request.line = None;
+    request.keys = Some(vec!["Enter".into()]);
+    bridge.send_input(request).unwrap();
+    assert_eq!(watched_line(&mut bridge), "");
 }

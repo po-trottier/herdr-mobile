@@ -570,12 +570,22 @@ final class TerminalService {
         ),
       );
     }
-    if (result case Ok(:final value) when !_selectionLive) {
-      // Each reply is an independent snapshot, never appended to a live frame.
-      // Keep every returned row in one temporary grid, without local scrollback.
+    if (result case Ok(:final value)) {
       final rows = value.text.split('\n').length.clamp(1, 1001);
-      xterm.resize(_state.columns, rows);
-      xterm.write('\x1b[2J\x1b[H${value.text}');
+      if (_selectionLive) {
+        if (!_prependSelectedHistory(value.text, rows)) {
+          _showingScrollback = true;
+          _scrollbackTruncated = true;
+          _scrollbackRequestedLines = 1000;
+          _scrollbackGeneration++;
+          _publish(_state.copyWith(status: TerminalPaneStatus.paused));
+          return result;
+        }
+      } else {
+        // An unselected reply replaces the temporary grid, without local scrollback.
+        xterm.resize(_state.columns, rows);
+        xterm.write('\x1b[2J\x1b[H${value.text}');
+      }
       _showingScrollback = true;
       _scrollbackTruncated = value.truncated;
       _scrollbackRequestedLines = cappedLines;
@@ -587,6 +597,44 @@ final class TerminalService {
       _onFreezeConditionChanged();
     }
     return result;
+  }
+
+  /// Keep selected lines and their anchors. Only add proven older rows.
+  bool _prependSelectedHistory(String text, int rows) {
+    final history = Terminal(maxLines: 0)..resize(_state.columns, rows);
+    try {
+      history.write(text);
+      final current = xterm.buffer.lines;
+      var count = current.length;
+      while (count > 0 && current[count - 1].getText().trimRight().isEmpty) {
+        count--;
+      }
+      if (count == 0) return false;
+      final oldRows = List.generate(count, (i) => current[i].getText());
+      final fetched = history.buffer.lines;
+      for (var start = fetched.length - count; start >= 0; start--) {
+        var matched = 0;
+        while (matched < count &&
+            fetched[start + matched].getText() == oldRows[matched]) {
+          matched++;
+        }
+        if (matched != count) continue;
+        if (start == 0) return true;
+        xterm.resize(_state.columns, xterm.viewHeight + start);
+        // Insert lines through xterm so its existing cell anchors move with the text.
+        xterm.write('\x1b[H\x1b[${start}L');
+        for (var row = 0; row < start; row++) {
+          current[row].copyFrom(fetched[row], 0, 0, _state.columns);
+          current[row].isWrapped = fetched[row].isWrapped;
+        }
+        xterm.write('');
+        return true;
+      }
+      // The wire supplies recent windows, not absolute row offsets (R-10-027).
+      return false;
+    } finally {
+      history.dispose();
+    }
   }
 
   void _cancelScrollback() {
@@ -875,6 +923,19 @@ final class TerminalService {
       ),
     );
   }
+
+  /// Sends an answer to an agent's question as one frame past the line
+  /// shadow (R-11-254, R-31-09-41): the text, when non-empty, and `Enter`
+  /// together with `bypass_line`, so the Host's held composer line is
+  /// untouched. Resolves with the Host's ack.
+  Future<bool> sendAnswerSubmit(String paneId, String text) => _sendAndWait(
+    SendInput(
+      paneId: paneId,
+      text: text.isEmpty ? null : text,
+      keys: const ['Enter'],
+      bypassLine: true,
+    ),
+  );
 
   final ValueNotifier<bool> composerQueued = ValueNotifier(false);
   String? _queuedCorr;

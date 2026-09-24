@@ -580,6 +580,78 @@ void main() {
   });
 
   group('scroll_request/scroll_response (R-11-053)', () {
+    test(
+      'selected text survives older history and excludes newer output',
+      () async {
+        final harness = _Harness();
+        final service = harness.build();
+        final controller = TerminalController();
+        addTearDown(service.dispose);
+        addTearDown(harness.dispose);
+        addTearDown(controller.dispose);
+        final attached = service.attach('w1:p1');
+        harness.push(Message.watchAck(_ack(viewportRows: 3)));
+        await attached;
+        harness.push(
+          Message.paneFrame(
+            _frame(
+              revision: 101,
+              viewportRows: 3,
+              text: 'three\r\nfour\r\nfive',
+            ),
+          ),
+        );
+        controller.setSelection(
+          service.xterm.buffer.createAnchor(0, 0),
+          service.xterm.buffer.createAnchor(4, 2),
+        );
+        service.setSelectionLive(live: true);
+        var fetched = service.requestScrollback(lines: 103);
+        harness.push(
+          const Message.scrollResponse(
+            ScrollResponse(
+              paneId: 'w1:p1',
+              text: 'one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nnew output',
+              lines: 6,
+              truncated: true,
+            ),
+          ),
+        );
+        expect(await fetched, isA<Ok<ScrollResponse>>());
+        expect(controller.selection!.begin.y, 2);
+        expect(
+          service.xterm.buffer.getText(controller.selection),
+          'three\nfour\nfive',
+        );
+        expect(service.xterm.buffer.getText(), isNot(contains('new output')));
+        controller.setSelection(
+          service.xterm.buffer.createAnchor(0, 0),
+          service.xterm.buffer.createAnchor(4, 4),
+        );
+        expect(
+          service.xterm.buffer.getText(controller.selection),
+          'one\ntwo\nthree\nfour\nfive',
+        );
+        fetched = service.requestScrollback(lines: 203);
+        harness.push(
+          const Message.scrollResponse(
+            ScrollResponse(
+              paneId: 'w1:p1',
+              text: 'unrelated history',
+              lines: 1,
+              truncated: false,
+            ),
+          ),
+        );
+        expect(await fetched, isA<Ok<ScrollResponse>>());
+        expect(
+          service.xterm.buffer.getText(controller.selection),
+          'one\ntwo\nthree\nfour\nfive',
+        );
+        expect(service.canLoadMoreScrollback, isFalse);
+        expect(service.scrollbackTruncated, isTrue);
+      },
+    );
     for (final cancel in ['bottom', 'detach', 'selection']) {
       test('history reply does not replace the grid after $cancel', () async {
         final harness = _Harness();

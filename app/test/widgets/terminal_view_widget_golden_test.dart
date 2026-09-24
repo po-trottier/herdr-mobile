@@ -339,6 +339,7 @@ void main() {
             terminal: _terminal(),
           ),
           settle: (t) async {
+            // `+` toggles the panel directly (2026-09-23): one tap, no menu.
             if (variant == 'panel_open') {
               await t.tap(find.byKey(const ValueKey<String>('composerMore')));
             } else {

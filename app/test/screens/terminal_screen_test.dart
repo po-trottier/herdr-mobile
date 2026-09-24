@@ -37,6 +37,7 @@ import 'package:flutter/widgets.dart'
         Brightness,
         EditableText,
         Offset,
+        PageView,
         Rect,
         Semantics,
         Size,
@@ -502,6 +503,29 @@ Finder _backControl() =>
 
 /// One cap of the key row, by the widget key `key_row.dart` gives it.
 Finder _keyCap(String key) => find.byKey(ValueKey<String>(key));
+
+/// The current text of the field that carries [key] — the one Composer
+/// field, which is the answer input while the Answer page shows
+/// (R-31-09-41, 2026-09-23).
+String _fieldText(WidgetTester tester, String key) => tester
+    .widget<EditableText>(
+      find.descendant(
+        of: _keyCap(key),
+        matching: find.byType(EditableText),
+      ),
+    )
+    .controller
+    .text;
+
+/// Opens the key panel the way the composer's `+` does (2026-09-23): one
+/// tap, no menu, and the panel opens on its last page — the Keys page the
+/// first time. Fixed pumps, not `pumpAndSettle`: the live screen holds an
+/// animation that never settles.
+Future<void> _openKeyPanel(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 600));
+}
 
 /// The live bar's semantics node (R-32-511, R-03-100).
 Finder _liveDot() => find.byWidgetPredicate(
@@ -1092,8 +1116,7 @@ void main() {
     await tester.tap(find.byType(EditableText));
     await tester.pump();
     expect(tester.testTextInput.isVisible, isTrue);
-    await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
-    await tester.pump(const Duration(milliseconds: 600));
+    await _openKeyPanel(tester);
     expect(tester.testTextInput.isVisible, isTrue);
     expect(
       tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
@@ -1118,6 +1141,46 @@ void main() {
   });
 
   testWidgets(
+    '+ toggles the panel directly and opens no menu; open, + closes it '
+    '(2026-09-23)',
+    (tester) async {
+      final harness = _Harness();
+      await _pumpScreen(tester, harness);
+      await _attachLive(tester, harness);
+
+      // Panel closed: + opens the panel itself — the keys grid, no menu,
+      // no send.
+      await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(_keyCap('keyRowCtrl').hitTestable(), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('composerMenuAnswer')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('composerMenuKeys')),
+        findsNothing,
+      );
+      expect(_keyCap('keyRowAnswerEnter'), findsNothing);
+      expect(harness.sendInputs, isEmpty);
+
+      // Open: + closes the panel directly, and no menu appears.
+      await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(_keyCap('keyRowCtrl'), findsNothing);
+      expect(harness.sendInputs, isEmpty);
+
+      // Reopened: the keys grid again, still with no send.
+      await _openKeyPanel(tester);
+      expect(_keyCap('keyRowCtrl').hitTestable(), findsOneWidget);
+      expect(harness.sendInputs, isEmpty);
+      await _flushDotTimer(tester);
+    },
+  );
+
+  testWidgets(
     'a control chord is typed, not picked: the ctrl latch then one key is '
     'exactly one send_input for this pane (R-03-116)',
     (tester) async {
@@ -1125,8 +1188,7 @@ void main() {
       await _pumpScreen(tester, harness);
       await _attachLive(tester, harness);
 
-      await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
-      await tester.pump();
+      await _openKeyPanel(tester);
       // The latch alone sends nothing and raises the keyboard (R-31-09-19).
       await tester.tap(_keyCap('keyRowCtrl'));
       await tester.pump();
@@ -1151,8 +1213,7 @@ void main() {
       final harness = _Harness(initialState: const RelayDisconnected());
       await _pumpScreen(tester, harness);
 
-      await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
-      await tester.pump();
+      await _openKeyPanel(tester);
       await tester.tap(_keyCap('keyRowCtrl'));
       await tester.pump();
       expect(find.bySemanticsLabel('Control'), findsOneWidget);
@@ -1448,68 +1509,88 @@ void main() {
   );
 
   for (final source in ['tree', 'status']) {
-    testWidgets('blocked $source opens Answer and sends direct input', (
-      tester,
-    ) async {
-      final harness = _Harness();
-      await _pumpScreen(tester, harness);
-      await _attachLive(tester, harness);
-      if (source == 'tree') {
-        harness.emit(
-          Message.treeSnapshot(
-            _snapshot.copyWith(
-              panes: [_pane.copyWith(agentStatus: 'blocked')],
-              agents: [_snapshot.agents.single.copyWith(status: 'blocked')],
+    testWidgets(
+      'blocked $source opens the Answer page: the composer is the answer '
+      'field, its Send bypasses the line shadow, and leaving the page '
+      'restores the draft (R-31-09-38, R-31-09-41)',
+      (tester) async {
+        final harness = _Harness();
+        await _pumpScreen(tester, harness);
+        await _attachLive(tester, harness);
+        const String composerField = 'composerField';
+
+        // A draft in the composer, synced to the Host as `line` frames.
+        // Count them, so the answer frames can be told apart.
+        await tester.enterText(_keyCap(composerField), 'keep draft');
+        await tester.pump();
+        final int lineFrames = harness.sendInputs.length;
+
+        if (source == 'tree') {
+          harness.emit(
+            Message.treeSnapshot(
+              _snapshot.copyWith(
+                panes: [_pane.copyWith(agentStatus: 'blocked')],
+                agents: [_snapshot.agents.single.copyWith(status: 'blocked')],
+              ),
             ),
-          ),
-        );
-      } else {
-        harness.emit(
-          const Message.agentStatus(
-            AgentStatus(
-              hostId: 'host-1',
-              paneId: _paneId,
-              workspaceId: 'w3',
-              tabId: 'w3:t1',
-              tabTitle: 'plugin',
-              paneTitle: 'claude',
-              agentKind: 'claude',
-              status: AgentStatusKind.blocked,
-              at: '2026-09-03T10:00:34Z',
+          );
+        } else {
+          harness.emit(
+            const Message.agentStatus(
+              AgentStatus(
+                hostId: 'host-1',
+                paneId: _paneId,
+                workspaceId: 'w3',
+                tabId: 'w3:t1',
+                tabTitle: 'plugin',
+                paneTitle: 'claude',
+                agentKind: 'claude',
+                status: AgentStatusKind.blocked,
+                at: '2026-09-03T10:00:34Z',
+              ),
             ),
-          ),
-        );
-      }
-      await tester.pump();
-      final enter = _keyCap('keyRowAnswerEnter');
-      final yes = _keyCap('keyRowAnswery');
-      expect(enter.hitTestable(), findsOneWidget);
-      expect(yes.hitTestable(), findsOneWidget);
-      await tester.tap(enter);
-      await tester.pump();
-      await tester.tap(yes);
-      await tester.pump();
-      expect(harness.sendInputs, hasLength(2));
-      expect(harness.sendInputs[0].keys, ['Enter']);
-      expect(harness.sendInputs[0].text, isNull);
-      expect(harness.sendInputs[1].text, 'y');
-      expect(harness.sendInputs[1].keys, isNull);
-      expect(harness.sendInputs.every((input) => input.line == null), isTrue);
-      harness.ack(harness.correlations.last!);
-      await tester.pump();
-      expect(
-        tester.widget<EditableText>(find.byType(EditableText)).controller.text,
-        '',
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
-      await tester.pump();
-      expect(harness.sendInputs, hasLength(3));
-      expect(harness.sendInputs.last.keys, ['Enter']);
-      expect(harness.sendInputs.last.line, isNull);
-      harness.ack(harness.correlations.last!);
-      await tester.pump();
-      await _flushDotTimer(tester);
-    });
+          );
+        }
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+
+        // The panel opened on the Answer page: the field is empty under the
+        // answer placeholder, and the switch itself sent no frame.
+        expect(_keyCap('keyRowAnswerEnter').hitTestable(), findsOneWidget);
+        expect(_fieldText(tester, composerField), isEmpty);
+        expect(find.text('Type an answer'), findsOneWidget);
+        expect(harness.sendInputs, hasLength(lineFrames));
+
+        // Typing the answer sends no line frame.
+        await tester.enterText(_keyCap(composerField), 'other answer');
+        await tester.pump();
+        expect(harness.sendInputs, hasLength(lineFrames));
+
+        // Send is exactly one bypass frame: the text and Enter, no line.
+        await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
+        await tester.pump();
+        expect(harness.sendInputs, hasLength(lineFrames + 1));
+        expect(harness.sendInputs.last.text, 'other answer');
+        expect(harness.sendInputs.last.keys, ['Enter']);
+        expect(harness.sendInputs.last.line, isNull);
+        expect(harness.sendInputs.last.bypassLine, isTrue);
+
+        // The accepted acknowledgement clears the answer buffer.
+        harness.ack(harness.correlations.last!);
+        await tester.pump();
+        expect(_fieldText(tester, composerField), isEmpty);
+
+        // Swiping off the Answer page restores the draft, with no frame.
+        await tester.drag(find.byType(PageView), const Offset(300, 0));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(_keyCap('keyRowAnswerEnter'), findsNothing);
+        expect(_fieldText(tester, composerField), 'keep draft');
+        expect(harness.sendInputs, hasLength(lineFrames + 1));
+        await _flushDotTimer(tester);
+      },
+    );
   }
 
   testWidgets('empty Send sends only Enter', (tester) async {
@@ -1612,8 +1693,7 @@ void main() {
     final harness = _Harness();
     await _pumpScreen(tester, harness);
     await _attachLive(tester, harness);
-    await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
-    await tester.pump();
+    await _openKeyPanel(tester);
     await tester.tap(_keyCap('keyRowEsc'));
     await tester.pump();
     final corr = harness.correlations.last!;
@@ -2277,8 +2357,7 @@ void main() {
 
       // A sendable key is disabled at the link level: a tap sends nothing
       // (mockup 09's Offline row).
-      await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
-      await tester.pump();
+      await _openKeyPanel(tester);
       await tester.tap(_keyCap('keyRowEsc'));
       await tester.pump();
       expect(harness.sendInputs, isEmpty);
@@ -2313,8 +2392,7 @@ void main() {
     expect(_overflow(), findsOneWidget);
     expect(_keyCap('keyRowAlt'), findsNothing);
     expect(_keyCap('keyRowNavins'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey<String>('composerMore')));
-    await tester.pumpAndSettle();
+    await _openKeyPanel(tester);
     expect(_keyCap('keyRowAlt').hitTestable(), findsOneWidget);
     expect(_keyCap('keyRowNavins').hitTestable(), findsOneWidget);
     expect(_keyCap('keyRowArrowv').hitTestable(), findsOneWidget);

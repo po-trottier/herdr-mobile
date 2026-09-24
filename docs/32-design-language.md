@@ -501,10 +501,10 @@ string; the token itself carries no transform.
 | `type.label` | Plex | 14/20 | 500 | 0 | as written | a status word, a right-aligned value |
 | `type.caption` | Plex | 12/16 | 400 | 0 | as written | a secondary line, a hint, a counter |
 | `type.micro` | mono | 11/14 | 700 | 1.76 (0.16em) | UPPER | a section header, an eyebrow, a state word, a tab label, a form label |
-| `type.micro.strong` | mono | 11/14 | 700 | 0 | as written | a count beside an attention icon |
+| `type.micro.strong` | mono | 11/14 | 700 | 0 | as written | a count beside an attention icon or a small keycap name |
 | `type.mono.button` | mono | 13/16 | 700 | 1.04 (0.08em) | as written | a step number in the welcome steps card of section 7.31 (amended 2026-09-09 by the product owner, per `R-03-104`: until then every button label, UPPER; a button label is the platform's own style now, per `R-32-212`) |
 | `type.mono.code` | mono | 13/20 | 400 | 0 | as written | a raw error, an id, a path, a relay origin shown as a value |
-| `type.mono.key` | mono | 13/16 | 500 | 0 | as written | a key cap label |
+| `type.mono.key` | mono | 13/16 | 500 | 0 | as written | a function-key face or an inline key |
 | `type.mono.compose` | mono | 15/22 | 400 | 0 | as written | the the input bar field |
 | `type.mono.phrase` | mono | 18/24 | 500 | 0 | as written | one pairing word in one word field, and every input on `/pair/manual` |
 | `type.mono.terminal` | mono | one of `R-32-208`'s sizes, line height per `R-32-209` | 400 | 0 | as written | terminal content |
@@ -555,7 +555,7 @@ string; the token itself carries no transform.
   screen MUST NOT set a button label in a token of this table, MUST NOT upper-case it and MUST NOT
   set a mono face on it. Amended 2026-09-09 by the product owner, per `R-03-104`, who pointed at
   the Notifications strip: until then this rule made `type.mono.button` UPPER the label of every
-  button. A key cap keeps `type.mono.key`, per section 7.12.
+  button. Section 7.12 owns keycap face and name type.
 - **R-32-213** Upper case is applied by the widget that draws a `type.micro` string; a token carries
   no transform, a semantics label keeps the written case, and a button label, the phrase field and
   the terminal are never upper-cased (amended 2026-09-09, per `R-03-104`: `type.mono.button` left
@@ -611,7 +611,7 @@ Primer, and the set is closed.
 | Token | Value | Use |
 | --- | --- | --- |
 | `radius.none` | 0 | terminal grid, divider, strip, banner, app bar |
-| `radius.sm` | 2 | button, chip, segment, focus ring, text field (the key cap left this row on 2026-09-09, per `R-03-059`: it keeps the platform's own button shape) |
+| `radius.sm` | 2 | keycap, button, chip, segment, focus ring, text field. Keycaps use this token under R-32-535. |
 | `radius.md` | 4 | card, dialog, raw-error block, sheet body |
 | `radius.lg` | 6 | bottom sheet top corners |
 | `radius.full` | 999 | grab handle, switch track, badge count (the dot left this row on 2026-09-09, per `R-03-100`) |
@@ -711,7 +711,7 @@ Primer, and the set is closed.
 | `size.button.create` | 56 by 56 | The floating create button of `R-32-588`, the component's own box on both platforms; a list adds this plus `space.4` as its own end padding (retired 2026-09-09 and restored 2026-09-10 by the product owner, per the corrected `R-03-109`) |
 | `size.field` | 48 | A text field, a word field, the composer input row |
 | `size.field.compose.min` | retired | Retired 2026-09-14 per `R-03-132`: the input bar field grows by line count, not a fixed minimum height |
-| `size.keycap` | 48 wide minimum by 48 high | One key cap, one arrow key, one navigation key; the cap is its own target, so it is `size.target.min` high (decided 2026-09-03 by the product owner, `R-31-09-21`). Since 2026-09-09 the cap is the platform's own button, per `R-03-059`, and this value is the layout floor the key row's own button theme sets on it as a minimum size, never a shape; see section 7.12 (amended 2026-09-10 per `R-03-117`: a symbol key took this floor too until then) |
+| `size.keycap` | 48 by 48 minimum | One native keycap and its touch target. R-31-09-15 permits growth for complete faces and names. Section 7.12 owns its shape. |
 | `size.chordkey` | retired | Retired 2026-09-10 by the product owner, per `R-03-116`: it was the 56 wide minimum of one key in the Shortcuts palette, and that palette is gone with the `Shortcuts` control that opened it (the retired `R-31-09-22` and `R-31-08-24`). Bank two of the key row holds those keys now, at the column module of `R-31-09-21`, so `AppSize.chordkeyWidth` is deleted, as `AppSize.chordkeyHeight` was on 2026-09-09 |
 | `size.pill` | 36 | The jump-to-bottom pill |
 | `size.grab` | 36 wide by 4 high | The bottom sheet grab handle |
@@ -742,9 +742,9 @@ Primer, and the set is closed.
   cap sits at its 48 floor. The pitch is a formula and
   not a constant, because `R-31-09-15` grows a cap with its label and `size.keycap`
   is a minimum. A wider label therefore widens the pitch, and a target MUST NOT
-  shrink to absorb it, per `R-32-363`. What gives way instead belongs to the surface: the key row
-  scrolls, per `R-32-536` (amended 2026-09-10 per `R-03-116`: the chord key at its own 56 floor,
-  and the Shortcuts palette that grew its layer, are both retired).
+  shrink to absorb it, per `R-32-363`. The key panel reflows cells onto additional pages,
+  per `R-32-536` and `R-31-09-40`. It does not scroll a row inside a page.
+  Amended 2026-09-23 by the product owner, per `R-03-117`.
 - **R-32-363** A large text scale MUST NOT shrink a target below 48, per `R-30-741`.
 
 ## 6. Icons
@@ -847,13 +847,13 @@ Primer, and the set is closed.
 | Bottom destination `Notifications` | `notifications` |
 | Bottom destination `Settings` | `settings` |
 | Host actions, `Plugin actions` | `extension` (the label became `Plugin actions` on 2026-09-09 per `R-03-055`, `docs/31-mockups/10-pane-actions.md` callout 5a) |
-| Terminal shortcuts, `Shortcuts` | retired 2026-09-10 by the product owner, per `R-03-116`: the terminal app bar carries no keyboard control, per the retired `R-31-08-24`, and the key row's one expansion carries its own `more_horiz`/`close` pair. Was `keyboard` |
+| Terminal shortcuts, `Shortcuts` | Retired 2026-09-10, per `R-03-116`. The app bar carries no keyboard control. The composer panel control uses section 7.13. |
 | A worktree | `fork_right` |
 | Remove all notifications, destructive | `delete_sweep` (added 2026-09-08 by the product owner, per `docs/31-mockups/07-notifications.md` callout 3) |
 | Remove one notification, destructive | `delete_outline` (added 2026-09-08 by the product owner; the destructive glyph, reused) |
 | Notification actions, the row overflow | `more_vert` (added 2026-09-08 by the product owner; the overflow glyph, reused) |
 | Read the last 20 lines | `text_to_speech` (added 2026-09-08 by the product owner; the sheet row drew `text_snippet`, which is a file glyph, not a reading action) |
-| More keys, the bank-two toggle | `more_horiz` closed and `close` open, spoken `More keys` and `Fewer keys` (added 2026-09-08 by the product owner: the text cap `...` is three baseline periods whose ink centre sat 3.5 px under the cap centre in `key_row_bank_one_dark.png`; a glyph at `size.icon.md` centres like the arrow caps do; amended 2026-09-10 by the product owner, twice: the open state's text cap `abc` read as "type letters", then `expand_less` beside the `↑` cap read as one more arrow key, and both times the owner found no way to collapse; `close` means "close this" and nothing else on this row) |
+| Composer panel control | `add` closed and `close` open, spoken `More keys` and `Fewer keys`, per `R-31-09-24`. Amended 2026-09-23 by the product owner. |
 | Terminal text size, the whole control | none; the control is the platform slider of `R-03-110`, which draws its own thumb and track (amended 2026-09-09 by the product owner, per `R-03-110`: the `remove` and `add` glyphs of the stepper's two buttons left this map with the stepper) |
 | Status colours, the `Agents` app bar action that pushes the legend | `info` (added 2026-09-09 by the product owner, per `R-03-112`; the neutral disclosure glyph, reused) |
 | Remove phones, the `Phones` app bar action that opens the choice surface | `delete_outline`, the glyph of `treat.destructive`, spoken `Remove phones` (added 2026-09-09 by the product owner, per `R-03-111`; the three menu items carry the same glyph) |
@@ -1369,34 +1369,37 @@ with a bare count was how a native tab badge looks, and neither platform draws o
 
 | Part | Value |
 | --- | --- |
-| Widget | the platform's own button, per `R-03-059` (amended 2026-09-09 by the product owner: a key cap is a button and the key row has no exemption) and the `Key cap` row of `docs/33-platform-chrome.md` section 5: `OutlinedButton` on Android and `CupertinoButton.tinted` on iOS, `FilledButton` and `CupertinoButton.filled` while a modifier is latched (amended 2026-09-10 per `R-03-118`: the latched Android form was `FilledButton.tonal`, which is not the platform's high-emphasis form), built by `app/lib/widgets/key_row.dart` alone. Every colour reaches it through the theme of `app/lib/app.dart` (`outlinedButtonTheme`, `filledButtonTheme`, `CupertinoThemeData.primaryColor` and `primaryContrastingColor`); the key row's own button theme adds the layout floor and the type below, and nothing else |
-| Layout floor | `size.keycap` high and at least the column module of `R-31-09-21` wide, with `space.2` of horizontal padding: a `minimumSize` and a `padding` that the key row's own `OutlinedButtonTheme` and `FilledButtonTheme` set on Android, and the same two values the row hands `CupertinoButton` on iOS, where `cupertino_ui` 1.0.1 has no theme slot for them. A floor and a padding, never a shape: `R-03-059` forbids a theme to reshape a button into "a square, a fixed box or any geometry the platform does not draw", and a minimum on the platform's own pill is neither; without the floor the arrows scroll off a portrait phone, which `R-31-09-16` forbids (2026-09-09). Amended 2026-09-10 per `R-03-116`: a key in the Shortcuts palette floored at `size.chordkey` until then, and both are retired |
+| Widget | Native buttons from section 5 of `docs/33-platform-chrome.md`, built by `app/lib/widgets/key_row.dart`. Theme colours remain unchanged. The key row supplies the layout floor, type, and keycap corner below. |
+| Layout floor | `size.keycap`, at least the column module of R-31-09-21 wide, with `space.2` horizontal padding on each side. R-31-09-15 owns growth. R-31-09-40 reflows overflow onto more pages. |
 | Target | `size.target.min`; the button is the target, pitch the cap width plus `space.2`, per `R-32-362` |
-| Shape | the platform's own: the Material 3 pill on Android, the component's own corner on iOS (amended 2026-09-09, per `R-03-059`: was `radius.sm`) |
+| Shape | Rounded rectangle with `radius.sm` corners on both platforms, never a stadium or circle. This is the owner amendment of 2026-09-23 under R-03-117. |
 | Fill | none on Android; the component's `color.accent.primary` tint on iOS (amended 2026-09-09: was `color.bg.high`) |
 | Border | `border.hairline` in `color.border.strong` on Android, from `outlinedButtonTheme`; none on iOS |
-| Label | `type.mono.key`, through the row's theme: `textStyle` on Android, `textTheme.actionTextStyle` on iOS. `color.fg.primary` on Android. `color.accent.text` on iOS, which measures 4.68 on the tint over `color.bg.raised` in both themes (computed 2026-09-09): the component's own `color.accent.primary` ink measures 3.6 there in light and misses the 4.5 floor of `R-30-720`, so the row hands the button `color.accent.text`, as `R-32-526`'s iOS branch already does |
-| Glyph | `size.icon.md` from the `R-32-401` map, in the label's ink: the four arrows, `More keys`, `Fewer keys` (amended 2026-09-10: `Cancel` closed the retired Shortcuts palette) |
+| Small name | `type.micro.strong`, below the glyph, with its written case unchanged. Android uses `color.fg.primary`. iOS uses `color.accent.text`, which measures 4.68 on the tinted surface in both themes. |
+| Large face | Material Symbols icon at `size.icon.md`, in the name's ink. The face table in `docs/31-mockups/09-key-row.md` owns each icon. Arrows retain their Material Symbols faces without names. Function keys show `F1` through `F12` in `type.mono.key`, without a second name. |
 | Pressed | the platform's own response, per `R-32-501`: on Android the ink overlay in `color.accent.soft` under a `color.accent.primary` border, both from `outlinedButtonTheme`; on iOS the Cupertino press fade. No app-drawn fill, scale or timing (amended 2026-09-09: was a `color.accent.primary` fill for `motion.duration.fast`) |
 | Latched | the platform's own high-emphasis button, per `R-03-118`: `color.accent.primary` under `color.fg.on_accent` through the theme, until the latch clears. The label keeps its written case, its weight and its text, and the cap reports a toggle to assistive technology; `R-31-09-25` of `docs/31-mockups/09-key-row.md` holds the requirement (amended 2026-09-10: the label went upper case for state until then, the one case-for-state hack in the interface, and the fill was tonal) |
+| Answer `enter` | The only primary filled cap. It uses the native high-emphasis button, `color.accent.primary` fill, and `color.fg.on_accent` face and name. Other Answer caps use the idle form. Latched modifiers on Keys retain their filled state. |
 | Focused | the platform's own focus response, per `R-32-503` |
 | Disabled | `opacity.disabled`, per `R-32-502`: the theme's disabled colours on Android; on iOS the cap hands the component its own tint back and dims itself, as the ghost button of section 7.28 does |
-| Row | `size.keyrow` high per row of caps, with `space.2` between rows. Section 7.13 owns the shared surface, inset, outer padding, and top edge |
+| Row | At least `size.keyrow` high, with `space.2` between rows. R-31-09-15 owns growth. Section 7.13 owns the shared surface and top edge. |
 
 - **R-32-535** A key cap MUST be the platform's own button and MUST NOT be a box, a border and a
   gesture the app draws (amended 2026-09-09 by the product owner, per `R-03-059`; until then the
   cap carried its own boundary, per `R-32-112`, and this rule forbade it a status dot, a clause
   `R-03-100` made moot). The four arrow keys MUST be four separate buttons at the row's `space.2`
-  gap, never one box with a shared border; `R-31-09-21` puts them in the keyboard's inverted T
-  across two rows of the grid (amended 2026-09-10 per `R-03-117`: they sat adjacent on one row
-  until then). The key row's own button theme MUST set the layout
-  floor and the type of the table above and MUST NOT set a shape, a fill or an ink of its own.
+  gap, never one box with a shared border. R-31-09-21 owns their physical-keyboard positions.
+  The key row MUST set the table's layout floor, type, and `radius.sm` rounded rectangle.
+  Native buttons MUST retain their platform pressed, focus, and disabled responses.
+  The 2026-09-23 owner amendment supersedes the earlier prohibition on keycap shape changes.
   The latched form is the platform's own high-emphasis button, per `R-03-118`, and the label MUST
   NOT change case for state; `R-31-09-25` of `docs/31-mockups/09-key-row.md` holds that
   requirement and the table above holds the values.
   `app/lib/widgets/key_row.dart` alone builds the cap.
-- **R-32-536** The key panel MUST use three rows of six columns without scroll or wrap, per
-  R-31-09-21. Each row uses `size.keyrow`, with `space.2` gaps.
+- **R-32-536** The key panel MUST use the layouts of R-31-09-21 and overflow of R-31-09-40.
+  Its rows MUST use the dimensions in section 7.12.
+  R-31-09-41 owns composer answer mode. No separate answer field belongs to this surface.
+  Amended 2026-09-23, per R-03-117.
 
 ### 7.13 Input bar
 
@@ -1410,11 +1413,13 @@ This surface follows R-03-133. `docs/31-mockups/09-key-row.md` owns its behaviou
 | Single-line height | Android: `size.field` (48 dp). iOS: 36 pt. The leading circle matches the field. The iOS send circle occupies the suffix inside that height |
 | Leading control | Android: round `IconButton.filledTonal`, exactly 48 dp. iOS: `CupertinoButton` with its own `color` and `borderRadius`, 36 pt painted circle in `color.bg.high`, 44 pt `minimumSize` tap target, glyph in `color.accent.text` |
 | Leading glyph | `Symbols.add_rounded`, semantics `More keys`; `Symbols.close_rounded` while open, semantics `Fewer keys` |
+| Panel control behavior | Direct open and close under R-31-09-24. No menu. |
 | Field | Fill `color.bg.high`; corner radius equals half the platform's single-line field height (Android 24 dp; iOS 18 pt), unchanged as the field grows; `border.hairline` in `color.border.strong`. Text `type.mono.compose` in `color.fg.primary`; placeholder `Type here` in `color.fg.disabled`. `minLines: 1`, `maxLines: 5`, multiline keyboard, `textInputAction: send`. Native editing options follow R-31-09-30 |
 | Field padding | Android: `space.3` horizontally, 13 dp vertically; one 22 dp text line totals 48 dp. iOS: `space.3` leading, `space.1` trailing, 7 pt vertically; one 22 pt text line totals 36 pt |
 | Send control | Android: outside the field, round `IconButton.filled`, exactly 48 dp, `Symbols.send_rounded`. iOS: inside the field suffix, `CupertinoButton` with zero padding and `minimumSize: 30`, a 30 pt circle with equal 3 pt bottom and trailing insets from the field edge, `Symbols.arrow_upward_rounded`. Its 15 pt radius and the field's 18 pt corner share a centre, leaving an even 3 pt gap. Both use `color.accent.primary` with `color.fg.on_accent` glyphs at `size.icon.md` and semantics `Send` |
 | Send state | Enabled when empty, per R-31-09-28. Field and send controls stay disabled offline or while the Host is in use, per R-30-807 and R-32-502 |
-| Key panel | Closed by default. Above the bar, over the bottom of the grid; its own `color.bg.raised` surface and top `border.hairline` in `color.border.strong`. Use `space.4` horizontal inset and `space.2` gaps and vertical padding. Three rows, six columns, height fits the rows, no scroll. Use the native caps of section 7.12 and the order in R-31-09-21. Opening preserves the keyboard state. Field focus and modifier latches leave it open. Only `×` or a grid tap closes it |
+| Key panel | Closed by default, except automatic Answer selection under R-31-09-38. Above the bar, over the grid. Opaque `color.bg.raised`, top `border.hairline` in `color.border.strong`. Layout and spacing follow R-31-09-21. Overflow follows R-31-09-40. Native caps follow section 7.12. Keyboard and dismissal behavior follow R-31-09-17. |
+| Composer answer mode | The same field and send control, with unchanged styles. R-31-09-41 owns the placeholder, spoken Send label, local answer buffer, and draft restoration. No extra field or send control. |
 
 - **R-32-537** The input bar MUST use the anatomy in R-03-133 and the native controls in
   `docs/33-platform-chrome.md` section 5.
@@ -1424,6 +1429,7 @@ This surface follows R-03-133. `docs/31-mockups/09-key-row.md` owns its behaviou
   The leading circle and Send MUST have level centres. The iOS Send MUST use the inset above.
   Its bottom trailing curve MUST be concentric with the field's corner, per R-03-133.
   The field's corner radius MUST equal half its platform's single-line height, even when taller.
+  Composer answer mode MUST retain these styles, with the behavior in R-31-09-41.
   The key panel MUST overlay the grid above the bar, not replace or cover the keyboard.
   The app MUST NOT draw substitute fields, buttons, or keys.
 

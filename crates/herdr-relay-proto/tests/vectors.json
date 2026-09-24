@@ -230,15 +230,16 @@
       "v": 1
     },
     "send_input": {
-      "corr": "req-007",
+      "corr": "req-answer",
       "payload": {
-        "defer": "until_idle",
+        "bypass_line": true,
         "keys": [
           "Enter"
         ],
-        "pane_id": "w3:p2"
+        "pane_id": "w3:p2",
+        "text": "other answer"
       },
-      "seq": 7,
+      "seq": 8,
       "type": "send_input",
       "v": 1
     },

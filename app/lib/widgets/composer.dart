@@ -38,6 +38,8 @@ class Composer extends StatefulWidget {
     this.enabled = true,
     this.panelOpen = false,
     this.onTogglePanel,
+    this.answerInput = false,
+    this.onSubmitAnswer,
     this.initialLine = '',
     this.queued = false,
     this.onCancelQueued,
@@ -57,7 +59,20 @@ class Composer extends StatefulWidget {
   final List<TextInputFormatter>? inputFormatters;
   final bool enabled;
   final bool panelOpen;
+
+  /// The `+` control toggles the key panel directly (2026-09-23): a tap
+  /// opens it on its last page, a tap with it open closes it. No menu.
   final VoidCallback? onTogglePanel;
+
+  /// The Answer page of the key panel makes this field the answer input
+  /// (R-31-09-41, 2026-09-23): the main draft is stashed untouched, the
+  /// field starts empty with the `Type an answer` placeholder, no `line`
+  /// sync runs, and Send goes to [onSubmitAnswer] instead of [onSubmit].
+  final bool answerInput;
+
+  /// Sends the answer text as one bypass frame. Resolves with the Host's
+  /// ack; the field clears only then, so a refusal keeps the text.
+  final Future<bool> Function(String text)? onSubmitAnswer;
 
   @override
   ComposerState createState() => ComposerState();
@@ -70,11 +85,34 @@ class ComposerState extends State<Composer> {
   bool _edited = false;
   bool _submitting = false;
 
-  String get currentLine => _controller.text;
+  /// The stashed main draft, text and selection, while [Composer.answerInput]
+  /// lends the field to an answer. Restored exactly when the page leaves.
+  TextEditingValue? _draftStash;
+
+  /// The main draft — while [Composer.answerInput] holds the answer in the
+  /// field, the stashed line the Host still mirrors.
+  String get currentLine => _draftStash?.text ?? _controller.text;
+
+  @override
+  void didUpdateWidget(Composer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.answerInput == oldWidget.answerInput) return;
+    // Neither switch sends a frame: the swap is local only (2026-09-23).
+    if (widget.answerInput) {
+      _draftStash = _controller.value;
+      _controller.clear();
+    } else {
+      final TextEditingValue? draft = _draftStash;
+      _draftStash = null;
+      if (draft != null) _controller.value = draft;
+    }
+  }
 
   /// Seed the Host line only before the first local edit.
   void seedLine(String line) {
-    if (_edited || _submitting || currentLine.isNotEmpty) return;
+    if (widget.answerInput || _edited || _submitting || currentLine.isNotEmpty) {
+      return;
+    }
     _controller.value = TextEditingValue(
       text: line,
       selection: TextSelection.collapsed(offset: line.length),
@@ -83,6 +121,9 @@ class ComposerState extends State<Composer> {
 
   /// Mirror accepted key controls without another Host update.
   void applyAcceptedInput(SendInput input) {
+    // The Answer page's keys never mirror, and a late Keys-page ack must not
+    // land in the answer buffer.
+    if (widget.answerInput) return;
     String line = currentLine;
     if (input.text case final String text) {
       if (!const <String>{
@@ -114,13 +155,38 @@ class ComposerState extends State<Composer> {
   }
 
   void _changed(String text) {
+    // Answer mode runs no `line` sync: the field holds the answer, and the
+    // main draft stays stashed and untouched.
+    if (widget.answerInput) return;
     _edited = true;
     if (!widget.enabled || widget.queued) return;
     widget.onLine(_controller.text);
   }
 
   Future<void> _submit({bool whenIdle = false}) async {
-    if (!widget.enabled || _submitting || widget.queued) return;
+    if (!widget.enabled || _submitting) return;
+    if (widget.answerInput) {
+      // The answer send: one bypass frame through `onSubmitAnswer`. The
+      // field clears on the ack, so a refusal keeps the text. The queued
+      // and `whenIdle` paths do not exist in answer mode.
+      final Future<bool> Function(String text)? submitAnswer =
+          widget.onSubmitAnswer;
+      if (submitAnswer == null) return;
+      final String text = _controller.text;
+      setState(() => _submitting = true);
+      try {
+        final bool accepted = await submitAnswer(text);
+        if (!mounted) return;
+        if (accepted) {
+          _controller.clear();
+          widget.focusNode.requestFocus();
+        }
+      } finally {
+        if (mounted) setState(() => _submitting = false);
+      }
+      return;
+    }
+    if (widget.queued) return;
     final String line = _controller.text;
     // Clear before the round trip: the wire is ordered, so a line frame typed
     // now reaches the Host after the Enter and starts a fresh console line.
@@ -130,7 +196,9 @@ class ComposerState extends State<Composer> {
     setState(() => _submitting = true);
     try {
       final bool accepted = await widget.onSubmit(line, whenIdle: whenIdle);
-      if (!mounted) return;
+      // A switch to the Answer page mid-flight leaves the draft in the
+      // stash; nothing lands in the answer buffer.
+      if (!mounted || widget.answerInput) return;
       if (accepted) {
         if (whenIdle) _controller.clear();
         widget.focusNode.requestFocus();
@@ -151,6 +219,8 @@ class ComposerState extends State<Composer> {
   /// R-33-033's `Menu from a control` row, anchored to the control itself.
   /// Empty while the control has nothing to offer, so the menu never opens.
   List<ChromeMenuItem> _sendOptions() {
+    // Answer mode has the one send and nothing to defer (2026-09-23).
+    if (widget.answerInput) return const <ChromeMenuItem>[];
     final bool canSubmit = widget.enabled && !_submitting && !widget.queued;
     return <ChromeMenuItem>[
       if (canSubmit)
@@ -205,6 +275,36 @@ class ComposerState extends State<Composer> {
     ),
   );
 
+  /// The `+` control of R-31-09-17, one platform button under one spoken
+  /// label: `add` with the panel closed, `close` with it open (2026-09-23).
+  Widget _moreButton({
+    required bool ios,
+    required AppColor color,
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+  }) {
+    if (ios) {
+      return Semantics(
+        label: label,
+        child: CupertinoButton(
+          color: color.bgHigh,
+          borderRadius: BorderRadius.circular(AppRadius.full),
+          minimumSize: const Size.square(AppSize.inputIos),
+          padding: EdgeInsets.zero,
+          onPressed: onPressed,
+          child: Icon(icon, color: color.accentText, size: AppSize.iconMd),
+        ),
+      );
+    }
+    return IconButton.filledTonal(
+      tooltip: label,
+      style: appTonalIconButtonStyle(context),
+      onPressed: onPressed,
+      icon: Icon(icon),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppColor color = AppColor.of(context);
@@ -212,6 +312,8 @@ class ComposerState extends State<Composer> {
       color: color.fgPrimary,
     );
     final bool ios = defaultTargetPlatform == TargetPlatform.iOS;
+    // The queued state belongs to the main draft; answer mode ignores it.
+    final bool queued = widget.queued && !widget.answerInput;
     final double height = ios ? AppSize.inputIos : AppSize.field;
     // R-32-537: growing the field must not grow its corner arcs into a pill.
     final BorderRadius fieldRadius = BorderRadius.circular(height / 2);
@@ -220,21 +322,22 @@ class ComposerState extends State<Composer> {
       items: options,
       builder: (BuildContext context, MenuController menu) {
         final VoidCallback? open = options.isEmpty ? null : menu.open;
+        final String sendLabel = widget.answerInput ? 'Send answer' : 'Send';
         final Widget sendButton = ios
             ? Semantics(
-                label: 'Send',
+                label: sendLabel,
                 child: CupertinoButton(
                   key: const ValueKey<String>('composerSend'),
                   color: color.accentPrimary,
                   borderRadius: BorderRadius.circular(AppRadius.full),
                   minimumSize: const Size.square(30),
                   padding: EdgeInsets.zero,
-                  onPressed: widget.queued
+                  onPressed: queued
                       ? open
                       : widget.enabled && !_submitting
                       ? _submit
                       : null,
-                  child: widget.queued
+                  child: queued
                       ? _queuedIcon(ios, color)
                       : _submitting
                       ? SizedBox.square(
@@ -253,12 +356,12 @@ class ComposerState extends State<Composer> {
               )
             : IconButton.filled(
                 style: appFilledIconButtonStyle(context),
-                onPressed: widget.queued
+                onPressed: queued
                     ? open
                     : widget.enabled && !_submitting
                     ? _submit
                     : null,
-                icon: widget.queued
+                icon: queued
                     ? _queuedIcon(ios, color)
                     : _submitting
                     ? const SizedBox.square(
@@ -268,7 +371,7 @@ class ComposerState extends State<Composer> {
                     : const Icon(Symbols.send_rounded, size: AppSize.iconMd),
               );
         return Semantics(
-          label: ios ? null : 'Send',
+          label: ios ? null : sendLabel,
           child: GestureDetector(onLongPress: open, child: sendButton),
         );
       },
@@ -298,11 +401,11 @@ class ComposerState extends State<Composer> {
               child: send,
             ),
             enabled: widget.enabled,
-            readOnly: widget.queued,
+            readOnly: queued,
             inputFormatters: widget.inputFormatters,
             focusNode: widget.focusNode,
             style: style,
-            placeholder: 'Type here',
+            placeholder: widget.answerInput ? 'Type an answer' : 'Type here',
             placeholderStyle: style.copyWith(color: color.fgDisabled),
             padding: padding,
             minLines: 1,
@@ -333,7 +436,7 @@ class ComposerState extends State<Composer> {
             key: const ValueKey<String>('composerField'),
             controller: _controller,
             enabled: widget.enabled,
-            readOnly: widget.queued,
+            readOnly: queued,
             inputFormatters: widget.inputFormatters,
             focusNode: widget.focusNode,
             style: style,
@@ -353,7 +456,7 @@ class ComposerState extends State<Composer> {
               fillColor: color.bgHigh,
               isDense: true,
               contentPadding: padding,
-              hintText: 'Type here',
+              hintText: widget.answerInput ? 'Type an answer' : 'Type here',
               hintStyle: style.copyWith(color: color.fgDisabled),
               border: border,
               enabledBorder: border,
@@ -379,34 +482,18 @@ class ComposerState extends State<Composer> {
             SizedBox.square(
               key: const ValueKey<String>('composerMore'),
               dimension: height,
-              child: ios
-                  ? Semantics(
-                      label: widget.panelOpen ? 'Fewer keys' : 'More keys',
-                      child: CupertinoButton(
-                        color: color.bgHigh,
-                        borderRadius: BorderRadius.circular(AppRadius.full),
-                        minimumSize: const Size.square(AppSize.inputIos),
-                        padding: EdgeInsets.zero,
-                        onPressed: widget.onTogglePanel,
-                        child: Icon(
-                          widget.panelOpen
-                              ? Symbols.close_rounded
-                              : Symbols.add_rounded,
-                          color: color.accentText,
-                          size: AppSize.iconMd,
-                        ),
-                      ),
-                    )
-                  : IconButton.filledTonal(
-                      tooltip: widget.panelOpen ? 'Fewer keys' : 'More keys',
-                      style: appTonalIconButtonStyle(context),
-                      onPressed: widget.onTogglePanel,
-                      icon: Icon(
-                        widget.panelOpen
-                            ? Symbols.close_rounded
-                            : Symbols.add_rounded,
-                      ),
-                    ),
+              // R-31-09-17 (amended 2026-09-23): `+` toggles the panel
+              // directly, with no menu — it opens on the panel's last page,
+              // and with the panel open `+` carries `close` and closes it.
+              child: _moreButton(
+                ios: ios,
+                color: color,
+                icon: widget.panelOpen
+                    ? Symbols.close_rounded
+                    : Symbols.add_rounded,
+                label: widget.panelOpen ? 'Fewer keys' : 'More keys',
+                onPressed: widget.onTogglePanel,
+              ),
             ),
             const SizedBox(width: AppSpace.space2),
             Expanded(child: field),
@@ -420,7 +507,7 @@ class ComposerState extends State<Composer> {
             ],
           ],
         ),
-        if (widget.queued)
+        if (queued)
           const Text(
             'Queued. Sends when the agent is done.',
             maxLines: 1,

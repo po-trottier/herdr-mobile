@@ -221,6 +221,7 @@ pub fn message_vectors() -> Vec<(&'static str, u64, Option<String>, Message)> {
                 text: None,
                 keys: Some(vec!["ctrl+c".to_owned()]),
                 defer: None,
+                bypass_line: None,
             }),
         ),
         (
@@ -233,6 +234,7 @@ pub fn message_vectors() -> Vec<(&'static str, u64, Option<String>, Message)> {
                 text: None,
                 keys: None,
                 defer: None,
+                bypass_line: None,
             }),
         ),
         (
@@ -245,6 +247,20 @@ pub fn message_vectors() -> Vec<(&'static str, u64, Option<String>, Message)> {
                 text: None,
                 keys: Some(vec!["Enter".to_owned()]),
                 defer: Some(Defer::UntilIdle),
+                bypass_line: None,
+            }),
+        ),
+        (
+            "send_input",
+            8,
+            Some("req-answer".to_owned()),
+            Message::SendInput(SendInput {
+                pane_id: "w3:p2".to_owned(),
+                line: None,
+                text: Some("other answer".to_owned()),
+                keys: Some(vec!["Enter".to_owned()]),
+                defer: None,
+                bypass_line: Some(true),
             }),
         ),
         (

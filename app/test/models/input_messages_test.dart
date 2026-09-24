@@ -48,6 +48,33 @@ void main() {
     expect(ack.payload.queued, isNull);
     expect(ack.payloadJson, {'pane_id': 'p', 'accepted': true});
   });
+  test('bypass_line survives wire encoding, and only when true (R-11-254)', () {
+    final input = SendInput.fromJson({
+      'pane_id': 'p',
+      'text': 'other answer',
+      'keys': ['Enter'],
+      'bypass_line': true,
+    });
+    expect(input.bypassLine, isTrue);
+    expect(input.toJson(), {
+      'pane_id': 'p',
+      'text': 'other answer',
+      'keys': ['Enter'],
+      'bypass_line': true,
+    });
+    expect(
+      const SendInput(paneId: 'p', keys: ['Enter']).toJson(),
+      isNot(contains('bypass_line')),
+    );
+    expect(
+      SendInput.fromJson({
+        'pane_id': 'p',
+        'keys': ['Enter'],
+      }).bypassLine,
+      isNull,
+    );
+  });
+
   test('deferred input and queued acknowledgement survive wire encoding', () {
     final input = SendInput.fromJson({
       'pane_id': 'p',

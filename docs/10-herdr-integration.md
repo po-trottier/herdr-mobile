@@ -1101,9 +1101,11 @@ On failure, it MUST return `accepted: false` and retain the shadow from the last
 This state lets the next line retry the remaining changes safely.
 See R-11-248, R-11-249, and R-11-251.
 
-**R-10-076**: After successful forwarding, Enter or `ctrl+c` keys MUST clear the line shadow.
+**R-10-076**: A `bypass_line: true` send MUST leave the line shadow unchanged, per R-11-254.
+Otherwise, after successful forwarding, Enter or `ctrl+c` keys MUST clear the line shadow.
 Backspace MUST remove its last extended grapheme, if present.
-Text from the key row MUST append to the shadow.
+Literal text from the key row MUST append to the shadow. The six raw navigation sequences of
+R-10-036 MUST leave the shadow unchanged.
 Other keys MUST leave the shadow unchanged. See R-11-252.
 
 **R-10-077**: The Host MUST send typed text through raw `pane.send_text`, not per-character

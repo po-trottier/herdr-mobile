@@ -24,7 +24,9 @@ import 'package:material_ui/material_ui.dart'
         FilledButtonThemeData,
         OutlinedButton,
         OutlinedButtonTheme,
-        OutlinedButtonThemeData;
+        OutlinedButtonThemeData,
+        TabController,
+        TabPageSelector;
 
 import '../models/message.dart';
 import '../models/messages/send_input.dart';
@@ -150,16 +152,23 @@ final class _ArrowKey {
 }
 
 /// One of the six keys with no logical name, sent as a raw escape sequence in `text`
-/// (R-21-019a, R-10-036).
+/// (R-21-019a, R-10-036). The cap face is the keybind glyph of the 2026-09-23 keycap
+/// decision — a Material Symbols icon of the R-32-401 set, never a Unicode glyph — with
+/// [label] small underneath. [flipIcon] mirrors the glyph for a forward-facing key
+/// (`del`, the forward delete, is the mirrored backspace key).
 final class _RawKey {
   const _RawKey({
     required this.label,
+    required this.icon,
     required this.semanticLabel,
     required this.sequence,
+    this.flipIcon = false,
   });
   final String label;
+  final IconData icon;
   final String semanticLabel;
   final String sequence;
+  final bool flipIcon;
 }
 
 /// The four arrow keys of the inverted T (R-03-117, R-31-09-16): `↑` alone on row one, in
@@ -192,34 +201,44 @@ const _ArrowKey _arrowRight = _ArrowKey(
 
 /// The keyboard's own navigation block (R-03-117): three vertical pairs, `ins` over `del`,
 /// `home` over `end` and `pgup` over `pgdn`, the way a keyboard stacks them. All six are
-/// raw-CSI keys (R-21-019a, R-10-036).
+/// raw-CSI keys (R-21-019a, R-10-036). The glyphs are the Material Symbols keyboard set
+/// (verified against material_symbols_icons 4.2960.0): the package has no
+/// `keyboard_delete`-family icon, so `del` mirrors the tag-shaped `backspace` (⌫) into ⌦,
+/// and no insert-key icon exists beyond `insert_text`.
 const _RawKey _keyIns = _RawKey(
   label: 'ins',
+  icon: Symbols.insert_text_rounded,
   semanticLabel: 'Insert',
   sequence: '\x1b[2~',
 );
 const _RawKey _keyDel = _RawKey(
   label: 'del',
+  icon: Symbols.backspace_rounded,
   semanticLabel: 'Delete',
   sequence: '\x1b[3~',
+  flipIcon: true,
 );
 const _RawKey _keyHome = _RawKey(
   label: 'home',
+  icon: Symbols.first_page_rounded,
   semanticLabel: 'Home',
   sequence: '\x1b[H',
 );
 const _RawKey _keyEnd = _RawKey(
   label: 'end',
+  icon: Symbols.last_page_rounded,
   semanticLabel: 'End',
   sequence: '\x1b[F',
 );
 const _RawKey _keyPgup = _RawKey(
   label: 'pgup',
+  icon: Symbols.keyboard_double_arrow_up_rounded,
   semanticLabel: 'Page up',
   sequence: '\x1b[5~',
 );
 const _RawKey _keyPgdn = _RawKey(
   label: 'pgdn',
+  icon: Symbols.keyboard_double_arrow_down_rounded,
   semanticLabel: 'Page down',
   sequence: '\x1b[6~',
 );
@@ -233,13 +252,24 @@ final class _PendingSend {
     required this.label,
     required this.timer,
     required this.input,
-    required this.notifyAccepted,
+    this.mirror = true,
   });
   final SendInput input;
-  final bool notifyAccepted;
   final String label;
   final Timer timer;
+
+  /// Whether an accepted acknowledgement mirrors into the Composer, per
+  /// R-31-09-35. An answer send opts out (R-31-09-38), so the held prompt
+  /// draft survives it.
+  final bool mirror;
 }
+
+/// One page of the key panel's pager (decided 2026-09-23 by the product owner): `Keys`,
+/// `Function keys`, then `Answer`. The panel is one pager across all three; at a large
+/// text scale a grid reflows onto further pages (R-31-09-40), so a value here names the
+/// FIRST page of its grid. The screen maps the reported page to its Composer answer mode:
+/// `answerInput = panelOpen && page == KeyPanelPage.answer`.
+enum KeyPanelPage { keys, function, answer }
 
 /// The terminal key row and the live typing surface. See this file's top doc comment.
 class KeyRow extends StatefulWidget {
@@ -258,7 +288,8 @@ class KeyRow extends StatefulWidget {
     this.composer,
     this.grid,
     this.panelOpen = false,
-    this.answerMode = false,
+    this.requestedPage,
+    this.onPageChanged,
   });
 
   final String paneId;
@@ -266,8 +297,18 @@ class KeyRow extends StatefulWidget {
   /// Shows every terminal key above the input bar.
   final bool panelOpen;
 
-  /// Selects Answer keys when this value changes to true.
-  final bool answerMode;
+  /// Jumps the panel's pager to the first page of the requested grid when the value
+  /// changes to non-null (2026-09-23): a blocked agent opens the panel on the Answer
+  /// page this way. Holding the same value re-requests nothing, so the person keeps the
+  /// page they swiped to; a `null` clears a pending request. `+` reopens the panel on
+  /// the last page instead, which needs no request.
+  final KeyPanelPage? requestedPage;
+
+  /// Reports the page the pager rests on: on every settled swipe, on the first build
+  /// after the panel opens (the page the bucket remembered), and after a
+  /// [requestedPage] jump lands. Never fires synchronously during build — the screen
+  /// setStates in it.
+  final ValueChanged<KeyPanelPage>? onPageChanged;
 
   /// Matches `RelayConnection.send`'s exact signature; a caller passes `connection.send`
   /// directly, mirroring `terminal.dart`'s `TerminalMessageSender` seam.
@@ -308,10 +349,38 @@ class KeyRow extends StatefulWidget {
   State<KeyRow> createState() => KeyRowState();
 }
 
-class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
+class KeyRowState extends State<KeyRow>
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   late final ChordLatch _chordLatch = ChordLatch(lockWindow: kDoubleTapTimeout);
   late final StreamSubscription<void> _latchSub;
   StreamSubscription<({String corr, SendInputAck ack})>? _ackSub;
+
+  /// The pager's scroll controller. The selected page itself lives in the
+  /// [PageStorageBucket], so it survives the panel's close and reopen (R-31-09-40).
+  late final PageController _pager = PageController();
+
+  /// The bucket that remembers the page while the panel is closed.
+  /// A new pane gets a fresh bucket, so it starts on page one (R-31-09-40).
+  PageStorageBucket _pagerBucket = PageStorageBucket();
+
+  /// The indicator's controller. The reflow of R-31-09-40 changes the page count with
+  /// the width and the text scale, so [_syncTabs] recreates it when the count changes.
+  late TabController _tabs;
+
+  /// The selected page, kept beside the pager so the indicator's spoken label always
+  /// has a value, even before the viewport attaches.
+  int _page = 0;
+
+  /// How many of the leading pages are the `Keys` grid's, and how many of the
+  /// following pages are `Function keys`; the rest are `Answer`. The panel's layout
+  /// sets them on every pass.
+  int _keysPageCount = 1;
+  int _functionPageCount = 1;
+
+  /// A [KeyRow.requestedPage] change the pager has not applied yet. Set in
+  /// `didUpdateWidget`, consumed by the next panel layout — the pager may not exist
+  /// yet when the request arrives, so the layout applies it post-frame.
+  KeyPanelPage? _pendingPageRequest;
 
   int _corrSeq = 0;
   String _nextCorr() => 'key-row-${_corrSeq++}';
@@ -321,24 +390,27 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
   /// The label of the send whose acknowledgement never came (R-30-518), or `null`.
   String? _outcomeUnknownLabel;
   String? _errorMessage;
-  bool _answerMode = false;
 
   @override
   void initState() {
     super.initState();
-    _answerMode = widget.answerMode;
+    // A request that arrives with the widget (a blocked agent opening the panel on the
+    // Answer page) never passes through `didUpdateWidget`; seed it here.
+    _pendingPageRequest = widget.requestedPage;
     WidgetsBinding.instance.addObserver(this);
     widget.focusNode?.addListener(_onFocusChanged);
     _latchSub = _chordLatch.changes.listen((_) {
       if (mounted) setState(() {});
     });
     _ackSub = widget.sendInputAcks.listen(_onAck);
+    // Three pages when six column modules fit (R-03-117, 2026-09-23); the first layout
+    // reflows and recreates the controller when they do not (R-31-09-40).
+    _tabs = TabController(length: 3, vsync: this);
   }
 
   @override
   void didUpdateWidget(KeyRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.answerMode && !oldWidget.answerMode) _answerMode = true;
     if (oldWidget.focusNode != widget.focusNode) {
       oldWidget.focusNode?.removeListener(_onFocusChanged);
       widget.focusNode?.addListener(_onFocusChanged);
@@ -358,6 +430,19 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     // not `didChangeMetrics`: the keyboard rising is a metrics change too, and it must not
     // clear the latch that raised it.
     if (oldWidget.landscape != widget.landscape) _chordLatch.clear();
+    if (widget.requestedPage != oldWidget.requestedPage) {
+      // Only a change to non-null moves the pager; a held value leaves the page the
+      // person swiped to, and a null clears a request the panel never consumed.
+      _pendingPageRequest = widget.requestedPage;
+    }
+    if (oldWidget.paneId != widget.paneId) {
+      // A new pane starts on page one (R-31-09-40): forget the stored page, and take the
+      // live pager and the indicator back with it.
+      _page = 0;
+      _pagerBucket = PageStorageBucket();
+      if (_tabs.index != 0) _tabs.index = 0;
+      if (_pager.hasClients && _pager.page?.round() != 0) _pager.jumpToPage(0);
+    }
   }
 
   @override
@@ -381,6 +466,8 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     unawaited(_latchSub.cancel());
     widget.focusNode?.removeListener(_onFocusChanged);
     _chordLatch.dispose();
+    _pager.dispose();
+    _tabs.dispose();
     super.dispose();
   }
 
@@ -448,11 +535,12 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
 
   /// One `send_input` frame, tracked until its acknowledgement or its deadline. A send that
   /// follows a failure clears the failure strip: the person typed again, which is the one
-  /// recovery R-31-09-13 allows.
+  /// recovery R-31-09-13 allows. [mirror] decides what an accepted acknowledgement does
+  /// locally; see [_PendingSend].
   void _dispatch(
     SendInput input, {
     required String label,
-    bool notifyAccepted = true,
+    bool mirror = true,
   }) {
     if (!_sendingEnabled) return;
     assert(
@@ -468,9 +556,9 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     late final _PendingSend send;
     send = _PendingSend(
       input: input,
-      notifyAccepted: notifyAccepted,
       label: label,
       timer: Timer(terminalReplyTimeout, () => _onAckTimeout(send)),
+      mirror: mirror,
     );
     _pending[corr] = send;
     widget.send(Message.sendInput(input), corr: corr);
@@ -486,13 +574,43 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     );
   }
 
-  /// A key cap press for one of the six keys with no logical name: `haptic.select`, then
-  /// one raw-sequence frame (R-10-036).
+  /// A key cap press that sends text: `haptic.select`, then one `text` frame — a raw
+  /// escape sequence for the six keys with no logical name (R-10-036).
   void _sendRawText(String text, {required String label}) {
     if (!_sendingEnabled) return;
     unawaited(AppHaptic.select());
     _dispatch(
       SendInput(paneId: widget.paneId, text: text),
+      label: label,
+    );
+  }
+
+  /// One answer-page send (R-31-09-38): the frame goes with `bypass_line: true`, and its
+  /// acknowledgement never mirrors into the Composer, so the held prompt draft survives
+  /// the answer. Every cap of the Answer page sends this way (2026-09-23).
+  void _sendAnswer(SendInput input, {required String label}) {
+    if (!_sendingEnabled) return;
+    assert(
+      input.bypassLine == true &&
+          input.line == null &&
+          input.defer == null &&
+          (input.text != null || input.keys != null),
+      'an answer send is exactly the R-11-254 shape: $input',
+    );
+    _dispatch(input, label: label, mirror: false);
+  }
+
+  /// One Answer cap press (R-31-09-41): `haptic.select`, then the cap's named
+  /// key on the answer path of R-31-09-38.
+  void _answerKey(String name, {required String label}) {
+    if (!_sendingEnabled) return;
+    unawaited(AppHaptic.select());
+    _sendAnswer(
+      SendInput(
+        paneId: widget.paneId,
+        keys: <String>[name],
+        bypassLine: true,
+      ),
       label: label,
     );
   }
@@ -505,7 +623,10 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     if (reply.ack.queued ?? false) return;
     _pending.remove(reply.corr);
     if (reply.ack.accepted) {
-      if (send.notifyAccepted) widget.onInputAccepted?.call(send.input);
+      // Every accepted control but an answer send mirrors into the Composer,
+      // so the field and the Host shadow hold the same line (R-03-130).
+      // R-31-09-38: an answer send's acknowledgement MUST NOT (R-31-09-41).
+      if (send.mirror) widget.onInputAccepted?.call(send.input);
       return;
     }
     // R-31-09-13, R-11-228: nothing here ever re-sends.
@@ -755,6 +876,70 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
     ),
   );
 
+  /// A settled swipe: record the page, move the indicator with it (R-31-09-40), and
+  /// report the grid it landed in. A scroll notification fires this, never a build, so
+  /// the listener may setState.
+  void _onPageChanged(int page) {
+    setState(() => _page = page);
+    if (_tabs.index != page) _tabs.index = page;
+    widget.onPageChanged?.call(_pageEnum(page));
+  }
+
+  /// The grid a pager index belongs to: the leading [_keysPageCount] pages are `Keys`,
+  /// the next [_functionPageCount] are `Function keys`, the rest are `Answer`.
+  KeyPanelPage _pageEnum(int page) {
+    if (page < _keysPageCount) return KeyPanelPage.keys;
+    if (page < _keysPageCount + _functionPageCount) return KeyPanelPage.function;
+    return KeyPanelPage.answer;
+  }
+
+  /// The pager index of a grid's first page, for [KeyRow.requestedPage].
+  int _firstPageOf(KeyPanelPage page) => switch (page) {
+    KeyPanelPage.keys => 0,
+    KeyPanelPage.function => _keysPageCount,
+    KeyPanelPage.answer => _keysPageCount + _functionPageCount,
+  };
+
+  /// Keeps the indicator's controller matched to the page count the current layout
+  /// produces, recreating it when the reflow of R-31-09-40 changes the count. The
+  /// selector lets go of the old controller in its own `didUpdateWidget`, which
+  /// tolerates a disposed one — the pattern `agent_list_screen.dart` documents. When the
+  /// count shrank past the selected page, the pager and the indicator are mid-layout, so
+  /// the correction to the last page lands after this frame.
+  void _syncTabs(int pageCount) {
+    if (_page >= pageCount) {
+      _page = pageCount - 1;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_pager.hasClients && _pager.page?.round() != _page) {
+          _pager.jumpToPage(_page);
+        }
+        if (_tabs.index != _page) _tabs.index = _page;
+      });
+    }
+    if (_tabs.length != pageCount) {
+      final TabController previous = _tabs;
+      _tabs = TabController(
+        length: pageCount,
+        initialIndex: _page,
+        vsync: this,
+      );
+      previous.dispose();
+    }
+  }
+
+  /// The indicator's spoken label (R-31-09-40): the grid's name, the page's index and
+  /// the total — `Keys, page 1 of 3`, `Function keys, page 2 of 3`, `Answer, page 3 of
+  /// 3`.
+  String get _pageSpoken {
+    final String name = switch (_pageEnum(_page)) {
+      KeyPanelPage.keys => 'Keys',
+      KeyPanelPage.function => 'Function keys',
+      KeyPanelPage.answer => 'Answer',
+    };
+    return '$name, page ${_page + 1} of ${_tabs.length}';
+  }
+
   /// The key panel overlays the grid without changing keyboard state.
   Widget _buildPanel(AppColor color) => DecoratedBox(
     decoration: BoxDecoration(
@@ -768,227 +953,326 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
         horizontal: AppSpace.space4,
         vertical: AppSpace.space2,
       ),
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double module = _moduleWidth(constraints.maxWidth);
-          return _capTheme(
-            context,
-            minWidth: module,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                _KeyCap(
-                  key: const ValueKey<String>('keyRowAnswer'),
-                  label: 'Answer',
-                  semanticLabel: 'Answer keys',
-                  latched: _answerMode,
-                  onTap: () => setState(() {
-                    _answerMode = !_answerMode;
-                    _chordLatch.clear();
-                  }),
-                ),
-                _rowGap,
-                if (_answerMode)
-                  _buildAnswerKeys()
-                else
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      _buildLeadingColumn(),
-                      const SizedBox(width: AppSpace.space2),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          key: const ValueKey<String>('keyRowScrollRegion'),
-                          scrollDirection: Axis.horizontal,
-                          child: _buildMiddleColumns(module),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpace.space2),
-                      _buildTrailingColumn(),
-                    ],
-                  ),
-              ],
-            ),
-          );
-        },
-      ),
+      child: _buildPager(),
     ),
   );
 
-  Widget _buildAnswerKeys() => Wrap(
-    spacing: AppSpace.space2,
-    runSpacing: AppSpace.space2,
-    children: <Widget>[
-      for (final String name in const <String>[
-        'Up',
-        'Down',
-        'Left',
-        'Right',
-        'Enter',
-        'Esc',
-        'Tab',
-        'Space',
-        '1',
-        '2',
-        '3',
-        '4',
-        '5',
-        '6',
-        '7',
-        '8',
-        '9',
-        'y',
-        'n',
-      ])
-        _KeyCap(
-          key: ValueKey<String>('keyRowAnswer$name'),
-          label: name,
-          semanticLabel: name,
-          onTap: _sendingEnabled
-              ? () {
-                  unawaited(AppHaptic.select());
-                  _dispatch(
-                    name.length == 1
-                        ? SendInput(paneId: widget.paneId, text: name)
-                        : SendInput(
-                            paneId: widget.paneId,
-                            keys: <String>[name],
-                          ),
-                    label: name,
-                    notifyAccepted: false,
-                  );
-                }
-              : null,
+  /// The panel's one pager across the three grids of the 2026-09-23 keycap decision —
+  /// `Keys`, `Function keys` and `Answer`, in that order — under the reflow of
+  /// R-31-09-40. Every page is its grid's cells restricted to the columns the reflow
+  /// gives it, and every grid runs four rows, so the panel is one fixed height and the
+  /// indicator never moves between pages.
+  Widget _buildPager() => LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints constraints) {
+      final (double module, int columns) = _moduleWidth(
+        context,
+        constraints.maxWidth,
+        _capFaceMeasures,
+        6,
+      );
+      final bool sendable = _sendingEnabled;
+      final List<List<Widget?>> keysCells = _keysCells(sendable);
+      final List<List<Widget?>> functionCells = _functionCells(sendable);
+      final List<List<Widget?>> answerCells = _answerCells(sendable);
+      final List<List<int>> keysPages = _pageColumns(columns, keysCells);
+      final List<List<int>> functionPages = _pageColumns(
+        columns,
+        functionCells,
+      );
+      final List<List<int>> answerPages = _pageColumns(columns, answerCells);
+      final List<(List<List<Widget?>> cells, List<int> columns)> grids =
+          <(List<List<Widget?>>, List<int>)>[
+            for (final List<int> page in keysPages) (keysCells, page),
+            for (final List<int> page in functionPages) (functionCells, page),
+            for (final List<int> page in answerPages) (answerCells, page),
+          ];
+      _keysPageCount = keysPages.length;
+      _functionPageCount = functionPages.length;
+      // A requested page (KeyRow.requestedPage) takes the pager to the first page of
+      // its grid. The value moves `_page` here, so the indicator's spoken label is
+      // right from this pass; the pager and the dots follow post-frame, and the
+      // report goes out there too — never synchronously during build.
+      final KeyPanelPage? request = _pendingPageRequest;
+      _pendingPageRequest = null;
+      if (request != null) _page = _firstPageOf(request);
+      _syncTabs(grids.length);
+      if (request != null || !_pager.hasClients) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (_tabs.index != _page) _tabs.index = _page;
+          if (_pager.hasClients && _pager.page?.round() != _page) {
+            _pager.jumpToPage(_page);
+          }
+          // A jump reports through the pager's own onPageChanged; this call covers
+          // the case where no scroll happened — the first build after the panel
+          // opened, or a request for the page the pager already shows.
+          widget.onPageChanged?.call(_pageEnum(_page));
+        });
+      }
+      // Every page of every grid runs four rows. A cap never grows taller than
+      // `size.keycap` (R-31-09-15), so the pages are one fixed height and the
+      // indicator below them never moves.
+      const int rows = 4;
+      return _capTheme(
+        context,
+        minWidth: module,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            SizedBox(
+              height:
+                  rows * AppSize.keycapHeight + (rows - 1) * AppSpace.space2,
+              child: PageStorage(
+                bucket: _pagerBucket,
+                child: PageView(
+                  key: const PageStorageKey<String>('keyRowPages'),
+                  controller: _pager,
+                  onPageChanged: _onPageChanged,
+                  children: <Widget>[
+                    for (final (
+                          List<List<Widget?>> cells,
+                          List<int> page,
+                        )
+                        in grids)
+                      _gridPage(cells, page, module),
+                  ],
+                ),
+              ),
+            ),
+            // R-31-09-40: the native indicator, centred, a `space.2` below the
+            // caps, drawn when the pager has more than one page. `cupertino_ui`
+            // 1.0.1 has no page control, so the Material SDK one serves both
+            // platforms (R-33-081, the R-33-034 precedent).
+            if (grids.length > 1) ...<Widget>[
+              _rowGap,
+              Center(
+                child: Semantics(
+                  container: true,
+                  liveRegion: true,
+                  excludeSemantics: true,
+                  label: _pageSpoken,
+                  child: TabPageSelector(controller: _tabs),
+                ),
+              ),
+            ],
+          ],
         ),
-    ],
+      );
+    },
   );
 
-  /// One `space.2` between two rows of a column, and an empty cell where a column has no key
-  /// on a row: `size.keycap` high, so the rows of every column stay level.
-  static const Widget _rowGap = SizedBox(height: AppSpace.space2);
-  static const Widget _emptyCell = SizedBox(height: AppSize.keycapHeight);
 
-  /// Column one, pinned at the leading edge: `esc` on row one, then `ins` over `del` in the
-  /// expansion, the first navigation pair (R-03-117). `esc` is the way out of a mode a person
-  /// entered by accident, and a way out behind a scroll is not a way out (R-31-09-16).
-  Widget _buildLeadingColumn() {
-    final bool sendable = _sendingEnabled;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _KeyCap(
-          key: const ValueKey<String>('keyRowEsc'),
-          label: 'esc',
-          semanticLabel: 'Escape',
-          onTap: sendable
-              ? () => _sendKeyNames(<String>['Esc'], label: 'esc')
-              : null,
-        ),
-        if (widget.panelOpen) ...<Widget>[
-          _rowGap,
-          _rawCap(_keyIns, sendable),
-          _rowGap,
-          _rawCap(_keyDel, sendable),
-        ],
-      ],
-    );
+  /// The Answer page's `enter` cap (R-31-09-41): the platform's high-emphasis
+  /// filled button in the primary colour, the grid's one filled cap.
+  Widget _answerEnterCap(bool sendable) => _KeyCap(
+    key: const ValueKey<String>('keyRowAnswerEnter'),
+    icon: Symbols.keyboard_return_rounded,
+    name: 'enter',
+    semanticLabel: 'Enter',
+    filled: true,
+    onTap: sendable ? () => _answerKey('Enter', label: 'enter') : null,
+  );
+
+  /// The Answer page's `esc` cap: the way out of the prompt, sent on the
+  /// answer path of R-31-09-38 like every answer cap.
+  Widget _answerEscCap(bool sendable) => _KeyCap(
+    key: const ValueKey<String>('keyRowAnswerEsc'),
+    icon: Symbols.cancel_rounded,
+    name: 'esc',
+    semanticLabel: 'Escape',
+    onTap: sendable ? () => _answerKey('Esc', label: 'esc') : null,
+  );
+
+  /// One Answer arrow: the glyph of R-32-401, the spoken label and the `keys`
+  /// name of the Keys page's arrow caps, sent on the answer path of
+  /// R-31-09-38.
+  Widget _answerArrowCap(_ArrowKey arrow, bool sendable) => _KeyCap(
+    key: ValueKey<String>('keyRowAnswer${arrow.name}'),
+    icon: arrow.icon,
+    semanticLabel: arrow.semanticLabel,
+    onTap: sendable ? () => _answerKey(arrow.name, label: arrow.name) : null,
+  );
+
+  /// One `space.2` between two rows of a page. An empty cell is a blank module, built
+  /// where it sits in [_gridPage], so the rows of every column stay level.
+  static const Widget _rowGap = SizedBox(height: AppSpace.space2);
+
+  /// The `esc` cap the Keys and Function keys pages carry in row one, column one
+  /// (R-03-117): the way out of a mode a person entered by accident stays on every page
+  /// (R-31-09-40). The package has no escape-key glyph, so the face is `cancel`, the
+  /// dismiss icon, with `esc` small under it.
+  Widget _escCap(bool sendable) => _KeyCap(
+    key: const ValueKey<String>('keyRowEsc'),
+    icon: Symbols.cancel_rounded,
+    name: 'esc',
+    semanticLabel: 'Escape',
+    onTap: sendable ? () => _sendKeyNames(<String>['Esc'], label: 'esc') : null,
+  );
+
+  /// The `tab` cap: a long press sends `shift+tab` (R-21-019).
+  Widget _tabCap(bool sendable) => _KeyCap(
+    key: const ValueKey<String>('keyRowTab'),
+    icon: Symbols.keyboard_tab_rounded,
+    name: 'tab',
+    semanticLabel: 'Tab',
+    onTap: sendable ? () => _sendKeyNames(<String>['Tab'], label: 'tab') : null,
+    onLongPress: sendable
+        ? () => _sendKeyNames(<String>['shift+tab'], label: 'shift+tab')
+        : null,
+  );
+
+  /// One latched modifier cap: `ctrl` or `alt`. Both latch and lock exactly the same
+  /// way (R-31-09-19, R-31-09-23); the latch raises the keyboard, per R-31-09-17.
+  Widget _modifierCap(ChordModifier modifier, bool sendable) => _KeyCap(
+    key: ValueKey<String>(
+      modifier == ChordModifier.ctrl ? 'keyRowCtrl' : 'keyRowAlt',
+    ),
+    icon: modifier == ChordModifier.ctrl
+        ? Symbols.keyboard_control_key_rounded
+        : Symbols.keyboard_option_key_rounded,
+    name: modifier.name,
+    semanticLabel: _latchSpoken(modifier),
+    latched: _chordLatch.isLatched(modifier),
+    locked: _chordLatch.isLocked(modifier),
+    onTap: sendable ? () => _toggleLatch(modifier) : null,
+  );
+
+  /// One function key cap (R-03-117): the face is the key's own `F1`…`F12` in
+  /// `type.mono.key` (2026-09-23), spoken `F1`, sending the bare `F1` of
+  /// `docs/10-herdr-integration.md` §6.2 through the named-key path. A latch neither
+  /// modifies it nor clears for it: R-10-038 permits only a character or `tab` as a
+  /// chord base.
+  Widget _fnCap(int number, bool sendable) => _KeyCap(
+    key: ValueKey<String>('keyRowFn$number'),
+    label: 'F$number',
+    semanticLabel: 'F$number',
+    onTap: sendable
+        ? () => _sendKeyNames(<String>['F$number'], label: 'F$number')
+        : null,
+  );
+
+  /// The six columns and four rows of the `Keys` grid (R-03-117, re-laid 2026-09-23 to
+  /// physical-keyboard positions): row one `esc . . ins home pgup`, row two
+  /// `tab . . del end pgdn`, row three `. . . . ↑ .`, row four `ctrl alt . ← ↓ →` —
+  /// the navigation pairs stack over the arrow columns the way a keyboard stacks them,
+  /// and `↑` sits directly over `↓` in the inverted T of the bottom row. `null` is an
+  /// empty cell, drawn as one blank module so every row shares its column widths
+  /// (R-31-09-21).
+  List<List<Widget?>> _keysCells(bool sendable) => <List<Widget?>>[
+    <Widget?>[
+      _escCap(sendable),
+      null,
+      null,
+      _rawCap(_keyIns, sendable),
+      _rawCap(_keyHome, sendable),
+      _rawCap(_keyPgup, sendable),
+    ],
+    <Widget?>[
+      _tabCap(sendable),
+      null,
+      null,
+      _rawCap(_keyDel, sendable),
+      _rawCap(_keyEnd, sendable),
+      _rawCap(_keyPgdn, sendable),
+    ],
+    <Widget?>[null, null, null, null, _arrowCap(_arrowUp, sendable), null],
+    <Widget?>[
+      _modifierCap(ChordModifier.ctrl, sendable),
+      _modifierCap(ChordModifier.alt, sendable),
+      null,
+      _arrowCap(_arrowLeft, sendable),
+      _arrowCap(_arrowDown, sendable),
+      _arrowCap(_arrowRight, sendable),
+    ],
+  ];
+
+  /// The same module and four rows for the `Function keys` grid (R-03-117, amended
+  /// 2026-09-23): `esc` alone top left, then the function row in two full rows at the
+  /// bottom — F1–F6 on row three, F7–F12 on row four.
+  List<List<Widget?>> _functionCells(bool sendable) => <List<Widget?>>[
+    <Widget?>[_escCap(sendable), null, null, null, null, null],
+    const <Widget?>[null, null, null, null, null, null],
+    <Widget?>[for (int n = 1; n <= 6; n++) _fnCap(n, sendable)],
+    <Widget?>[for (int n = 7; n <= 12; n++) _fnCap(n, sendable)],
+  ];
+
+  /// The `Answer` grid of R-31-09-41 (2026-09-23, amended): `esc` top left and the one
+  /// filled `enter` top right, like a keyboard's corners; the inverted T sits centred
+  /// low — row three `. . ↑ . . .`, row four `. ← ↓ → . .`. Every cap sends on the
+  /// answer path of R-31-09-38: `bypass_line: true`, never mirrored into the Composer.
+  /// The answer TEXT is the Composer's answer mode, not a field of this panel.
+  List<List<Widget?>> _answerCells(bool sendable) => <List<Widget?>>[
+    <Widget?>[
+      _answerEscCap(sendable),
+      null,
+      null,
+      null,
+      null,
+      _answerEnterCap(sendable),
+    ],
+    const <Widget?>[null, null, null, null, null, null],
+    <Widget?>[null, null, _answerArrowCap(_arrowUp, sendable), null, null, null],
+    <Widget?>[
+      null,
+      _answerArrowCap(_arrowLeft, sendable),
+      _answerArrowCap(_arrowDown, sendable),
+      _answerArrowCap(_arrowRight, sendable),
+      null,
+      null,
+    ],
+  ];
+
+  /// The columns one page of [cells] shows: column one first — the leading column every
+  /// page retains (R-31-09-40): `esc` on all three grids — then one run of the
+  /// remaining columns, as many as [fit] leaves room for. A run with no key in any row
+  /// (the function grid's empty column two, the keys grid's gutter column three) adds
+  /// no page. When the grid's own column count fits, this is the one unbroken grid
+  /// (R-31-09-16).
+  List<List<int>> _pageColumns(int fit, List<List<Widget?>> cells) {
+    final int gridColumns = cells.first.length;
+    final int chunk = math.max(1, fit - 1);
+    final List<List<int>> pages = <List<int>>[];
+    for (int start = 1; start < gridColumns; start += chunk) {
+      final List<int> run = <int>[
+        for (
+          int column = start;
+          column < math.min(start + chunk, gridColumns);
+          column++
+        )
+          column,
+      ];
+      final bool empty = run.every(
+        (int column) => cells.every((List<Widget?> row) => row[column] == null),
+      );
+      if (!empty) pages.add(<int>[0, ...run]);
+    }
+    return pages;
   }
 
-  /// The middle four columns scroll together and preserve the navigation pairs.
-  Widget _buildMiddleColumns(double module) {
-    final bool sendable = _sendingEnabled;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
+  /// One page of a grid: the rows of [cells] restricted to [columns], every empty cell a
+  /// blank [module] so the rows stay level with the caps.
+  Widget _gridPage(
+    List<List<Widget?>> cells,
+    List<int> columns,
+    double module,
+  ) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: <Widget>[
+      for (int row = 0; row < cells.length; row++) ...<Widget>[
+        if (row > 0) _rowGap,
         Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _KeyCap(
-              key: const ValueKey<String>('keyRowTab'),
-              label: 'tab',
-              semanticLabel: 'Tab',
-              onTap: sendable
-                  ? () => _sendKeyNames(<String>['Tab'], label: 'tab')
-                  : null,
-              onLongPress: sendable
-                  ? () =>
-                        _sendKeyNames(<String>['shift+tab'], label: 'shift+tab')
-                  : null,
-            ),
-            const SizedBox(width: AppSpace.space2),
-            _KeyCap(
-              key: const ValueKey<String>('keyRowCtrl'),
-              label: 'ctrl',
-              semanticLabel: _latchSpoken(ChordModifier.ctrl),
-              latched: _chordLatch.isLatched(ChordModifier.ctrl),
-              locked: _chordLatch.isLocked(ChordModifier.ctrl),
-              onTap: sendable ? () => _toggleLatch(ChordModifier.ctrl) : null,
-            ),
-            const SizedBox(width: AppSpace.space2),
-            // Column four: `alt`, beside `ctrl`. It latches and locks exactly as `ctrl`
-            // does (R-31-09-19, R-31-09-23); the latch raises the keyboard, which closes
-            // the expansion, per R-31-09-17.
-            _KeyCap(
-              key: const ValueKey<String>('keyRowAlt'),
-              label: 'alt',
-              semanticLabel: _latchSpoken(ChordModifier.alt),
-              latched: _chordLatch.isLatched(ChordModifier.alt),
-              locked: _chordLatch.isLocked(ChordModifier.alt),
-              onTap: sendable ? () => _toggleLatch(ChordModifier.alt) : null,
-            ),
-            // Column five is empty on row one: the inverted T is bottom-aligned, `↑`
-            // on row two over `↓` on row three (R-03-117, amended 2026-09-16).
+            for (int i = 0; i < columns.length; i++) ...<Widget>[
+              if (i > 0) const SizedBox(width: AppSpace.space2),
+              cells[row][columns[i]] ??
+                  SizedBox(width: module, height: AppSize.keycapHeight),
+            ],
           ],
         ),
-        if (widget.panelOpen) ...<Widget>[
-          _rowGap,
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              // Columns two and three: the top of the `home` and `pgup` pairs.
-              _rawCap(_keyHome, sendable),
-              const SizedBox(width: AppSpace.space2),
-              _rawCap(_keyPgup, sendable),
-              // Column five: `↑`, directly over `↓` on row three (R-10-037).
-              const SizedBox(width: AppSpace.space2),
-              SizedBox(width: module, height: AppSize.keycapHeight),
-              const SizedBox(width: AppSpace.space2),
-              _arrowCap(_arrowUp, sendable),
-            ],
-          ),
-          _rowGap,
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              // Columns two and three: the bottom of each pair, directly under row two's.
-              // Columns four and five: `←` and the stem `↓` of the inverted T.
-              _rawCap(_keyEnd, sendable),
-              const SizedBox(width: AppSpace.space2),
-              _rawCap(_keyPgdn, sendable),
-              const SizedBox(width: AppSpace.space2),
-              _arrowCap(_arrowLeft, sendable),
-              const SizedBox(width: AppSpace.space2),
-              _arrowCap(_arrowDown, sendable),
-            ],
-          ),
-        ],
       ],
-    );
-  }
-
-  /// The right arrow occupies the fixed sixth column, on the bottom row beside `↓`.
-  Widget _buildTrailingColumn() => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.end,
-    children: <Widget>[
-      _emptyCell,
-      _rowGap,
-      _emptyCell,
-      _rowGap,
-      _arrowCap(_arrowRight, _sendingEnabled),
     ],
   );
 
@@ -1006,7 +1290,9 @@ class KeyRowState extends State<KeyRow> with WidgetsBindingObserver {
   /// Sends the raw CSI sequence for a navigation key.
   Widget _rawCap(_RawKey def, bool sendable) => _KeyCap(
     key: ValueKey<String>('keyRowNav${def.label}'),
-    label: def.label,
+    icon: def.icon,
+    name: def.label,
+    flipIcon: def.flipIcon,
     semanticLabel: def.semanticLabel,
     onTap: sendable ? () => _sendRawText(def.sequence, label: def.label) : null,
   );
@@ -1036,28 +1322,94 @@ int _commonSuffixLength(String a, String b, int prefix) {
 
 void unawaited(Future<void>? future) {}
 
-/// The six-column module of R-03-133: how many `size.keycap` caps fit [width] at `space.2`
-/// gaps — never fewer than six, the count the grid of R-03-117 is built on — and the width
-/// that lets exactly that many fill it. Every cap in every row takes it as a minimum width,
-/// so the three rows line up as one grid and each column carries one meaning. Below six caps
-/// of room the module floors at `size.keycap` and the row scrolls, per R-32-363.
-double _moduleWidth(double width) {
-  if (!width.isFinite) return AppSize.keycapWidth;
-  const int columns = 6;
-  return math.max(
+/// Every face a grid cap can print, in the style that prints it: the small name under a
+/// glyph in `type.micro.strong`, and the F-key faces in `type.mono.key`. [_moduleWidth]
+/// measures them all, so the module never sits under one face's own width — a cap wider
+/// than the module would push its row out of the grid's columns, and each row holds
+/// different faces.
+const List<(String, TextStyle)> _capFaceMeasures = <(String, TextStyle)>[
+  ('esc', AppType.microStrong),
+  ('tab', AppType.microStrong),
+  ('ctrl', AppType.microStrong),
+  ('alt', AppType.microStrong),
+  ('enter', AppType.microStrong),
+  ('ins', AppType.microStrong),
+  ('del', AppType.microStrong),
+  ('home', AppType.microStrong),
+  ('end', AppType.microStrong),
+  ('pgup', AppType.microStrong),
+  ('pgdn', AppType.microStrong),
+  ('F1', AppType.monoKey),
+  ('F2', AppType.monoKey),
+  ('F3', AppType.monoKey),
+  ('F4', AppType.monoKey),
+  ('F5', AppType.monoKey),
+  ('F6', AppType.monoKey),
+  ('F7', AppType.monoKey),
+  ('F8', AppType.monoKey),
+  ('F9', AppType.monoKey),
+  ('F10', AppType.monoKey),
+  ('F11', AppType.monoKey),
+  ('F12', AppType.monoKey),
+];
+
+/// The panel's column measure (R-31-09-15, R-31-09-40): how many column modules fit
+/// [width] at `space.2` gaps — never more than the six columns R-03-117's grids are
+/// built on, and never fewer than two, so a reflowed page always keeps its grid's
+/// leading column and one more — and the width that lets exactly that many fill it. The
+/// widest of [measures] at the current text scale is a floor beside `size.keycap`,
+/// padding included: every cap in every row takes the module as a minimum width, so
+/// with the module at or past every face's own measure each cap is exactly one module
+/// wide and the rows line up as one grid at any text scale. Below a full grid's room
+/// the panel reflows cells onto more pages (R-31-09-40); it never shrinks a cap, clips
+/// a face, or scrolls.
+(double module, int columns) _moduleWidth(
+  BuildContext context,
+  double width,
+  List<(String, TextStyle)> measures,
+  int gridColumns,
+) {
+  if (!width.isFinite) return (AppSize.keycapWidth, gridColumns);
+  final TextPainter probe = TextPainter(
+    textScaler: MediaQuery.textScalerOf(context),
+    textDirection: TextDirection.ltr,
+  );
+  double labels = 0;
+  for (final (String text, TextStyle style) in measures) {
+    probe.text = TextSpan(text: text, style: style);
+    probe.layout();
+    labels = math.max(labels, probe.width);
+  }
+  probe.dispose();
+  // The padding here is the cap's own horizontal inset: `space.1` a side, the same
+  // inset [_capTheme] hands the buttons.
+  final double floor = math.max(
     AppSize.keycapWidth,
-    (width - (columns - 1) * AppSpace.space2) / columns,
+    labels + 2 * AppSpace.space1,
+  );
+  final int columns = ((width + AppSpace.space2) / (floor + AppSpace.space2))
+      .floor()
+      .clamp(2, gridColumns);
+  return (
+    math.max(floor, (width - (columns - 1) * AppSpace.space2) / columns),
+    columns,
   );
 }
 
-/// The one style every cap under [child] takes, per R-31-09-21 and R-03-059: `size.keycap`
-/// high, at least [minWidth] wide, `space.2` of horizontal padding, `type.mono.key`. On
-/// Android it is the row's own `OutlinedButtonTheme` and `FilledButtonTheme`, laid over the
-/// app theme of `app.dart`, which keeps every colour, side, overlay and shape it sets. On iOS
-/// the type reaches `CupertinoButton` through `textTheme.actionTextStyle`, the one slot the
-/// component reads; `cupertino_ui` 1.0.1 has no theme slot for a button's size or padding
-/// (R-33-033), so [_KeyCap] reads this same style back from `OutlinedButtonTheme.of` and hands
-/// the component the minimum size and the padding the Android cap takes from the theme.
+/// The one style every cap under [child] takes, per R-31-09-21, R-03-059 and the
+/// 2026-09-23 keycap decision: `size.keycap` high, at least [minWidth] wide, `space.1`
+/// of horizontal padding, `type.mono.key`, and a `radius.sm` rounded rectangle — a
+/// keycap shape, not the component's stadium. The padding is the minimum `space.1` so
+/// the five-letter `enter` name under its glyph still fits one 48-wide module at a 360
+/// dp width; a wider inset would reflow the panel at the review phone's own width.
+/// On Android it is the row's own
+/// `OutlinedButtonTheme` and `FilledButtonTheme`, laid over the app theme of
+/// `app.dart`, which keeps every colour, side and overlay it sets. On iOS the type
+/// reaches `CupertinoButton` through `textTheme.actionTextStyle`, the one slot the
+/// component reads; `cupertino_ui` 1.0.1 has no theme slot for a button's size or
+/// padding (R-33-033), so [_KeyCap] reads this same style back from
+/// `OutlinedButtonTheme.of` and hands the component the minimum size, the padding and
+/// the corner radius the Android cap takes from the theme.
 Widget _capTheme(
   BuildContext context, {
   required double minWidth,
@@ -1068,9 +1420,14 @@ Widget _capTheme(
       Size(minWidth, AppSize.keycapHeight),
     ),
     padding: const WidgetStatePropertyAll<EdgeInsets>(
-      EdgeInsets.symmetric(horizontal: AppSpace.space2),
+      EdgeInsets.symmetric(horizontal: AppSpace.space1),
     ),
     textStyle: const WidgetStatePropertyAll<TextStyle>(AppType.monoKey),
+    shape: const WidgetStatePropertyAll<OutlinedBorder>(
+      RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(AppRadius.sm)),
+      ),
+    ),
   );
   final Widget themed = OutlinedButtonTheme(
     data: OutlinedButtonThemeData(
@@ -1123,20 +1480,47 @@ class _KeyCap extends StatelessWidget {
     required this.semanticLabel,
     this.label,
     this.icon,
+    this.name,
+    this.flipIcon = false,
     this.onTap,
     this.onLongPress,
     this.latched,
     this.locked = false,
+    this.filled = false,
   }) : assert(
          (label == null) != (icon == null),
          'a key cap carries a label or a glyph, never both',
+       ),
+       assert(
+         name == null || icon != null,
+         'a small name rides under a glyph, never under a label',
        );
 
+  /// The face text of a cap with no glyph: the F keys' own `F1`…`F12` (2026-09-23).
   final String? label;
+
+  /// The keybind glyph of the face: a Material Symbols icon of the R-32-401 set,
+  /// never a Unicode glyph (2026-09-23).
   final IconData? icon;
+
+  /// The key's small name under the glyph, in `type.micro.strong` — the Mac-keycap
+  /// read of the 2026-09-23 decision, so the face never depends on the glyph alone.
+  /// `null` on the arrow caps, whose arrows need no name. At the 2.0 text-scale clamp
+  /// the face is exactly `size.keycap` high: 20 of glyph plus 28 of name.
+  final String? name;
+
+  /// Mirrors the glyph for a forward-facing key: `del` draws the mirrored
+  /// backspace-key glyph of the forward delete.
+  final bool flipIcon;
+
   final String semanticLabel;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+
+  /// The platform's high-emphasis filled form without a latch (R-31-09-41):
+  /// the Answer grid's `enter`, the grid's one filled cap. Unlike [latched]
+  /// it reports no `toggled` flag — the cap is not a toggle.
+  final bool filled;
 
   /// The latch state of a modifier cap, or `null` on a cap that has no latch. A modifier
   /// reports the state to assistive technology as a `toggled` flag (R-03-118); every other
@@ -1145,8 +1529,8 @@ class _KeyCap extends StatelessWidget {
   final bool? latched;
 
   /// Whether a latched modifier is locked (R-03-118 as amended 2026-09-10, R-31-09-25). A
-  /// locked cap underlines its label, the one mark every phone keyboard puts under the Shift
-  /// glyph for caps lock; a held cap has the same fill and a plain label. Nothing else on the
+  /// locked cap underlines its name, the one mark every phone keyboard puts under the Shift
+  /// glyph for caps lock; a held cap has the same fill and a plain name. Nothing else on the
   /// cap changes.
   final bool locked;
 
@@ -1157,20 +1541,57 @@ class _KeyCap extends StatelessWidget {
     // rides the same face, so it merges onto that one node beside the label, the tap and
     // the enabled state, rather than adding a second node beside the button. A cap with no
     // latch is not a toggle and reports no flag. Inside the face is also inside the iOS
-    // `Opacity` of a disabled cap, so a disabled latched modifier still reads.
-    Widget face = icon != null
-        ? Icon(icon, size: AppSize.iconMd, semanticLabel: semanticLabel)
-        : Text(
-            label!,
-            semanticsLabel: semanticLabel,
-            style: locked
-                // R-31-09-25: a stronger typographic underline marks the lock.
-                ? const TextStyle(
-                    decoration: TextDecoration.underline,
-                    decorationThickness: 2,
-                  )
-                : null,
-          );
+    // `Opacity` of a disabled cap, so a disabled latched modifier still reads. A two-line
+    // face carries the spoken name on its own node and excludes the printed name, so the
+    // button merges exactly one label.
+    Widget face;
+    if (icon == null) {
+      face = Text(
+        label!,
+        semanticsLabel: semanticLabel,
+        style: locked
+            // R-31-09-25: a stronger typographic underline marks the lock.
+            ? const TextStyle(
+                decoration: TextDecoration.underline,
+                decorationThickness: 2,
+              )
+            : null,
+      );
+    } else {
+      Widget glyph = Icon(
+        icon,
+        size: AppSize.iconMd,
+        semanticLabel: name == null ? semanticLabel : null,
+      );
+      if (flipIcon) {
+        glyph = Transform.scale(
+          scaleX: -1,
+          alignment: Alignment.center,
+          child: glyph,
+        );
+      }
+      face = name == null
+          ? glyph
+          : Semantics(
+              label: semanticLabel,
+              excludeSemantics: true,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  glyph,
+                  Text(
+                    name!,
+                    style: locked
+                        ? AppType.microStrong.copyWith(
+                            decoration: TextDecoration.underline,
+                            decorationThickness: 2,
+                          )
+                        : AppType.microStrong,
+                  ),
+                ],
+              ),
+            );
+    }
     if (latched != null) face = Semantics(toggled: latched, child: face);
     return _button(context, face);
   }
@@ -1180,7 +1601,7 @@ class _KeyCap extends StatelessWidget {
       // R-03-118: the high-emphasis form of the platform, the theme's primary fill under its
       // `onPrimary` label, against the outlined idle cap. Not the tonal form, which the owner
       // found unclear beside an outline (2026-09-10).
-      return latched == true
+      return latched == true || filled
           ? FilledButton(
               onPressed: onTap,
               onLongPress: onLongPress,
@@ -1198,13 +1619,16 @@ class _KeyCap extends StatelessWidget {
     final EdgeInsetsGeometry padding = caps.padding!.resolve(
       const <WidgetState>{},
     )!;
+    // The same `radius.sm` the Android cap takes from the theme's shape (2026-09-23).
+    final BorderRadius radius = BorderRadius.circular(AppRadius.sm);
     final Color primary = CupertinoTheme.of(context).primaryColor;
     return Opacity(
       opacity: onTap == null && onLongPress == null ? _opacityDisabled : 1,
-      child: latched == true
+      child: latched == true || filled
           ? CupertinoButton.filled(
               minimumSize: minimumSize,
               padding: padding,
+              borderRadius: radius,
               onPressed: onTap,
               onLongPress: onLongPress,
               disabledColor: primary,
@@ -1213,6 +1637,7 @@ class _KeyCap extends StatelessWidget {
           : CupertinoButton.tinted(
               minimumSize: minimumSize,
               padding: padding,
+              borderRadius: radius,
               onPressed: onTap,
               onLongPress: onLongPress,
               // The component's own label ink is its `primaryColor`, `color.accent.primary`,

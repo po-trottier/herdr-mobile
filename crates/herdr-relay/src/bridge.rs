@@ -2195,6 +2195,7 @@ mod tests {
 
         let line = |pane: &str, text: &str| SendInput {
             pane_id: pane.to_owned(),
+            bypass_line: None,
             defer: None,
             line: Some(text.to_owned()),
             text: None,
@@ -2220,6 +2221,7 @@ mod tests {
             BridgeRequest::SendInput(
                 SendInput {
                     pane_id: "pane".to_owned(),
+                    bypass_line: None,
                     defer: None,
                     line: None,
                     text: None,

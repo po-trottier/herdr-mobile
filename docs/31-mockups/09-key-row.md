@@ -31,28 +31,89 @@ iOS, panel closed, 36 pt
 
 ### Key panel open
 
-The close control replaces "+". The panel appears above the bar, over the bottom of the grid.
-The keyboard keeps its current state. It stays below the bar when visible.
-The panel has its own raised surface and top hairline. The grid does not need to resize.
-On iOS, use the same panel above the iOS bar. Do not add an outside send control.
+Tap `+` to open the pager directly, per R-31-09-24. There is no menu.
+The close control replaces `+`. The panel overlays the grid above the bar.
+The keyboard keeps its current state. On iOS, Send stays inside the field suffix.
+The layouts below illustrate R-31-09-21. A dot marks an empty cell, not a key.
+Each bracket represents a native keycap with the shape and type of R-32-535.
+The face table below supplies the large glyph and small name inside each cap.
 
 ```text
+Page 1: Keys
 +------------------------------------------------+
-|                terminal grid                   |
-+------------------------------------------------+
-|  (esc) (tab) (ctrl) (alt)                        |
-|  (ins) (home)(pgup)        ( ^ )                 |
-|  (del) (end) (pgdn) ( < )  ( v ) ( > )           |
+| [esc]    .      .    [ins]  [home] [pgup]        |
+| [tab]    .      .    [del]  [end]  [pgdn]        |
+|   .      .      .      .     [↑]     .          |
+| [ctrl] [alt]    .     [←]    [↓]    [→]          |
+|                  (*) (o) (o)                   |
 +------------------------------------------------+
 |  (x) [ Type here                         ] (>) |
 +------------------------------------------------+
 |          system keyboard, if already up        |
 +------------------------------------------------+
+
+Page 2: Function keys
++------------------------------------------------+
+| [esc]    .     [F1]   [F2]   [F3]   [F4]        |
+|   .      .     [F5]   [F6]   [F7]   [F8]        |
+|   .      .     [F9]   [F10]  [F11]  [F12]       |
+|   .      .      .      .      .      .          |
+|                  (o) (*) (o)                   |
++------------------------------------------------+
+|  (x) [ Type here                         ] (>) |
++------------------------------------------------+
+
+Page 3: Answer
++------------------------------------------------+
+| [esc]    .      .      .      .      .          |
+|   .      .      .      .      .      .          |
+|   .      .      .      .     [↑]   [enter*]     |
+|   .      .      .     [←]    [↓]    [→]          |
+|                  (o) (o) (*)                   |
++------------------------------------------------+
+|  (x) [ Type an answer                    ] (>) |
++------------------------------------------------+
+|          system keyboard, if already up        |
++------------------------------------------------+
 ```
 
-The six-column order is `esc tab ctrl alt empty empty`, `ins home pgup empty Up empty`, then
-`del end pgdn Left Down Right` (amended 2026-09-16 per `R-03-117`: the inverted T is
-bottom-aligned).
+`enter*` marks the primary filled cap. The other Answer caps use the idle form.
+All pages retain four rows, including empty rows. A page change does not change the panel height.
+`(*)` marks the selected SDK page dot, per R-33-081.
+R-31-09-40 owns the indicator, page retention, and overflow onto additional pages.
+
+### Composer answer mode
+
+The Answer page uses the same composer below the panel, per R-31-09-41.
+The composer stores the main draft and selection, then shows an empty answer buffer.
+Its placeholder is `Type an answer`. The send control speaks `Send answer`.
+No second field or send control appears in the panel.
+When the panel closes or another page appears, the composer restores the main draft and selection.
+Answer keys never change either composer buffer. A blocked agent opens Answer under R-31-09-38.
+
+### Keycap faces
+
+R-32-535 owns the rounded rectangle, glyph size, small name type, and native button states.
+The following table owns the faces. Spoken labels remain unchanged.
+
+| Key | Large face | Small name |
+| --- | --- | --- |
+| Escape | `Symbols.cancel_rounded` | `esc` |
+| Tab | `Symbols.keyboard_tab_rounded` | `tab` |
+| Control | `Symbols.keyboard_control_key_rounded` | `ctrl` |
+| Alt | `Symbols.keyboard_option_key_rounded` | `alt` |
+| Enter | `Symbols.keyboard_return_rounded` | `enter` |
+| Insert | `Symbols.insert_text_rounded` | `ins` |
+| Delete | `Symbols.backspace_rounded`, mirrored horizontally | `del` |
+| Home | `Symbols.first_page_rounded` | `home` |
+| End | `Symbols.last_page_rounded` | `end` |
+| Page up | `Symbols.keyboard_double_arrow_up_rounded` | `pgup` |
+| Page down | `Symbols.keyboard_double_arrow_down_rounded` | `pgdn` |
+| Arrows | `Symbols.arrow_upward_rounded`, `Symbols.arrow_downward_rounded`, `Symbols.arrow_back_rounded`, `Symbols.arrow_forward_rounded` | None |
+| Function keys | `F1` through `F12` | None |
+
+Faces use the installed `material_symbols_icons` package, not Unicode key glyphs.
+The owner selected native buttons with these icons on 2026-09-23, per R-03-117.
 
 ### Wrapped field
 
@@ -105,9 +166,11 @@ states.
 ```text
 +------------------------------------------------+
 |  ctrl is held. Press one key.                  |
-|  (esc) (tab) (ctrl) (alt)                        |
-|  (ins) (home)(pgup)        ( ^ )                 |
-|  (del) (end) (pgdn) ( < )  ( v ) ( > )           |
+| [esc]    .      .    [ins]  [home] [pgup]        |
+| [tab]    .      .    [del]  [end]  [pgdn]        |
+|   .      .      .      .     [↑]     .          |
+| [ctrl] [alt]    .     [←]    [↓]    [→]          |
+|                  (*) (o) (o)                   |
 +------------------------------------------------+
 |  (x) [ Type here                         ] (>) |
 +------------------------------------------------+
@@ -132,34 +195,42 @@ Every name below was probed against live Herdr 0.8.0. A name Herdr rejects retur
 Six keys have no logical name, so they MUST go as raw CSI bytes in the `text` field of
 `pane.send_input`, per `R-10-036`. Every other key MUST go by name in `keys`, per `R-10-037`.
 `R-10-044` fixes the order in which the app resolves one key press. A typed character is step 1
-of that order: it goes as `text`. The keyboard is the one source of a typed character, because
-the key row holds no cap that types one, per `R-03-117`.
+of that order: it goes as `text`. The panel has no character caps, per R-03-117.
+The Answer page uses the one composer for prompt answers, per `R-31-09-41`.
 
-The `Row` column names the row and column in the key panel.
+The `Row` column names positions on `Keys`, unless it names another page.
 
 | Key | Row | Path | Wire value |
 | --- | --- | --- | --- |
 | a typed character | the keyboard | text | the character itself |
 | `esc` | 1, column 1 | named | `Esc` |
-| `tab` | 1, column 2 | named | `Tab` |
-| `ctrl` | 1, column 3 | modifier latch, no call of its own | joins the next key, `ctrl+c`; every key while locked, per `R-31-09-23` |
-| `alt` | 1, column 4 | modifier latch, no call of its own | joins the next key, `alt+b`; every key while locked, per `R-31-09-23` |
-| `^` | 1, column 5 | named | `Up` |
-| `ins` | 2, column 1 | raw, in `text` | `ESC` `[` `2` `~` |
-| `home` | 2, column 2 | raw, in `text` | `ESC` `[` `H` |
-| `pgup` | 2, column 3 | raw, in `text` | `ESC` `[` `5` `~` |
-| `<` | 2, column 4 | named | `Left` |
-| `v` | 2, column 5 | named | `Down` |
-| `>` | 2, column 6 | named | `Right` |
-| `del` | 3, column 1 | raw, in `text` | `ESC` `[` `3` `~` |
-| `end` | 3, column 2 | raw, in `text` | `ESC` `[` `F` |
-| `pgdn` | 3, column 3 | raw, in `text` | `ESC` `[` `6` `~` |
-| `enter` | the keyboard's return key | named | `Enter` |
+| `tab` | 2, column 1 | named | `Tab` |
+| `ctrl` | 4, column 1 | modifier latch, no call of its own | joins the next key, `ctrl+c`; every key while locked, per `R-31-09-23` |
+| `alt` | 4, column 2 | modifier latch, no call of its own | joins the next key, `alt+b`; every key while locked, per `R-31-09-23` |
+| `↑` | 3, column 5 | named | `Up` |
+| `ins` | 1, column 4 | raw, in `text` | `ESC` `[` `2` `~` |
+| `home` | 1, column 5 | raw, in `text` | `ESC` `[` `H` |
+| `pgup` | 1, column 6 | raw, in `text` | `ESC` `[` `5` `~` |
+| `←` | 4, column 4 | named | `Left` |
+| `↓` | 4, column 5 | named | `Down` |
+| `→` | 4, column 6 | named | `Right` |
+| `del` | 2, column 4 | raw, in `text` | `ESC` `[` `3` `~` |
+| `end` | 2, column 5 | raw, in `text` | `ESC` `[` `F` |
+| `pgdn` | 2, column 6 | raw, in `text` | `ESC` `[` `6` `~` |
+| `f1`–`f4` | Function keys: 1, columns 3–6 | named | `F1`–`F4` |
+| `f5`–`f8` | Function keys: 2, columns 3–6 | named | `F5`–`F8` |
+| `f9`–`f12` | Function keys: 3, columns 3–6 | named | `F9`–`F12` |
+| `enter` | answer mode, or the composer Send control | named | `Enter` |
 | `backspace` | the keyboard's delete key | named | `Backspace` |
-| `shift+tab` | 1, long press on `tab` | named | `shift+tab` |
+| `shift+tab` | 2, long press on `tab` | named | `shift+tab` |
 | a control chord, `ctrl+c` | `ctrl` latched, then the key | named | `ctrl+<char>`, lower case, per `R-10-038` |
 | an Alt chord, `alt+b` | `alt` latched, then the key | named | `alt+<char>`, lower case, per `R-10-038` |
 | a combined chord, `ctrl+alt+x` | `ctrl` and `alt` both latched, then the key | named | `ctrl+alt+<char>`, lower case, in the modifier order `R-10-039` fixes, per `R-03-120` |
+
+Every panel page repeats `esc` in row one, column one. Function keys send bare names through
+`_sendKeyNames`, for example `keys: ["F1"]`. They leave held and locked modifiers unchanged.
+`R-10-038` limits chord bases to one character or `tab`. The caps use widget keys `keyRowFn1`
+through `keyRowFn12`, print `F1` through `F12`, and speak `F1` through `F12`.
 
 A chord is typed, never picked from a list, per `R-03-116`: no surface prints one, so the
 `ctrl+<char>` spelling reaches the screen only in a latch hint, as an inline key. The caret form
@@ -185,16 +256,26 @@ unreachable.
 | Host in use | The relay answered `host_in_use`. | The field, send control, and every key that sends are disabled at `opacity.disabled`, and a keystroke from the keyboard sends nothing, because `R-30-807` disables only what needs the network. The banner of `R-30-940` carries the words, so the toolbar adds no second line. |
 | Offline | No route to the relay. | The field, send control, and every panel key are disabled, per R-30-807. The `+` / `×` control stays enabled so the panel can open and close. The offline indicator opens diagnostics, per R-30-806. |
 | Keyboard up | Field focus, a grid tap, or a modifier latch. | The bar stays above the keyboard inset, per R-30-519. Field focus and modifier latches leave the panel open. A grid tap closes it. |
-| Modifier latched | A tap on `ctrl` or `alt`. | The hint line `ctrl is held. Press one key.` above the caps when the panel is open, else above the input bar (`R-03-117`, 2026-09-16: no cap moves when the hint appears), the latched cap, and the keyboard up, per `R-31-09-19`. One key clears it. A tap on the other modifier adds it rather than replacing it, per `R-03-120`: both caps then read as latched and the hint names both. |
-| Modifier locked | A quick second tap, within the double-tap window of `R-30-301`, on the held `ctrl` or `alt`, per `R-31-09-23` and `R-03-122`. (amended 2026-09-10 per R-03-122; until then any second tap locked). | The hint line `ctrl is locked. Tap ctrl again to release.`, the same latched cap, and the keyboard up. Every key is a chord until a third tap or a lifecycle exit of `R-31-09-19`. A lock and a one-shot latch of the other modifier hold together, and the key press clears the one-shot and keeps the lock, per `R-03-120`. |
-| Key panel open | Tap `+`. | The panel overlays the bottom of the grid above the bar. The keyboard state is unchanged. The leading glyph is `×`. Field focus and modifier latches leave it open. |
+| Modifier latched | A tap on `ctrl` or `alt`. | The hint stays above the caps, or above the closed panel's input bar. The cap shows its held state. A character or Tab consumes the latch. A function key sends its bare name and leaves the latch unchanged. A tap on the other modifier adds it. |
+| Modifier locked | A quick second tap on held `ctrl` or `alt`, per `R-31-09-23`. | The hint names the lock. Character and Tab chords retain it. Function keys send bare names and retain it. A third tap or a lifecycle exit releases it. |
+| Key panel open | Tap `+`. | The pager overlays the grid above the bar. The keyboard state is unchanged. The leading glyph is `×`. |
+| Page changed | Swipe left or right. | The page and indicator change together. Four rows remain. No input is sent. |
+| Panel reopened | Close, then tap `+` in the same terminal screen. | The previous page returns. A new pane starts on `Keys`, page 1. |
+| Answer selected | Swipe to Answer, or enter blocked status under R-31-09-38. | The composer stores the main draft and selection, then shows an empty answer buffer. Only the Answer `enter` cap is filled. |
+| Answer edited | Type in the composer on Answer. | The answer buffer changes locally. No input or line sync occurs. Empty text still permits Send. |
+| Answer submitted | Press `Send answer` or the native send action. | One frame follows R-31-09-41. Acceptance clears the answer buffer. Failure retains its text. The stored main draft stays unchanged. |
+| Answer left | Close the panel or select another page. | The composer restores the exact main draft and selection without input. |
+| Large text scale | Column modules no longer fit. | Columns reflow onto more four-row pages under R-31-09-40. No cap shrinks or clips. |
 
 ## Navigation
 
 - The bar has no route of its own. It appears on the terminal in portrait and landscape.
-- Tap `+` to open the panel without changing keyboard focus or sending input.
+- Tap `+` to open the pager without changing keyboard focus or sending input.
 - Tap `×` or the grid to close the panel. The grid tap still focuses the composer.
+- Swipe to change the page without closing the panel.
 - Field focus and modifier latches leave the panel open.
+- Swipe horizontally inside the panel to change pages. This gesture sends no input.
+- Close and reopen retain the page within this terminal screen. A new pane resets to page one.
 - Modifier latches and locks keep the lifecycle exits in R-31-09-19 and R-31-09-23.
 - Rotation releases the modifier latch. A grid tap raises the keyboard in either orientation.
 - A switch to another computer leaves this route, per R-03-044 and R-30-946.
@@ -215,15 +296,12 @@ unreachable.
   terminal gives no local echo for a control key, so the phone must give the feedback. A keystroke
   from the software keyboard fires no haptic of its own: the keyboard gives its own (amended
   2026-09-09 per `R-03-054`).
-- **R-31-09-03** The app MUST send one `send_input` per keystroke, or per burst of keystrokes that
-  arrive together, and MUST send it at once. One editing update from the keyboard is one burst: a
-  tap types one character, a swipe or a paste commits a whole word. A burst of characters MUST go
-  as one `text` frame, never one call per character, because the Herdr socket answers one request
-  per connection, per `R-02-004`. Amended 2026-09-09 per `R-03-054`: until then the rule read
-  "one call per send", and a send was the whole field.
+- **R-31-09-03** Composer edits MUST follow R-31-09-27. Keycap input MUST send at once,
+  once per key or burst. A burst MUST use one frame, not one frame per character.
+  Composer answer edits MUST follow R-31-09-41 instead of the live composer path.
 - **R-31-09-04** Every key MUST send once. Composer edits use `R-31-09-27`; named keys and
   modifier chords
-  use `R-31-09-29`. Keyboard return uses `R-31-09-28`. Key caps MUST NOT insert text into the
+  use `R-31-09-29`. Composer keyboard return uses `R-31-09-28`. Key caps MUST NOT insert text into the
   composer.
 - **R-31-09-05** `ctrl+c` MUST NOT ask for a confirmation. A person reaching for `ctrl+c` is
   stopping a runaway command and a dialog would defeat that.
@@ -232,9 +310,9 @@ unreachable.
   `R-31-09-30` keeps the platform's autocorrect, suggestions and capitalisation on.
 - **R-31-09-07** Retired. See `## Retired rules`. The live composer is specified by `R-31-09-26`
   through `R-31-09-30`.
-- **R-31-09-08** A latched `ctrl` MUST clear after one key, unless it is locked per `R-31-09-23`.
-  It MUST NOT stay latched otherwise, because a forgotten latch turns the next ordinary keystroke
-  into a chord. The one key is the next character the keyboard types: it goes as
+- **R-31-09-08** A latched `ctrl` MUST clear after a character or Tab, unless locked per `R-31-09-23`.
+  Function keys MUST send bare names and MUST NOT change a held or locked modifier.
+  The next character the keyboard types goes as
   `keys: ["ctrl+<char>"]`, in lower case per `R-10-038`, and the characters after it in the same
   burst go as ordinary text. Where `ctrl` and `alt` are both latched, per `R-03-120`, the one key
   MUST go as one call that names both, `keys: ["ctrl+alt+<char>"]`, in the modifier order
@@ -245,8 +323,8 @@ unreachable.
 - **R-31-09-09** The toolbar MUST NOT hold a read only mode, per `R-03-051`. Only the keys that
   send, and the keyboard's path to the pane, are ever disabled, and only for one reason: the link
   is down, per `R-30-807`. A permission MUST NOT disable them, because a paired phone has full
-  control. Amended 2026-09-09 per `R-03-054`: a waiting acknowledgement and an unknown outcome no
-  longer disable anything, because typing may not wait for a network round trip.
+  control. A key acknowledgement or unknown outcome MUST NOT disable further key presses.
+  The answer send control also follows the empty-field rule of R-31-09-41.
   The `+` / `×` control MUST stay enabled offline. Every panel key MUST be disabled, per R-30-807.
 
 - **R-31-09-10** Retired. There is no send control to keep enabled. The keyboard's return key is
@@ -266,26 +344,20 @@ unreachable.
   the `Error, send refused` row, and one whose acknowledgement never arrives MUST raise the strip
   of the `Outcome unknown` row; both MUST name the key, or `typing` for a run of characters, and
   MUST NOT re-send (amended 2026-09-09 per `R-03-054`: the rule bound a key press alone until then).
-- **R-31-09-15** A key cap's width MUST be the larger of the column module of `R-31-09-21` and
-  its label at `type.mono.key` plus `space.2` on each side (amended 2026-09-10 per `R-03-116`:
-  until then a chord key in the palette floored at `size.chordkey` instead). The module and the
-  padding are the layout floor the row's own button
-  theme sets on the platform button, per `R-32-535`; the button paints its boundary inside that
-  padding, so the boundary adds no width (amended 2026-09-09 per `R-03-059`). A cap MUST NOT clip,
-  truncate or shrink a label at any text scale up to 2.0, per `R-30-701` and `R-30-741`. A
-  four-character label, the longest on the grid, is 31.2 pixels at scale 1.0 at the 0.6 advance
-  ratio `R-21-010` states, so with its padding it takes 47.2 and sits inside the 48 floor of
-  `size.keycap`: at scale 1.0 every cap on every row is one width. At scale 2.0 the same label
-  takes 78.4, so a cap grows sideways and its row scrolls. A cap MUST NOT grow taller than
-  `size.keycap`. `R-30-519` owns the keyboard inset this toolbar sits above.
-- **R-31-09-16** The panel MUST keep the six-column order in R-31-09-21. No toggle MUST occupy a key
-  cell. The leading `+` opens the panel.
+- **R-31-09-15** The shared column module MUST fit the widest face or complete name,
+  plus `space.2` on each side.
+  Each keycap MUST retain the minimum dimensions and type of R-32-535.
+  A cap MUST NOT clip, truncate, or shrink its face or name at text scales through 2.0.
+  Rows MUST grow together when their contents need more height.
+  R-31-09-40 governs column overflow. R-30-519 owns the keyboard inset.
+- **R-31-09-16** The panel MUST use the layouts of R-31-09-21 and the overflow behavior of R-31-09-40.
+  No mode toggle MUST appear inside the panel. R-31-09-24 owns the leading control.
 
 - **R-31-09-17** The key panel MUST open above the bar, between the grid and the bar.
   It MUST overlay the bottom of the grid on its own `color.bg.raised` surface with a top
   `border.hairline` in `color.border.strong`. The grid does not need to resize.
-  The panel MUST show three rows and six columns without scroll or wrap. Its height MUST fit its
-  rows.
+  Its height MUST remain unchanged between pages at the same width and text scale.
+  R-31-09-40 governs horizontal swipes and overflow.
   Opening MUST preserve the keyboard state. Field focus and modifier latches MUST NOT close it.
   Only the close control or a grid tap MUST close it. The panel MUST NOT sit below the bar,
   replace the keyboard, or appear behind the keyboard.
@@ -294,7 +366,7 @@ unreachable.
   through `R-31-09-30`.
 - **R-31-09-19** A tap on `ctrl` or `alt` MUST raise the software keyboard and MUST hold it up until
   every latch clears. A latch with no character on screen cannot be completed: every chord needs a
-  character, and the key row carries none. `R-31-09-08` fixes the one-key clearing for `ctrl`. This
+  character, and keys mode carries none. `R-31-09-08` fixes the one-key clearing for `ctrl`. This
   rule extends that clearing to `alt`, and adds four exits for both: 5000 ms with no key, the
   keyboard losing the focus, the app going to the background, and rotation. A modifier that
   survives any of those is a forgotten latch. A locked modifier, per `R-31-09-23`, keeps the last
@@ -305,12 +377,22 @@ unreachable.
   2026-09-09 per `R-03-113`; amended 2026-09-10 per `R-03-120`).
 - **R-31-09-20** Retired. The Shortcuts palette is gone. The key panel uses R-31-09-21.
 
-- **R-31-09-21** The panel MUST use six columns: `esc tab ctrl alt empty empty`; `ins home pgup
-  empty Up empty`; `del end pgdn Left Down Right` (amended 2026-09-16 per `R-03-117`; until then
-  the T sat on rows one and two). Empty cells MUST stay empty. `Up` MUST sit above
-  `Down`. The panel MUST use `space.4` horizontal inset, `space.2` gaps and vertical padding, and
-  the native caps of R-32-535. Every row MUST share its column widths. All three rows MUST remain
-  visible without scroll. The bar control MUST stay outside the grid.
+- **R-31-09-21** The panel MUST provide `Keys`, `Function keys`, and `Answer`, in that order.
+  Each page MUST use six columns and four rows when six modules fit.
+  The following table defines the layouts. A dot is an empty cell.
+
+  | Page | Row 1 | Row 2 | Row 3 | Row 4 |
+  | --- | --- | --- | --- | --- |
+  | Keys | `esc . . ins home pgup` | `tab . . del end pgdn` | `. . . . ↑ .` | `ctrl alt . ← ↓ →` |
+  | Function keys | `esc . . . . .` | `. . . . . .` | `F1 F2 F3 F4 F5 F6` | `F7 F8 F9 F10 F11 F12` |
+  | Answer | `esc . . . . enter` | `. . . . . .` | `. . ↑ . . .` | `. ← ↓ → . .` |
+
+  `↑` MUST sit directly above `↓`. Empty cells and rows MUST retain their positions.
+  All pages MUST share column widths and row heights. All four rows MUST remain visible.
+  R-31-09-40 governs narrower layouts. The bar control MUST stay outside the grid.
+  The panel MUST use `space.4` horizontal inset, `space.2` gaps and vertical padding.
+  Native caps MUST follow R-32-535. Function keys MUST retain the wire behavior of R-10-038.
+  Amended 2026-09-23 by the product owner, per R-03-117.
 
 - **R-31-09-22** Retired. The `Shortcuts` control it governed is gone with the palette it
   opened, per `R-03-116` and `R-31-08-24`. Bank two holds these keys, per `R-31-09-24`, and a
@@ -328,7 +410,7 @@ unreachable.
   exits of `R-31-09-19` MUST still release it: the keyboard losing the focus, the app going to the
   background, and rotation. A tap of the other modifier MUST add a one-shot latch of that modifier
   beside the lock and MUST NOT replace the lock, per `R-03-120`: each modifier carries its own
-  one-shot or locked state, and one key press clears the one-shot latches and keeps the locks
+  one-shot or locked state. A character or Tab clears the one-shot latches and keeps the locks
   (amended 2026-09-10; until then the other modifier replaced the lock, which made
   `ctrl+alt+<key>` impossible to type). The cap MUST keep the latched state of `R-32-535` and
   `R-31-09-25` with
@@ -338,14 +420,16 @@ unreachable.
   type, with every key
   name as an inline key per `R-32-599`, so the state and the way out are on screen together. The
   spoken form is in the accessibility section.
-- **R-31-09-24** The key panel MUST be the only extra-key surface. The leading control MUST use
-  `Symbols.add_rounded`, spoken `More keys`, while closed. A tap MUST open the panel
-  without sending input or changing keyboard focus. While open, it MUST use `Symbols.close_rounded`,
-  spoken
-  `Fewer keys`. A tap MUST close the panel without sending input. The retired `…`/`×` toggle MUST
-  NOT occupy a key cell. The panel MUST contain only the keys in R-31-09-21. Symbols remain on the
-  native keyboard. Chords MUST use the existing modifier latch, not a chord list. Keys MUST keep the
-  named and raw CSI paths in the key table.
+- **R-31-09-24** The key panel MUST be the only extra-key surface.
+  The leading control MUST use widget key `composerMore`.
+  While closed, it MUST use `Symbols.add_rounded`, spoken `More keys`.
+  A tap MUST open the pager directly on its last page, without a menu, input, or a keyboard focus change.
+  While open, the control MUST use `Symbols.close_rounded`, spoken `Fewer keys`.
+  A tap MUST close the panel directly, without a menu or input.
+  Horizontal swipes MUST change pages under R-31-09-40.
+  The `keyRowAnswer` toggle and composer menu items MUST NOT exist.
+  Chords MUST use the existing modifier latch, not a chord list.
+  Amended 2026-09-23 by the product owner, per R-03-133.
 
 - **R-31-09-25** A latched or locked modifier cap MUST state its state through the platform's own
   high-emphasis button form, per `R-03-118`: on Android a `FilledButton` against the
@@ -372,18 +456,23 @@ unreachable.
   with the leading circle's centre level with Send's centre. The field's corner
   radius MUST stay fixed, per R-03-133 (amended 2026-09-17). The field MUST
   use `TextField` on Android and `CupertinoTextField` on iOS, `type.mono.compose`, and placeholder
-  `Type here`. It MUST have one minimum line, five maximum lines, a multiline keyboard, and
+  `Type here`, except in answer mode under R-31-09-41.
+  It MUST have one minimum line and five maximum lines.
+  It MUST use a multiline keyboard and
   `textInputAction.send`. Android MUST use `Symbols.send_rounded`; iOS MUST use
   `Symbols.arrow_upward_rounded`. Section 7.13 of `docs/32-design-language.md` owns padding and
   colours. Section 5 of `docs/33-platform-chrome.md` owns the native controls. The bar MUST remain
   above the keyboard or system inset, per R-30-519. No permanent key row MUST appear below the
   field.
 
+The following composer rules apply to the main draft. R-31-09-41 owns answer-mode exceptions.
+
 - **R-31-09-27** Every composer edit MUST send the complete text immediately, per `R-03-137`.
   The app MUST use `send_input.line`, including an empty string after deletion.
   The app MUST NOT calculate deletion keys or replacement tails. `R-11-248` owns reconciliation.
 - **R-31-09-28** Keyboard Enter MUST insert a newline into the native composer.
-  Only the trailing Send control MUST submit `Enter`, including when the composer is empty.
+  The trailing Send control MUST submit the composer with `Enter`, including when the field is empty.
+  Answer-mode `enter` MUST use the separate direct-key path of R-31-09-38.
   The control MUST follow `R-31-09-33` and `R-31-09-34`.
 - **R-31-09-29** A named key or modifier chord MUST bypass the composer and use the raw-key
   path.
@@ -422,8 +511,9 @@ unreachable.
   into the field only while the field is still empty; text the person typed since is kept. A
   deferred submit (`R-31-09-37`) keeps its text in the read-only field until the final accepted
   acknowledgement clears it. The app MUST NOT resend automatically.
-- **R-31-09-35** An accepted raw-key acknowledgement MUST update the local composer mirror
-  without sending a full-line edit. `Enter` and `ctrl+c` MUST clear it. `Backspace` MUST remove
+- **R-31-09-35** Except for answer sends under R-31-09-38, accepted raw-key acknowledgements
+  MUST update the local composer mirror without sending a full-line edit.
+  `Enter` and `ctrl+c` MUST clear it. `Backspace` MUST remove
   its last grapheme. Accepted paste text MUST append to it. The six raw control sequences in the
   key table MUST leave it unchanged. Other keys MUST also leave it unchanged. `R-10-076` owns the
   Host shadow lifecycle.
@@ -447,15 +537,56 @@ unreachable.
   receives its final acknowledgement. Only final acceptance MUST clear submitted text, per
   `R-31-09-34`. Cancellation, refusal, timeout, or disconnect MUST retain text. The app MUST NOT
   submit it again automatically.
-- **R-31-09-38** The key panel MUST provide an `Answer` layout for interactive prompts. A
-  transition into blocked status MUST open the panel and select `Answer`. The app MUST use
-  pane-tree status and live `agent_status` updates. Other statuses MUST NOT close the panel or
-  change its selected layout. The person MAY select another layout while blocked. Repeated
-  blocked updates MUST NOT override that choice. The person MUST also be able to select `Answer`
-  manually through `More keys`, regardless of agent status. Answer controls MUST send direct
-  named keys or text. They MUST NOT send `line` or insert text into the composer.
+- **R-31-09-38** A transition into blocked status MUST open the panel on the Answer page.
+  The app MUST use pane-tree status and live `agent_status` updates.
+  Other statuses MUST NOT close the panel or change its page.
+  The person MAY close the panel or change pages while blocked.
+  Repeated blocked updates MUST NOT override that choice.
+  Every Answer cap MUST send its named key with `bypass_line: true`, per R-11-254.
+  It MUST NOT send `line` or `defer`, or change either composer buffer.
+  Its acknowledgement MUST NOT call `onInputAccepted` or apply the mirror rules of R-31-09-35.
+  The terminal screen MUST own the current page beside `panelOpen`.
+  `key_row.dart` MUST export `enum KeyPanelPage { keys, function, answer }`.
+  `KeyRow` MUST accept `KeyPanelPage? requestedPage` and `ValueChanged<KeyPanelPage> onPageChanged`.
+  A changed non-null request MUST animate or jump to that page.
+  The callback MUST report the page on first build and after each page settles.
+  `KeyRow` MUST NOT accept `answerMode` or contain an answer field or send control.
+  Amended 2026-09-23 by the product owner.
 - **R-31-09-39** Send with an empty composer MUST emit `Enter` through the direct key path. It
   MUST NOT send an empty full-line edit first. This exception applies to `R-31-09-33`.
+- **R-31-09-40** All panel pages MUST use the SDK pager of R-33-081 on both platforms.
+  Horizontal swipes MUST change pages and MUST NOT send input.
+  The pager MUST NOT contain an inner horizontal scroll region or columns pinned outside its pages.
+  The native indicator MUST sit centred below the pages, separated by `space.2`.
+  Its spoken label MUST name the current page, its index, and the total count.
+  The six-column layout announces `Keys, page 1 of 3`, `Function keys, page 2 of 3`,
+  or `Answer, page 3 of 3`.
+  The selected page MUST survive panel close and reopen within one terminal screen.
+  A new pane MUST start on Keys. If the modules do not fit, columns MUST reflow onto more pages.
+  All keys MUST remain reachable. Every page MUST retain `esc` in row one, column one.
+  Each overflow page MUST retain four rows and its logical page identity.
+  The indicator MUST include every extra page and announce its actual index and total.
+  Reflow MUST preserve the target floor of R-32-363, complete names, and physical-keyboard groups.
+  It MUST NOT shrink caps, clip labels, use `Wrap`, or substitute an inner scroll region.
+  Amended 2026-09-23 by the product owner, per R-03-117.
+- **R-31-09-41** The screen MUST compute `answerInput = panelOpen && page == KeyPanelPage.answer`.
+  `Composer` MUST accept `bool answerInput` and `Future<bool> Function(String text) onSubmitAnswer`.
+  When answer input starts, Composer MUST store the main draft text and selection.
+  It MUST show an empty answer buffer.
+  When answer input ends, it MUST restore that draft and selection exactly.
+  Neither transition MUST send input. No `line` sync MUST run while answer input is active.
+  The one field MUST use placeholder `Type an answer`, and its send control MUST speak `Send answer`.
+  The separate `keyRowAnswerField` and `keyRowAnswerSend` controls MUST NOT exist.
+  Answer edits MUST stay local. Native editing options MUST follow R-31-09-30.
+  Queued and deferred send behavior MUST be disabled for answer input.
+  Send and the native send action MUST call `onSubmitAnswer(text)`, including for empty text.
+  The screen MUST send one frame with `keys: ["Enter"]` and `bypass_line: true`, per R-11-254.
+  It MUST include `text` only when non-empty. It MUST NOT send `line` or `defer`.
+  Accepted acknowledgement MUST clear the answer buffer, not the stored main draft.
+  Failure or an unknown outcome MUST retain the answer text.
+  Answer acknowledgements MUST NOT apply the composer mirror rules of R-31-09-35.
+  Styling MUST follow R-32-537. Native controls MUST follow section 5 of `33-platform-chrome.md`.
+  Amended 2026-09-23 by the product owner after live review.
 
 ## Retired rules
 
@@ -480,7 +611,7 @@ day, one per `R-03-117` and one per `R-03-118`.
 
 ## Accessibility
 
-- Touch target: every key on all three rows and the bar controls
+- Touch target: every panel key and the bar controls
   present the visual size and the target that `R-32-535` and `R-32-362` fix, which meets `R-30-290`
   and `R-30-740`; the visual button is the target, per `R-31-09-21`. Two adjacent keys are
   separated by `space.2`, which clears the minimum in `R-30-292` (amended 2026-09-09 per
@@ -490,8 +621,9 @@ day, one per `R-03-117` and one per `R-03-118`.
   outlined button has no fill, and its boundary is `color.border.strong` on the same surface; on
   iOS the label is `color.accent.text` on the component's tint, which measures 4.68 in both themes,
   per `R-32-535`. A latched key is `color.fg.on_accent` on `color.accent.primary` on both, the
-  platform's own high-emphasis fill, per `R-31-09-25`. Every
-  pair is a passing row in `R-32-150` or in `R-32-535`, per `R-30-720` and `R-30-121` (amended
+  platform's own high-emphasis fill, per `R-31-09-25`.
+  The Answer `enter` cap uses the same colours, per R-32-535.
+  Every pair is a passing row in `R-32-150` or `R-32-535`, per `R-30-720` and `R-30-121` (amended
   2026-09-09 per `R-03-059`: until then the label sat on a `color.bg.high` fill). A key cap carries
   no state indicator of any kind, per `R-03-100`: the button's own fill is the state, and the
   label's case never carries it, per `R-31-09-25`.
@@ -513,14 +645,15 @@ day, one per `R-03-117` and one per `R-03-118`.
   `R-03-113`; amended 2026-09-10 per `R-03-116`, where `alt` moved into the expansion, and per
   `R-03-117`, twice: it took column three of row two, then came back to column four of row one
   beside `ctrl`; amended the same day per `R-03-118`, which added the toggle, and per `R-03-120`,
-  which let two modifiers hold at once). Row two's
-  `<`, `v` and `>` keep the spoken names of `R-30-715`, the same names row one's `^`
-  carries. A refused keystroke's strip and an unknown
-  outcome's strip MUST each be announced once when they appear. The native composer MUST expose
-  the platform text field semantics,
-  label, value and selection.
+  which let two modifiers hold at once). Row four's
+  `←`, `↓`, and `→` retain the spoken names of R-30-715, as does row three's `↑`.
+  Function caps speak `F1` through `F12`. The indicator follows `R-31-09-40`.
+  Refusal and unknown-outcome strips MUST each be announced once.
+  The one composer MUST expose native text field semantics, label, value, and selection
+  in both input modes.
 - Focus order follows R-30-719: leading control, native composer, send control, then each visible
-  panel row in printed order. The panel traps no focus.
+  panel row in printed order.
+  The panel traps no focus.
 
 ## Open questions
 

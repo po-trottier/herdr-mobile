@@ -47,7 +47,7 @@ the hosted relay, **Device** is the phone.
 | 06 | Agent list, the landing screen | `/hosts/:hostId/agents` | Answer, which agent needs me | App start with a paired Host, `/hosts`, pairing success, bottom navigation | Terminal, pane actions, `/hosts`, settings, `/settings/status-colours` (added 2026-09-09 per `R-03-112`); the app bar holds `Status colours` and search, in that order, per `R-03-112` and `R-03-102`; the create control is the floating action button of `R-30-041` on both platforms, and the list reserves no fixed band for it (corrected 2026-09-10 per `R-03-109`) | `31-mockups/06-agent-list.md` |
 | 07 | Notifications | `/hosts/:hostId/notifications` | List the agent status changes of this session and let a person read, remove or open them | Bottom navigation, the `pane closed` case of `R-30-511` | Terminal | `31-mockups/07-notifications.md` |
 | 08 | Terminal view | `/hosts/:hostId/panes/:paneId` | Render one pane at full fidelity | Agent list row, notification row, notification tap | Back to the caller, pane actions | `31-mockups/08-terminal.md` |
-| 09 | Terminal input bar | part of `/hosts/:hostId/panes/:paneId` | Edit terminal input and supply keys absent from the phone keyboard | The bar stays visible on the terminal view | The key panel (opened by `+`), per R-03-133 | `31-mockups/09-key-row.md` |
+| 09 | Terminal input bar | part of `/hosts/:hostId/panes/:paneId` | Edit terminal input and supply key-panel controls and direct answers | The bar stays visible on the terminal view | Tap `+` to toggle the key panel, per `R-31-09-24` | `31-mockups/09-key-row.md` |
 | 10 | Pane action sheet | modal on `/hosts/:hostId/panes/:paneId` | Open plugin actions, split right or down, close the pane, read the last lines aloud; amended 2026-09-14 per `R-03-134` | Terminal overflow or long press on an agent row | Plugin actions, new pane after split, or caller | `31-mockups/10-pane-actions.md` |
 | 11 | Agent prompt composer, retired 2026-09-09 per `R-03-101` | none; was `/hosts/:hostId/agents/:agentId/prompt` | none; a person types to the agent in the pane, per `R-03-054` | none | none | `31-mockups/11-prompt-composer.md`, kept as the record of its rule ids |
 | 12 | Notification settings | `/settings/notifications` | Choose what earns a local notification and when | `/settings` | `/settings` | `31-mockups/12-notifications.md` |
@@ -481,9 +481,10 @@ library.
     above one. A screen MUST use the per-aspect getter, never `MediaQuery.of`, so it rebuilds when
     that one value changes and not on every metric.
   - **What moves.** The focused input, and any control bound to it such as a send control or the key
-    row, MUST stay above the inset. Everything above them scrolls. A secondary list, such as a
-    recent-prompt list or a second bank of symbol keys, MUST yield first: it scrolls away or it
-    collapses. The app MUST NOT shrink the input to make room for a list.
+    panel, MUST stay above the inset. Other content scrolls. A secondary list, such as a
+    recent-prompt list, MUST yield first: it scrolls away or collapses.
+    The key panel follows `R-31-09-17` and `R-31-09-40`, including its page layout. The app MUST
+    NOT shrink the input for a list.
   - **The focused input stays visible.** A focused input that holds text MUST stay fully visible.
     The keyboard MUST NOT cover it, and a scroll MUST NOT carry it off screen while it holds the
     focus. A person who cannot see the typed text sends the wrong thing.
@@ -492,6 +493,7 @@ library.
     and MUST keep a named essential subset visible, or it MUST wrap to a second line. It MUST NOT
     shrink a target, per `R-30-741`, and MUST NOT clip a label, per `R-30-703`. Each screen names
     its own essential subset, because only that screen knows which key it cannot lose.
+    The key panel follows `R-31-09-40` for overflow and additional pages.
 
   This rule decides the behaviour. It MUST NOT decide one screen's layout.
 
@@ -533,10 +535,13 @@ A touch screen and a terminal fit badly. A terminal expects a cursor, modifier k
 wheel. A phone has none of them. This section closes every gap with an exact binding.
 
 One principle decides every conflict: **a gesture never sends input to the pane.** Only the key
-row and native composer send input, per `R-03-130`. Composer edits send
-immediately; the grid shows only Host frames. A stray
-keystroke into a running agent is the worst outcome this app can produce, and a gesture is the
-easiest thing to trigger by accident in a pocket.
+row and native composer send input, per `R-03-130`. In normal mode, composer edits send
+immediately. The same composer switches to its answer buffer only while the panel is open and
+the current page is Answer, per `R-31-09-41`.
+
+The Keys, Function keys and Answer layouts use four rows and six columns in physical keyboard
+positions. Keys stay at least 48 logical pixels and overflow reflows into pages, per
+`R-31-09-21` and `R-31-09-40`. The Keys page uses an inverted T.
 
 ### Gesture table
 
@@ -560,29 +565,24 @@ easiest thing to trigger by accident in a pocket.
 | Move the cursor | The arrow keys in the key row. There is no gesture for this | yes |
 | Esc, Tab | The `esc` and `tab` keys in the key row | yes |
 | A Control or Alt chord | Tap `ctrl` or `alt`, then one key. A quick second tap within the double-tap window of `R-30-301` locks the modifier, per `R-03-122`. A later second tap releases it. A tap on a locked modifier releases it (amended 2026-09-10 per R-03-122; until then any second tap locked). A tap on the other modifier adds it, so `ctrl` and `alt` hold together and the next key is `ctrl+alt+<key>`, per `R-03-120`. There is no chord list to pick from (amended 2026-09-09 per `R-03-113` item 2: `alt` and the lock are new, per `R-30-300`; amended 2026-09-10 per `R-03-116`: the Shortcuts palette is retired; amended again the same day per `R-03-120`: the second modifier added rather than replaced) | yes |
-| Open the key panel | Tap `+` for the key panel (opened by `+`), per R-31-09-24. Opening sends nothing | no |
-| A navigation key | `ins`, `home`, `pgup`, `del`, `end`, or `pgdn` from the key panel (opened by `+`) | yes |
-| Type text | Edit the native composer. Every edit sends input; return submits and clears the field, per `R-31-09-27` and `R-31-09-28` | yes |
-| Auto repeat a key | Hold a key row arrow. It repeats every 40 ms after a 400 ms delay | yes |
+| Toggle the key panel | Tap `+` to open the pager directly. Tap `×` to close it, per R-31-09-24. Swipe to change pages under R-31-09-40 | no |
+| Answer a question | Tap an Answer key. It uses `bypass_line: true` without a composer mirror change. A blocked agent selects Answer automatically, per R-31-09-38 | yes |
+| Enter an answer | The one composer uses its answer buffer only while the panel is open on the Answer page. It stashes and restores the prompt text and selection, per `R-31-09-41` | no |
+| Send an answer | Send one frame with optional nonempty text and `keys: ["Enter"]`, using `bypass_line: true`. An empty answer is allowed, per `R-31-09-41` and `R-11-254` | yes |
+| Use a navigation key | Use `ins`, `home`, `pgup`, `del`, `end`, or `pgdn` on the key panel pages, per `R-31-09-21` and `R-31-09-40` | yes |
+| Type text | Outside answer mode, edit the composer. Each edit sends input. Keyboard Return inserts a newline. Send submits, per `R-31-09-27` and `R-31-09-28` | yes |
+| Auto repeat a key | Hold an arrow key. It repeats every 40 ms after a 400 ms delay | yes |
 | Open the pane actions | Tap the overflow, or long press a row on the agent list | no |
 
 - **R-30-300** No gesture on the grid MUST ever send a byte to the pane. Every send is an explicit
-  press of a key, a chord, or an edit in the native composer, per `R-03-130`. A latched or locked
-  modifier
+  press of a key, a chord, a composer edit, or an answer submission under R-31-09-41.
+  A latched or locked modifier
   changes what a keystroke sends, never whether one is sent. One tap of `ctrl` or `alt` joins
   the next keystroke as a chord. A quick second tap within the double-tap window of `R-30-301`
   locks the modifier, per `R-03-122`. A later second tap releases it. A tap on a locked
   modifier releases it
   (amended 2026-09-10 per R-03-122; until then any second tap locked).
-  A tap on the other modifier adds it, so one keystroke carries both, per `R-03-120`.
-  Each keystroke is still one explicit press, per `R-31-09-08`, `R-31-09-19`
-  and `R-31-09-23`. Bank two, the key row's one expansion, adds `ins`, `home`, `pgup`, `Left`,
-  `Down`, `Right`, `del`, `end` and `pgdn` to the keys it offers, per `R-31-09-24`; no cap in it
-  latches a modifier, because `ctrl` and `alt` are both on row one (amended
-  2026-09-09 per `R-03-113` item 2; amended 2026-09-10 per `R-03-116`, where these keys moved
-  off the retired Shortcuts palette onto bank two, and again the same day per `R-03-117`, which
-  laid them out on a six-column grid and deleted the symbol caps: every one of them is on the
-  phone keyboard's own symbol pages, so no key of this row types a character).
+  Each keystroke is still one explicit press, per `R-31-09-08` and `R-31-09-19`.
 - **R-30-301** A long press MUST be 400 ms. A double tap window MUST be 300 ms. A triple tap
   window MUST be 300 ms between the second and the third tap.
 - **R-30-302** A pinch MUST multiply the gesture-start painted font size by the cumulative
@@ -1931,9 +1931,16 @@ https://github.com/flutter/flutter/blob/stable/packages/flutter/lib/src/services
 
 ### 09 Key row and input toolbar
 
-- [ ] Build the six-column grid of `R-03-117`: row one, `esc` `tab` `ctrl` `alt` `Up` and the
-  toggle; row two, `ins` `home` `pgup` `Left` `Down` `Right`; row three, `del` `end` `pgdn`, per
-  `R-31-09-24`.
+- [ ] Build the three four-row layouts in six columns at physical-keyboard positions. Keep keys
+  at least 48 logical pixels and reflow overflow to more pages. Use the inverted T on the Keys
+  page, per `R-31-09-21` and `R-31-09-40`.
+- [ ] Open the pager directly with `+`. Use swipes for Keys, Function keys, and Answer.
+  Use composer answer mode only while Answer is open, per R-31-09-24 and R-31-09-41.
+- [ ] Use one composer answer buffer only when `panelOpen && page == answer`. Stash the prompt
+  text and selection on entry and restore them on exit. Do not sync, queue or defer line updates
+  in answer mode, per `R-31-09-41`.
+- [ ] Send one `send_input` frame for an answer with optional nonempty text, `keys: ["Enter"]`
+  and `bypass_line: true`. Allow an empty answer, per `R-31-09-41` and `R-11-254`.
 - [ ] Use the named key path for every key that has a name, and the raw CSI bytes for the six that
   do not.
 - [ ] Latch `ctrl` for exactly one key, with the 5000 ms timeout and the hint line.

@@ -17,15 +17,20 @@ import 'package:herdr_mobile/services/terminal.dart' show terminalReplyTimeout;
 import 'package:herdr_mobile/widgets/composer.dart';
 import 'package:herdr_mobile/widgets/key_row.dart';
 import 'package:herdr_mobile/widgets/theme/app_color.dart' show AppColor;
+import 'package:herdr_mobile/widgets/theme/app_radius.dart' show AppRadius;
 import 'package:herdr_mobile/widgets/theme/app_space.dart' show AppSpace;
+import 'package:material_symbols_icons/symbols.dart' show Symbols;
 import 'package:material_ui/material_ui.dart'
     show
         ButtonStyle,
         ColorScheme,
         FilledButton,
+        FilledButtonTheme,
         MaterialApp,
         OutlinedButton,
+        OutlinedButtonTheme,
         Scaffold,
+        TabPageSelector,
         Theme;
 
 import '../screens/golden_support.dart' show loadAppFonts;
@@ -86,6 +91,10 @@ Widget _row({
   KeyRowLinkState linkState = KeyRowLinkState.live,
   bool landscape = false,
   bool withGrid = false,
+  bool panelOpen = true,
+  KeyPanelPage? requestedPage,
+  ValueChanged<KeyPanelPage>? onPageChanged,
+  String paneId = 'w1:p1',
 }) => MaterialApp(
   home: Scaffold(
     body: _Harness(
@@ -95,6 +104,10 @@ Widget _row({
       linkState: linkState,
       landscape: landscape,
       withGrid: withGrid,
+      panelOpen: panelOpen,
+      requestedPage: requestedPage,
+      onPageChanged: onPageChanged,
+      paneId: paneId,
     ),
   ),
 );
@@ -107,6 +120,10 @@ class _Harness extends StatefulWidget {
     required this.linkState,
     required this.landscape,
     this.withGrid = false,
+    this.panelOpen = true,
+    this.requestedPage,
+    this.onPageChanged,
+    this.paneId = 'w1:p1',
   });
   final List<Message>? sent;
   final Stream<({String corr, SendInputAck ack})>? acks;
@@ -116,6 +133,20 @@ class _Harness extends StatefulWidget {
 
   /// With a grid the panel overlays it bottom-anchored, as on the terminal screen.
   final bool withGrid;
+
+  /// Mirrors `terminal_screen.dart`'s `+` toggle, so a test can close and reopen the
+  /// panel on the same row state.
+  final bool panelOpen;
+
+  /// Mirrors the page request `terminal_screen.dart` sends when a blocked agent
+  /// opens the panel on the Answer page (2026-09-23).
+  final KeyPanelPage? requestedPage;
+
+  /// Mirrors the screen's page listener, which feeds the Composer's answer mode.
+  final ValueChanged<KeyPanelPage>? onPageChanged;
+
+  /// Mirrors a pane switch on the terminal screen.
+  final String paneId;
   @override
   State<_Harness> createState() => _HarnessState();
 }
@@ -123,6 +154,7 @@ class _Harness extends StatefulWidget {
 class _HarnessState extends State<_Harness> {
   final FocusNode focus = FocusNode();
   final GlobalKey<KeyRowState> row = GlobalKey<KeyRowState>();
+  final GlobalKey<ComposerState> composer = GlobalKey<ComposerState>();
   @override
   void dispose() {
     focus.dispose();
@@ -131,10 +163,13 @@ class _HarnessState extends State<_Harness> {
 
   @override
   Widget build(BuildContext context) => KeyRow(
-    panelOpen: true,
+    panelOpen: widget.panelOpen,
+    requestedPage: widget.requestedPage,
+    onPageChanged: widget.onPageChanged,
     key: row,
     focusNode: focus,
     composer: Composer(
+      key: composer,
       focusNode: focus,
       onLine: (_) {},
       onSubmit: (String line, {bool whenIdle = false}) async => true,
@@ -145,14 +180,18 @@ class _HarnessState extends State<_Harness> {
         ),
       ],
     ),
-    paneId: 'w1:p1',
+    paneId: widget.paneId,
     grid: widget.withGrid ? const SizedBox.expand() : null,
     send: (Message message, {String? corr}) {
       _sentCorr.add(corr!);
       widget.sent?.add(message);
     },
     sendInputAcks: widget.acks ?? _noAcks(),
-    onInputAccepted: _acceptedInputs.add,
+    // The terminal_screen.dart wiring: an accepted control mirrors into the Composer.
+    onInputAccepted: (SendInput input) {
+      _acceptedInputs.add(input);
+      composer.currentState?.applyAcceptedInput(input);
+    },
     linkState: widget.linkState,
     offlineReason: widget.linkState == KeyRowLinkState.offline
         ? 'Offline. Showing what we last saw.'
@@ -201,83 +240,128 @@ class _Keyboard {
 }
 
 /// Pumps the key row at a 390 logical pixel portrait width, the owner's review phone.
-Future<void> _pumpAt390(WidgetTester tester, {bool landscape = false}) async {
+Future<void> _pumpAt390(
+  WidgetTester tester, {
+  bool landscape = false,
+  List<Message>? sent,
+}) async {
   tester.view.physicalSize = landscape
       ? const Size(844, 390)
       : const Size(390, 844);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(_row(landscape: landscape));
+  await tester.pumpWidget(_row(landscape: landscape, sent: sent));
+}
+
+/// One settled swipe one page to the left or the right on the panel's pager
+/// (R-31-09-40). The horizontal drag wins over a cap's tap: the swipe turns the page
+/// and sends nothing.
+Future<void> _pageLeft(WidgetTester tester) async {
+  await tester.fling(find.byType(PageView), const Offset(-260, 0), 900);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pageRight(WidgetTester tester) async {
+  await tester.fling(find.byType(PageView), const Offset(260, 0), 900);
+  await tester.pumpAndSettle();
 }
 
 void main() {
   setUpAll(loadAppFonts);
 
-  testWidgets('Answer keys send one frame without changing Composer', (
-    tester,
-  ) async {
-    final List<Message> sent = <Message>[];
-    final acks = StreamController<({String corr, SendInputAck ack})>();
-    addTearDown(acks.close);
-    _sentCorr.clear();
-    _acceptedInputs.clear();
-    await tester.pumpWidget(_row(sent: sent, acks: acks.stream));
-    await tester.enterText(find.byType(EditableText), 'keep draft');
-    await tester.tap(_cap('keyRowAnswer'));
-    await tester.pump();
-    expect(_cap('keyRowCtrl'), findsNothing);
-    for (final String name in <String>[
-      'Up',
-      'Down',
-      'Left',
-      'Right',
-      'Enter',
-      'Esc',
-      'Tab',
-      'Space',
-      '1',
-      '2',
-      '3',
-      '4',
-      '5',
-      '6',
-      '7',
-      '8',
-      '9',
-      'y',
-      'n',
-    ]) {
-      final Finder cap = _cap('keyRowAnswer$name');
-      expect(tester.getSize(cap).height, greaterThanOrEqualTo(48));
-      expect(tester.getSize(cap).width, greaterThanOrEqualTo(48));
-      await tester.tap(cap);
-      await tester.pump();
-      final SendInput input = _inputs(sent).last;
-      expect(input.line, isNull);
-      expect(input.keys, name.length == 1 ? isNull : <String>[name]);
-      expect(input.text, name.length == 1 ? name : isNull);
-      acks.add((
-        corr: _sentCorr.last,
-        ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
-      ));
-      await tester.pump();
-    }
-    expect(sent, hasLength(19));
-    expect(_acceptedInputs, isEmpty);
-    expect(
-      tester.widget<EditableText>(find.byType(EditableText)).controller.text,
-      'keep draft',
-    );
-    await tester.tap(_cap('keyRowAnswer'));
-    await tester.pump();
-    expect(_cap('keyRowCtrl'), findsOneWidget);
-  });
+  /// The `EditableText` inside the field that carries [key] — the Composer's
+  /// own field, or the answer panel's.
+  Finder editableIn(String key) => find.descendant(
+    of: find.byKey(ValueKey<String>(key)),
+    matching: find.byType(EditableText),
+  );
 
-  testWidgets('Answer selection follows blocked edges, not status refreshes', (
+  String fieldText(WidgetTester tester, String key) =>
+      tester.widget<EditableText>(editableIn(key)).controller.text;
+
+  testWidgets(
+    'the Answer page caps send their keys with bypass_line, and nothing '
+    'mirrors into the Composer (R-31-09-38, R-31-09-41)',
+    (tester) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      final List<Message> sent = <Message>[];
+      final acks = StreamController<({String corr, SendInputAck ack})>();
+      addTearDown(acks.close);
+      _sentCorr.clear();
+      _acceptedInputs.clear();
+      await tester.pumpWidget(
+        _row(
+          sent: sent,
+          acks: acks.stream,
+          requestedPage: KeyPanelPage.answer,
+        ),
+      );
+      await tester.pumpAndSettle();
+      const String composerField = 'composerField';
+      await tester.enterText(_cap(composerField), 'keep draft');
+      // The Answer page is the pager's third grid: the Keys caps are not here,
+      // and the panel's own answer field is gone (2026-09-23) — the Composer's
+      // answer mode owns answer text now.
+      expect(_cap('keyRowCtrl'), findsNothing);
+      expect(_cap('keyRowAnswerField'), findsNothing);
+      expect(_cap('keyRowAnswerSend'), findsNothing);
+      expect(find.bySemanticsLabel('Answer, page 3 of 3'), findsOneWidget);
+
+      // Six caps (R-31-09-41, re-laid 2026-09-23), each its own target at or
+      // over the 48 floor of R-32-363, each sending its named key with
+      // bypass_line.
+      const Map<String, String> caps = <String, String>{
+        'keyRowAnswerUp': 'Up',
+        'keyRowAnswerDown': 'Down',
+        'keyRowAnswerLeft': 'Left',
+        'keyRowAnswerRight': 'Right',
+        'keyRowAnswerEsc': 'Esc',
+        'keyRowAnswerEnter': 'Enter',
+      };
+      for (final MapEntry<String, String> cap in caps.entries) {
+        final Finder finder = _cap(cap.key);
+        final Size size = tester.getSize(finder);
+        expect(size.height, greaterThanOrEqualTo(48), reason: cap.key);
+        expect(size.width, greaterThanOrEqualTo(48), reason: cap.key);
+        await tester.tap(finder);
+        await tester.pump();
+        final SendInput input = _inputs(sent).last;
+        expect(input.keys, <String>[cap.value], reason: cap.key);
+        expect(input.text, isNull, reason: cap.key);
+        expect(input.line, isNull, reason: cap.key);
+        expect(input.bypassLine, isTrue, reason: cap.key);
+        acks.add((
+          corr: _sentCorr.last,
+          ack: const SendInputAck(paneId: 'w1:p1', accepted: true),
+        ));
+        await tester.pump();
+        // No accepted answer key mirrors into the Composer (R-31-09-38).
+        expect(fieldText(tester, composerField), 'keep draft', reason: cap.key);
+      }
+      expect(sent, hasLength(6));
+      expect(_acceptedInputs, isEmpty);
+
+      // The Answer inverted T matches the Keys one: `↑` exactly above `↓`, one
+      // row pitch. The filled `enter` caps row one at the right edge, across
+      // from `esc` (R-31-09-41, amended 2026-09-23).
+      final Rect up = tester.getRect(_cap('keyRowAnswerUp'));
+      final Rect down = tester.getRect(_cap('keyRowAnswerDown'));
+      expect(up.center.dx, down.center.dx);
+      expect(down.top - up.bottom, AppSpace.space2);
+      expect(
+        tester.getRect(_cap('keyRowAnswerEnter')).top,
+        tester.getRect(_cap('keyRowAnswerEsc')).top,
+      );
+      semantics.dispose();
+    },
+  );
+
+  testWidgets('requestedPage jumps the pager to the requested grid', (
     tester,
   ) async {
-    bool answer = false;
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    KeyPanelPage? requested;
     late StateSetter update;
     await tester.pumpWidget(
       MaterialApp(
@@ -290,29 +374,684 @@ void main() {
                 send: (message, {corr}) {},
                 sendInputAcks: _noAcks(),
                 panelOpen: true,
-                answerMode: answer,
+                requestedPage: requested,
               );
             },
           ),
         ),
       ),
     );
+    await tester.pumpAndSettle();
     expect(_cap('keyRowCtrl'), findsOneWidget);
-    update(() => answer = true);
-    await tester.pump();
+    expect(_cap('keyRowAnswerEnter'), findsNothing);
+
+    // A blocked agent opens the panel on the Answer page (2026-09-23).
+    update(() => requested = KeyPanelPage.answer);
+    await tester.pumpAndSettle();
     expect(_cap('keyRowAnswerEnter'), findsOneWidget);
-    await tester.tap(_cap('keyRowAnswer'));
-    await tester.pump();
-    update(() {});
-    await tester.pump();
+    expect(_cap('keyRowCtrl'), findsNothing);
+    expect(find.bySemanticsLabel('Answer, page 3 of 3'), findsOneWidget);
+
+    update(() => requested = KeyPanelPage.keys);
+    await tester.pumpAndSettle();
     expect(_cap('keyRowCtrl'), findsOneWidget);
-    update(() => answer = false);
-    await tester.pump();
-    await tester.tap(_cap('keyRowAnswer'));
-    await tester.pump();
-    update(() {});
-    await tester.pump();
+    expect(_cap('keyRowAnswerEnter'), findsNothing);
+
+    // A held value re-requests nothing: the page the person swiped to stays.
+    update(() => requested = KeyPanelPage.answer);
+    await tester.pumpAndSettle();
     expect(_cap('keyRowAnswerEnter'), findsOneWidget);
+    await _pageRight(tester);
+    expect(_cap('keyRowFn1'), findsOneWidget);
+    update(() {});
+    await tester.pumpAndSettle();
+    expect(_cap('keyRowFn1'), findsOneWidget);
+    expect(_cap('keyRowAnswerEnter'), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets(
+    'onPageChanged reports the resting page on first build and on every '
+    'settle, and again when the reopened panel restores its page',
+    (tester) async {
+      final List<KeyPanelPage> pages = <KeyPanelPage>[];
+      await tester.pumpWidget(_row(onPageChanged: pages.add));
+      await tester.pumpAndSettle();
+      expect(pages, <KeyPanelPage>[KeyPanelPage.keys]);
+      await _pageLeft(tester);
+      expect(pages, <KeyPanelPage>[KeyPanelPage.keys, KeyPanelPage.function]);
+      await _pageLeft(tester);
+      expect(pages, <KeyPanelPage>[
+        KeyPanelPage.keys,
+        KeyPanelPage.function,
+        KeyPanelPage.answer,
+      ]);
+
+      // Closed, the row reports nothing; reopened, it restores the page the
+      // person left (R-31-09-40) and reports it on the first build.
+      await tester.pumpWidget(
+        _row(panelOpen: false, onPageChanged: pages.add),
+      );
+      await tester.pumpAndSettle();
+      expect(pages, hasLength(3));
+      await tester.pumpWidget(_row(onPageChanged: pages.add));
+      await tester.pumpAndSettle();
+      expect(pages.last, KeyPanelPage.answer);
+      expect(_cap('keyRowAnswerEnter'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the Answer enter cap is the platform high-emphasis filled button, the '
+    'page’s one filled cap (R-31-09-41)',
+    (tester) async {
+      for (final TargetPlatform platform in <TargetPlatform>[
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        await tester.pumpWidget(_row(requestedPage: KeyPanelPage.answer));
+        await tester.pumpAndSettle();
+        final Finder enter = _cap('keyRowAnswerEnter');
+        if (platform == TargetPlatform.android) {
+          final Finder filled = find.descendant(
+            of: enter,
+            matching: find.byType(FilledButton),
+          );
+          expect(filled, findsOneWidget);
+          // The high-emphasis form, not the tonal one — read by the resolved
+          // default style, exactly as the latched-modifier case reads it.
+          final BuildContext capContext = tester.element(filled);
+          final ColorScheme scheme = Theme.of(capContext).colorScheme;
+          final ButtonStyle defaults = tester
+              .widget<FilledButton>(filled)
+              .defaultStyleOf(capContext);
+          expect(defaults.backgroundColor!.resolve(_enabled), scheme.primary);
+          expect(
+            defaults.foregroundColor!.resolve(_enabled),
+            scheme.onPrimary,
+          );
+          // Every other answer cap stays an OutlinedButton.
+          for (final String key in <String>[
+            'keyRowAnswerUp',
+            'keyRowAnswerDown',
+            'keyRowAnswerEsc',
+          ]) {
+            expect(
+              find.descendant(
+                of: _cap(key),
+                matching: find.byType(OutlinedButton),
+              ),
+              findsOneWidget,
+              reason: key,
+            );
+          }
+        } else {
+          // `cupertino_ui` 1.0.1 keeps the tinted-or-filled choice private, so
+          // the ink tells the form: a filled cap takes `color.fg.on_accent`, a
+          // tinted one `color.accent.text` — the read the latched-modifier case
+          // makes above.
+          final AppColor color = AppColor.of(tester.element(enter));
+          Color inkOf(String key, String label) =>
+              DefaultTextStyle.of(tester.element(_capLabel(key, label)))
+                  .style
+                  .color!;
+          expect(inkOf('keyRowAnswerEnter', 'enter'), color.fgOnAccent);
+          expect(inkOf('keyRowAnswerEsc', 'esc'), color.accentText);
+        }
+        // Filled is not latched: the enter cap reports no toggle flag.
+        expect(_toggledOf(tester, 'keyRowAnswerEnter'), Tristate.none);
+        await tester.pumpWidget(const SizedBox.shrink());
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'at 360 dp and scale 1 every grid is one page wide: Keys, Function keys '
+    'and Answer, with page dots (2026-09-23)',
+    (tester) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(_row());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TabPageSelector), findsOneWidget);
+      expect(find.bySemanticsLabel('Keys, page 1 of 3'), findsOneWidget);
+      // The Keys page is the one unbroken grid (R-31-09-16).
+      for (final String key in <String>[
+        'keyRowEsc',
+        'keyRowTab',
+        'keyRowCtrl',
+        'keyRowAlt',
+        'keyRowNavins',
+        'keyRowNavpgdn',
+        'keyRowArrow^',
+        'keyRowArrow>',
+      ]) {
+        expect(_cap(key), findsOneWidget, reason: key);
+      }
+      await _pageLeft(tester);
+      expect(
+        find.bySemanticsLabel('Function keys, page 2 of 3'),
+        findsOneWidget,
+      );
+      for (int n = 1; n <= 12; n++) {
+        expect(_cap('keyRowFn$n'), findsOneWidget, reason: 'F$n');
+      }
+      await _pageLeft(tester);
+      expect(find.bySemanticsLabel('Answer, page 3 of 3'), findsOneWidget);
+      for (final String key in <String>[
+        'keyRowAnswerEsc',
+        'keyRowAnswerUp',
+        'keyRowAnswerEnter',
+        'keyRowAnswerLeft',
+        'keyRowAnswerDown',
+        'keyRowAnswerRight',
+      ]) {
+        expect(_cap(key), findsOneWidget, reason: key);
+      }
+      semantics.dispose();
+    },
+  );
+
+  testWidgets(
+    'every page is four rows at one height, so the panel and its dots never '
+    'move between pages (2026-09-23)',
+    (tester) async {
+      await _pumpAt390(tester);
+      await tester.pumpAndSettle();
+      final Rect pager = tester.getRect(find.byType(PageView));
+      // Four 48-high rows at space.2 gaps.
+      expect(pager.height, 4 * 48 + 3 * AppSpace.space2);
+      // Keys page: `esc` on row one, `ctrl` and the bottom arrows on row four.
+      expect(tester.getRect(_cap('keyRowEsc')).top, pager.top);
+      expect(
+        tester.getRect(_cap('keyRowCtrl')).top,
+        pager.top + 3 * (48 + AppSpace.space2),
+      );
+      expect(
+        tester.getRect(_cap('keyRowArrowv')).top,
+        pager.top + 3 * (48 + AppSpace.space2),
+      );
+      final Rect dots = tester.getRect(find.byType(TabPageSelector));
+
+      await _pageLeft(tester);
+      // Function keys: the same pager and dots; F1–F6 on row three, F7–F12 on
+      // row four (R-03-117, amended 2026-09-23).
+      expect(tester.getRect(find.byType(PageView)), pager);
+      expect(tester.getRect(find.byType(TabPageSelector)), dots);
+      expect(
+        tester.getRect(_cap('keyRowFn1')).top,
+        pager.top + 2 * (48 + AppSpace.space2),
+      );
+      expect(
+        tester.getRect(_cap('keyRowFn7')).top,
+        pager.top + 3 * (48 + AppSpace.space2),
+      );
+
+      await _pageLeft(tester);
+      // Answer: the same again; `enter` on row one across from `esc`, the
+      // inverted T centred low with `←` `↓` `→` on row four.
+      expect(tester.getRect(find.byType(PageView)), pager);
+      expect(tester.getRect(find.byType(TabPageSelector)), dots);
+      expect(
+        tester.getRect(_cap('keyRowAnswerDown')).top,
+        pager.top + 3 * (48 + AppSpace.space2),
+      );
+      expect(tester.getRect(_cap('keyRowAnswerEnter')).top, pager.top);
+      expect(
+        tester.getRect(_cap('keyRowAnswerUp')).top,
+        pager.top + 2 * (48 + AppSpace.space2),
+      );
+    },
+  );
+
+  testWidgets(
+    'every non-arrow cap shows its keybind glyph with its small name under '
+    'it; F keys are text faces; arrows are glyphs alone (2026-09-23)',
+    (tester) async {
+      await _pumpAt390(tester);
+      await tester.pumpAndSettle();
+      const Map<String, (IconData, String)> keysFaces =
+          <String, (IconData, String)>{
+            'keyRowEsc': (Symbols.cancel_rounded, 'esc'),
+            'keyRowTab': (Symbols.keyboard_tab_rounded, 'tab'),
+            'keyRowCtrl': (Symbols.keyboard_control_key_rounded, 'ctrl'),
+            'keyRowAlt': (Symbols.keyboard_option_key_rounded, 'alt'),
+            'keyRowNavins': (Symbols.insert_text_rounded, 'ins'),
+            'keyRowNavdel': (Symbols.backspace_rounded, 'del'),
+            'keyRowNavhome': (Symbols.first_page_rounded, 'home'),
+            'keyRowNavend': (Symbols.last_page_rounded, 'end'),
+            'keyRowNavpgup': (
+              Symbols.keyboard_double_arrow_up_rounded,
+              'pgup',
+            ),
+            'keyRowNavpgdn': (
+              Symbols.keyboard_double_arrow_down_rounded,
+              'pgdn',
+            ),
+          };
+      for (final MapEntry<String, (IconData, String)> face
+          in keysFaces.entries) {
+        final Finder icon = find.descendant(
+          of: _cap(face.key),
+          matching: find.byIcon(face.value.$1),
+        );
+        final Finder name = _capLabel(face.key, face.value.$2);
+        expect(icon, findsOneWidget, reason: '${face.key} glyph');
+        expect(name, findsOneWidget, reason: '${face.key} name');
+        // The name sits under the glyph, the Mac-keycap read.
+        expect(
+          tester.getRect(name).top,
+          greaterThanOrEqualTo(tester.getRect(icon).bottom),
+          reason: face.key,
+        );
+      }
+      // An arrow cap carries its glyph and no text.
+      for (final String id in const <String>['^', 'v', '<', '>']) {
+        expect(
+          find.descendant(
+            of: _cap('keyRowArrow$id'),
+            matching: find.byType(Text),
+          ),
+          findsNothing,
+          reason: 'arrow $id',
+        );
+      }
+
+      await _pageLeft(tester);
+      for (int n = 1; n <= 12; n++) {
+        expect(_capLabel('keyRowFn$n', 'F$n'), findsOneWidget, reason: 'F$n');
+      }
+
+      await _pageLeft(tester);
+      expect(
+        find.descendant(
+          of: _cap('keyRowAnswerEnter'),
+          matching: find.byIcon(Symbols.keyboard_return_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(_capLabel('keyRowAnswerEnter', 'enter'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: _cap('keyRowAnswerEsc'),
+          matching: find.byIcon(Symbols.cancel_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(_capLabel('keyRowAnswerEsc', 'esc'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'the cap shape is a radius.sm rounded rectangle on both button forms, '
+    'never a stadium (2026-09-23)',
+    (tester) async {
+      await tester.pumpWidget(_row());
+      await tester.pumpAndSettle();
+      final BuildContext capContext = tester.element(_cap('keyRowEsc'));
+      const BorderRadius expected = BorderRadius.all(
+        Radius.circular(AppRadius.sm),
+      );
+      final OutlinedBorder? outlined = OutlinedButtonTheme.of(
+        capContext,
+      ).style!.shape!.resolve(_enabled);
+      expect(outlined, isA<RoundedRectangleBorder>());
+      expect(
+        (outlined! as RoundedRectangleBorder).borderRadius,
+        expected,
+        reason: 'an idle cap is a keycap, not a stadium',
+      );
+      final OutlinedBorder? filled = FilledButtonTheme.of(
+        capContext,
+      ).style!.shape!.resolve(_enabled);
+      expect((filled! as RoundedRectangleBorder).borderRadius, expected);
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await tester.pumpWidget(_row());
+      await tester.pumpAndSettle();
+      final CupertinoButton cap = tester.widget<CupertinoButton>(
+        find.descendant(
+          of: _cap('keyRowEsc'),
+          matching: find.byType(CupertinoButton),
+        ),
+      );
+      expect(cap.borderRadius, expected);
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets(
+    'panel grid holds one module across text scale, reopen and keyboard',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(_row());
+      await tester.pumpAndSettle();
+
+      // At this width and scale six modules no longer fit, so the grid reflows onto
+      // more pages (R-31-09-40). Every page keeps the one module.
+      Map<String, Rect> rectsOf(List<String> keys) => <String, Rect>{
+        for (final String key in keys) key: tester.getRect(_cap(key)),
+      };
+      void expectOneModule(Map<String, Rect> rects) {
+        // One module: every grid cap is the same width at a 2.0 text scale, so each
+        // column keeps its meaning.
+        final double module = rects['keyRowEsc']!.width;
+        expect(module, greaterThanOrEqualTo(48));
+        for (final MapEntry<String, Rect> entry in rects.entries) {
+          expect(
+            entry.value.width,
+            moreOrLessEquals(module, epsilon: 0.01),
+            reason: entry.key,
+          );
+        }
+      }
+
+      // Page one of the reflowed `Keys` grid (2026-09-23 layout): the `esc`
+      // column, the gutter and `alt`, and the first navigation column.
+      const List<String> firstPage = <String>[
+        'keyRowEsc',
+        'keyRowTab',
+        'keyRowCtrl',
+        'keyRowAlt',
+        'keyRowNavins',
+        'keyRowNavdel',
+        'keyRowArrow<',
+      ];
+      final Map<String, Rect> first = rectsOf(firstPage);
+      expectOneModule(first);
+      expect(
+        first['keyRowNavins']!.left,
+        moreOrLessEquals(first['keyRowNavdel']!.left, epsilon: 0.01),
+      );
+
+      // Page two of the reflowed `Keys` grid: the same module, and `↑` still directly
+      // over `↓`.
+      await _pageLeft(tester);
+      final Map<String, Rect> second = rectsOf(const <String>[
+        'keyRowEsc',
+        'keyRowNavhome',
+        'keyRowNavend',
+        'keyRowNavpgup',
+        'keyRowNavpgdn',
+        'keyRowArrow^',
+        'keyRowArrowv',
+        'keyRowArrow>',
+      ]);
+      expectOneModule(second);
+      expect(
+        second['keyRowArrow^']!.left,
+        moreOrLessEquals(second['keyRowArrowv']!.left, epsilon: 0.01),
+      );
+      expect(
+        second['keyRowEsc']!.width,
+        moreOrLessEquals(first['keyRowEsc']!.width, epsilon: 0.01),
+      );
+
+      // Back on page one, a fresh panel at the same width and scale draws the same
+      // geometry.
+      await _pageRight(tester);
+      final Map<String, Rect> before = rectsOf(firstPage);
+      await tester.pumpWidget(_row());
+      await tester.pumpAndSettle();
+      expect(rectsOf(firstPage), before);
+
+      // A raised keyboard changes the insets, not the grid.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 336);
+      await tester.pump();
+      final Map<String, Rect> raised = rectsOf(firstPage);
+      for (final String key in firstPage) {
+        expect(raised[key]!.width, before[key]!.width, reason: key);
+        expect(raised[key]!.left, before[key]!.left, reason: key);
+      }
+    },
+  );
+
+  group('KeyRow pages (R-03-117, R-31-09-40)', () {
+    final List<Message> sent = <Message>[];
+
+    setUp(() {
+      sent.clear();
+      _sentCorr.clear();
+      _acceptedInputs.clear();
+    });
+
+    testWidgets(
+      'a swipe shows the function keys, moves the indicator, and keeps esc in place',
+      (tester) async {
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        await _pumpAt390(tester, sent: sent);
+        await tester.pumpAndSettle();
+
+        expect(_cap('keyRowTab'), findsOneWidget);
+        expect(_cap('keyRowFn1'), findsNothing);
+        expect(find.bySemanticsLabel('Keys, page 1 of 3'), findsOneWidget);
+        // The pager owns the horizontal swipes; the inner scroll region of the old
+        // panel is gone (R-31-09-40).
+        expect(
+          find.descendant(
+            of: find.byType(PageView),
+            matching: find.byWidgetPredicate(
+              (Widget w) =>
+                  w is SingleChildScrollView &&
+                  w.scrollDirection == Axis.horizontal,
+            ),
+          ),
+          findsNothing,
+        );
+        final Rect escOnKeys = tester.getRect(_cap('keyRowEsc'));
+
+        await _pageLeft(tester);
+        for (int n = 1; n <= 12; n++) {
+          expect(_cap('keyRowFn$n'), findsOneWidget, reason: 'f$n');
+        }
+        expect(_cap('keyRowTab'), findsNothing);
+        expect(
+          find.bySemanticsLabel('Function keys, page 2 of 3'),
+          findsOneWidget,
+        );
+        // The way out sits on every page, in the same place.
+        expect(tester.getRect(_cap('keyRowEsc')), escOnKeys);
+
+        // One more swipe shows the Answer page (2026-09-23).
+        await _pageLeft(tester);
+        expect(_cap('keyRowAnswerEnter'), findsOneWidget);
+        expect(_cap('keyRowFn1'), findsNothing);
+        expect(find.bySemanticsLabel('Answer, page 3 of 3'), findsOneWidget);
+        expect(tester.getRect(_cap('keyRowAnswerEsc')), escOnKeys);
+
+        await _pageRight(tester);
+        expect(
+          find.bySemanticsLabel('Function keys, page 2 of 3'),
+          findsOneWidget,
+        );
+        await _pageRight(tester);
+        expect(_cap('keyRowTab'), findsOneWidget);
+        expect(_cap('keyRowFn1'), findsNothing);
+        expect(find.bySemanticsLabel('Keys, page 1 of 3'), findsOneWidget);
+        // The swipes together sent no input.
+        expect(sent, isEmpty);
+        semantics.dispose();
+      },
+    );
+
+    testWidgets(
+      'a function key sends its bare name and never takes a latch (R-10-038)',
+      (tester) async {
+        await _pumpAt390(tester, sent: sent);
+        await tester.pumpAndSettle();
+        await tester.tap(_cap('keyRowCtrl'));
+        await tester.pump();
+        expect(find.textContaining('is held. Press one key.'), findsOneWidget);
+
+        await _pageLeft(tester);
+        await tester.tap(_cap('keyRowFn5'));
+        await tester.pump();
+
+        // No `ctrl+` chord: R-10-038 permits only a character or `tab` as a chord
+        // base, and the tap leaves the latch as it found it.
+        expect(_inputs(sent).single.keys, <String>['F5']);
+        expect(_inputs(sent).single.text, isNull);
+        expect(find.textContaining('is held. Press one key.'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the selected page survives close and reopen, and a new pane starts on page one',
+      (tester) async {
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        await _pumpAt390(tester);
+        await tester.pumpAndSettle();
+        await _pageLeft(tester);
+        expect(_cap('keyRowFn5'), findsOneWidget);
+
+        // Closed and reopened on the same terminal screen, the panel shows the page
+        // the person left (R-31-09-40).
+        await tester.pumpWidget(_row(panelOpen: false));
+        await tester.pumpAndSettle();
+        expect(_cap('keyRowEsc'), findsNothing);
+        await tester.pumpWidget(_row(panelOpen: true));
+        await tester.pumpAndSettle();
+        expect(_cap('keyRowFn5'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel('Function keys, page 2 of 3'),
+          findsOneWidget,
+        );
+
+        // A new pane starts on page one.
+        await tester.pumpWidget(_row(panelOpen: true, paneId: 'w1:p2'));
+        await tester.pumpAndSettle();
+        expect(_cap('keyRowTab'), findsOneWidget);
+        expect(_cap('keyRowFn5'), findsNothing);
+        expect(find.bySemanticsLabel('Keys, page 1 of 3'), findsOneWidget);
+        semantics.dispose();
+      },
+    );
+
+    testWidgets('at 360 px and a 2.0 text scale the grid reflows and every cap stays reachable '
+        'at full size (R-31-09-40)', (tester) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(_row());
+      await tester.pumpAndSettle();
+
+      expect(find.bySemanticsLabel('Keys, page 1 of 6'), findsOneWidget);
+
+      // Two `Keys` pages, two `Function keys` pages and two `Answer` pages, the
+      // `esc` column on every one (2026-09-23 layout). Each entry: the page's
+      // own esc cap — the Answer grid's esc sends on the answer path, so it is
+      // a distinct widget key — then the caps the page holds.
+      const List<(String, List<String>)> pages = <(String, List<String>)>[
+        (
+          'keyRowEsc',
+          <String>[
+            'keyRowTab',
+            'keyRowCtrl',
+            'keyRowAlt',
+            'keyRowNavins',
+            'keyRowNavdel',
+            'keyRowArrow<',
+          ],
+        ),
+        (
+          'keyRowEsc',
+          <String>[
+            'keyRowNavhome',
+            'keyRowNavend',
+            'keyRowNavpgup',
+            'keyRowNavpgdn',
+            'keyRowArrow^',
+            'keyRowArrowv',
+            'keyRowArrow>',
+          ],
+        ),
+        (
+          'keyRowEsc',
+          <String>[
+            'keyRowFn1',
+            'keyRowFn7',
+            'keyRowFn2',
+            'keyRowFn8',
+            'keyRowFn3',
+            'keyRowFn9',
+            'keyRowFn4',
+            'keyRowFn10',
+          ],
+        ),
+        (
+          'keyRowEsc',
+          <String>[
+            'keyRowFn1',
+            'keyRowFn7',
+            'keyRowFn5',
+            'keyRowFn11',
+            'keyRowFn6',
+            'keyRowFn12',
+          ],
+        ),
+        (
+          'keyRowAnswerEsc',
+          <String>[
+            'keyRowAnswerLeft',
+            'keyRowAnswerUp',
+            'keyRowAnswerDown',
+            'keyRowAnswerRight',
+          ],
+        ),
+        ('keyRowAnswerEsc', <String>['keyRowAnswerEnter']),
+      ];
+      final Rect pager = tester.getRect(find.byType(PageView));
+      final Rect escOnFirst = tester.getRect(_cap('keyRowEsc'));
+      for (int p = 0; p < pages.length; p++) {
+        if (p > 0) await _pageLeft(tester);
+        for (final String key in <String>[pages[p].$1, ...pages[p].$2]) {
+          final Rect rect = tester.getRect(_cap(key));
+          expect(
+            rect.width >= 48 && rect.height >= 48,
+            isTrue,
+            reason:
+                '$key on page ${p + 1} is ${rect.width}x${rect.height}, '
+                'under the 48 floor of R-32-363',
+          );
+          // Inside the page: no cap is clipped by the pager.
+          expect(rect.left, greaterThanOrEqualTo(pager.left), reason: key);
+          expect(rect.right, lessThanOrEqualTo(pager.right), reason: key);
+        }
+        // The way out is on every page, in the same place.
+        expect(
+          tester.getRect(_cap(pages[p].$1)),
+          escOnFirst,
+          reason: 'esc on page ${p + 1}',
+        );
+      }
+      expect(
+        find.bySemanticsLabel('Answer, page 6 of 6'),
+        findsOneWidget,
+      );
+
+      // A scale change with the panel open reflows back: the count drops to
+      // three and the pager lands on the last page left, the Answer page.
+      tester.platformDispatcher.textScaleFactorTestValue = 1;
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel('Answer, page 3 of 3'), findsOneWidget);
+      expect(_cap('keyRowAnswerEnter'), findsOneWidget);
+      expect(_cap('keyRowFn1'), findsNothing);
+      semantics.dispose();
+    });
   });
 
   testWidgets('queued acknowledgement retains correlation until final reply', (
@@ -642,12 +1381,16 @@ void main() {
           reason: 'a tonal cap is what R-03-118 replaced',
         );
         expect(defaults.foregroundColor!.resolve(_enabled), scheme.onPrimary);
-        // The label never changes case, weight or text for state (R-03-118): the
-        // `toUpperCase` hack of the latched wireframe is retired.
+        // The name never changes case, weight or text for state (R-03-118): the
+        // `toUpperCase` hack of the latched wireframe is retired. A held cap's
+        // small name carries no decoration; the lock's underline comes below.
         expect(_capLabel('keyRowCtrl', 'ctrl'), findsOneWidget);
         expect(_capLabel('keyRowCtrl', 'CTRL'), findsNothing);
         expect(
-          tester.widget<Text>(_capLabel('keyRowCtrl', 'ctrl')).style,
+          tester
+              .widget<Text>(_capLabel('keyRowCtrl', 'ctrl'))
+              .style
+              ?.decoration,
           isNull,
         );
 
@@ -847,15 +1590,22 @@ void main() {
   ) async {
     await _pumpAt390(tester);
     Rect rect(String id) => tester.getRect(_cap(id));
+    // R-03-117 re-laid 2026-09-23: the navigation pairs stack on rows one and
+    // two of their arrow column, one row apart.
     for (final pair in <(String, String)>[
       ('keyRowNavins', 'keyRowNavdel'),
       ('keyRowNavhome', 'keyRowNavend'),
       ('keyRowNavpgup', 'keyRowNavpgdn'),
-      ('keyRowArrow^', 'keyRowArrowv'),
     ]) {
       expect(rect(pair.$1).center.dx, rect(pair.$2).center.dx);
       expect(rect(pair.$2).top - rect(pair.$1).bottom, AppSpace.space2);
     }
+    // `↑` is exactly above `↓`, one row pitch, and `←` `→` flank `↓` on row four.
+    expect(rect('keyRowArrow^').center.dx, rect('keyRowArrowv').center.dx);
+    expect(
+      rect('keyRowArrowv').top - rect('keyRowArrow^').bottom,
+      AppSpace.space2,
+    );
     expect(
       rect('keyRowArrow<').right + AppSpace.space2,
       rect('keyRowArrowv').left,
@@ -865,11 +1615,14 @@ void main() {
       rect('keyRowArrow>').left,
     );
     expect(_cap('keyRowBankTwoToggle'), findsNothing);
-    // R-03-117 (2026-09-16): the inverted T is bottom-aligned. `←` `↓` `→` share the bottom
-    // row with `del` `end` `pgdn`; `↑` shares row two with `ins` `home` `pgup`.
-    expect(rect('keyRowArrowv').top, rect('keyRowNavdel').top);
-    expect(rect('keyRowArrow>').top, rect('keyRowNavdel').top);
-    expect(rect('keyRowArrow^').top, rect('keyRowNavins').top);
+    // The inverted T is bottom-aligned: `←` `↓` `→` share row four with `ctrl`
+    // and `alt`; `↑` alone on row three, directly under row two.
+    expect(rect('keyRowArrowv').top, rect('keyRowCtrl').top);
+    expect(rect('keyRowArrow>').top, rect('keyRowAlt').top);
+    expect(
+      rect('keyRowArrow^').top,
+      rect('keyRowNavdel').bottom + AppSpace.space2,
+    );
     expect(rect('keyRowEsc').top, lessThan(rect('keyRowArrow^').top));
   });
 
@@ -910,11 +1663,9 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('the alt cap of row one latches one-shot, the next character is an alt chord, and '
+    testWidgets('the alt cap latches one-shot, the next character is an alt chord, and '
         'focuses the composer (R-31-09-19)', (WidgetTester tester) async {
       await pumpPanel(tester);
-      // `alt` sits on row one since R-03-117, so it is reachable with the expansion
-      // closed too; this case opens it to prove the latch closes it again.
       await tester.tap(_cap('keyRowAlt'));
       await tester.pump();
 

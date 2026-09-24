@@ -20,8 +20,10 @@ impl<H: HerdrCalls> Bridge<H> {
         corr: Option<String>,
     ) -> Vec<(Message, Option<String>)> {
         let pane_id = request.pane_id.clone();
-        let result = (|| match request.defer.take() {
+        let result = (|| match request.defer {
+            _ if request.bypass_line == Some(true) => self.send_input(request),
             Some(Defer::Cancel) => {
+                request.defer = None;
                 if request.line.is_some() || request.text.is_some() || request.keys.is_some() {
                     return Err(WatchError::InvalidInput(
                         "cancel cannot include line, text, or keys".to_owned(),
@@ -37,6 +39,7 @@ impl<H: HerdrCalls> Bridge<H> {
                 Ok(input_ack(request.pane_id, true, false))
             }
             Some(Defer::UntilIdle) => {
+                request.defer = None;
                 self.require_watched(&request.pane_id)?;
                 if request.line.is_some()
                     || request.text.is_some()
@@ -109,6 +112,7 @@ impl<H: HerdrCalls> Bridge<H> {
         if let Some(pending) = self.pending_input.take() {
             let request = SendInput {
                 pane_id: pending.pane_id.clone(),
+                bypass_line: None,
                 line: None,
                 text: None,
                 keys: Some(pending.keys),

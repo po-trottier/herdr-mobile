@@ -31,6 +31,9 @@ pub struct SendInput {
     /// then forwards it. `cancel` alone: drop a held submit for this pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub defer: Option<Defer>,
+    /// Sends dialog input without changing the composer line or held submit (R-11-254).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub bypass_line: Option<bool>,
 }
 
 /// `send_input.defer` values (R-11-253).

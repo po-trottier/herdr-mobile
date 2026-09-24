@@ -215,6 +215,9 @@ colours and its type and MUST NOT reshape it into a square, a fixed box or any g
 platform does not draw for that button. Added 2026-09-09 by the product owner, who pointed at
 the `-` and `+` stepper a second time after it had become a re-shaped `IconButton`: a square
 tonal icon button is still not what the platform draws.
+The 2026-09-23 amendment of R-03-117 exempts keycap geometry from this restriction.
+The native button requirement still applies.
+R-32-535 owns that keycap shape and layout floor.
 
 **R-03-100**: Every state indicator in the app MUST be the leading bar, a rectangle in the state's
 hue at the row's leading edge, beside the state word. The app MUST NOT draw a status dot anywhere:
@@ -386,32 +389,28 @@ Decided 2026-09-10 by the product owner, who saw agent rows at 64 beside shell r
 one block and called the heights inconsistent. `docs/31-mockups/06-agent-list.md` owns the row and
 `docs/32-design-language.md` owns the values.
 
-**R-03-116**: The key row MUST have exactly one expansion: the `…` cap opens bank two, and bank
-two holds every key that is not on the phone keyboard, the symbols, `home`, `end`, `pgup`,
-`pgdn`, `del`, `ins`, the four arrows and `alt`. There MUST NOT be a second surface for the same
-keys: the Shortcuts palette and the keyboard action in the terminal app bar are retired, because
-two controls that expand the keys and show two different things is inconsistent. A control chord
-is typed the way a keyboard types it, `ctrl` latched then the key, and no list of chords is drawn.
-Decided 2026-09-10 by the product owner, who found `…` and the app-bar keyboard button gave two
-different results. `docs/31-mockups/09-key-row.md` owns the bank and `docs/31-mockups/08-terminal.md`
-the app bar.
+**R-03-116**: The terminal MUST have one extra-key surface, with no separate Shortcuts palette
+or keyboard action in the app bar. The `+` opens that panel directly, per `R-03-133`.
+A control chord uses a modifier latch followed by a key, not a list of chords.
+Decided 2026-09-10 by the product owner. `R-03-117` removed the symbol caps and, on 2026-09-23,
+replaced the former banks with pages in this same panel. `docs/31-mockups/09-key-row.md` owns it.
 
-**R-03-117**: The key row MUST hold only the keys the phone keyboard has no key for, and MUST lay
-them out the way a keyboard does. The symbol caps (`- _ = + | \ { } [ ] ( )` and the rest) leave
-the row: every one of them is on the phone keyboard's own symbol pages. What stays, in a grid of
-six columns and three rows, is the keyboard's own navigation block and its inverted-T arrows,
-bottom-aligned as on a keyboard: row one `esc` `tab` `ctrl` `alt`; row two `ins` `home` `pgup`
-and `↑` in column five; row three `del` `end` `pgdn` `←` `↓` `→`. So `ins` sits over `del`,
-`home` over `end`, `pgup` over `pgdn`, and `↑` sits directly over `↓` with `←` and `→` beside
-it, the inverted T on the bottom row (amended 2026-09-16 by the product owner: the T sat on
-rows one and two, top-aligned; "the arrows should be bottom-aligned"). The latch hint and every
-other status strip of the key panel MUST sit **above** the caps, never below them, so tapping
-`ctrl` or `alt` adds the hint without moving a single cap (same amendment: "clicking CTRL moves
-the whole thing because the status text is below"). Amends `R-03-116`. Decided 2026-09-10 by the
-product owner, who asked why `tab` sat beside `ctrl` while `alt` sat at the far end of the list,
-whether `[ ] { }` were not already on the native keyboard, and then asked for the keys to sit the
-way they do on a keyboard: the arrows stacked, `ins`/`del` and `pgup`/`pgdn` vertical pairs.
-`docs/31-mockups/09-key-row.md` owns the grid.
+**R-03-117**: The key panel MUST follow physical-keyboard positions rather than minimize its height.
+The owner amended this decision on 2026-09-23 after live review.
+This amendment supersedes the same-day three-row pager and separate answer field.
+The panel has `Keys`, `Function keys`, and `Answer` pages with one shared four-row height.
+`R-31-09-21` owns their layouts. `R-31-09-40` owns page state and overflow.
+`R-33-081` owns the SDK pager and page dots on both platforms.
+Symbol caps remain on the phone keyboard. Function keys retain the named-key contract of `R-10-038`.
+`R-32-535` owns native keycap buttons with small rounded corners, a large glyph face,
+and a small readable name.
+The owner selected icons from the installed `material_symbols_icons` package, not Unicode key glyphs.
+The owner rejected `flutter_onscreen_keyboard` because it uses a root overlay.
+It draws its own keys instead of platform buttons.
+The face table in `docs/31-mockups/09-key-row.md` identifies each key without changing its spoken label.
+`R-31-09-38` owns automatic Answer selection and direct answer keys.
+`R-31-09-41` owns the one composer's answer buffer and exact restoration of the main draft.
+`R-11-254` owns the direct-input wire contract that preserves the Host line shadow and held submits.
 
 **R-03-118**: A latched modifier cap (`ctrl`, `alt`, held or locked) MUST show its state through
 the platform's own high-emphasis button form: on Android the `FilledButton` (the theme's primary
@@ -520,9 +519,11 @@ the computer's screen and only ever shows what the computer has drawn, and the *
 native text field under the grid where the person types. The person's keystrokes go into the
 composer, which the platform's own keyboard edits natively: instant glyphs, native backspace,
 native cursor, native selection and autocorrect, with nothing drawn on top of the grid and nothing
-predicted. The composer sends its complete text as `send_input.line` on **every edit**. The Host
+predicted. Outside answer mode under R-31-09-41, the composer sends its full text on **every edit**
+as `send_input.line`. The Host
 owns the input shadow and reconciliation, per `R-03-137`. Keyboard Enter inserts a newline.
-Only Send submits, and its progress remains visible until acknowledgement. Decided 2026-09-11
+Only Send submits the composer, and its progress remains visible until acknowledgement.
+Answer-mode keys bypass the composer, per `R-31-09-38`. Decided 2026-09-11
 by the product owner after the predictive overlay of `R-03-123` shipped: "Characters pop in and
 out, cursor moves, it's so weird. I want a real, native feel, where I write in the input field, it
 immediately writes the characters at the right place, I can press backspace to remove. It should
@@ -540,9 +541,10 @@ the pane, never through the field) are owned by `docs/31-mockups/09-key-row.md`;
 feed-on-arrival and viewport stability are owned by `docs/21-terminal-rendering.md` `R-21-021`
 and `R-21-044`.
 
-**R-03-137**: Every composer edit MUST send the full text, not a Device-generated edit delta.
+**R-03-137**: Every main-draft composer edit MUST send the full text, not a Device-generated edit delta.
 The Host MUST own the input shadow. The app MUST seed the composer from `watch_ack.line`.
-Keyboard Enter MUST insert a newline. Only Send MUST submit the command.
+Keyboard Enter MUST insert a newline. Only Send MUST submit the composer command.
+Direct answer keys MUST use R-31-09-38. Composer answer input MUST use R-31-09-41 instead.
 Send MUST show progress until its acknowledgement arrives, and failure MUST preserve the text.
 `R-11-248` and `R-11-249` own the wire contract and seed. `R-11-251` and `R-11-252` own
 the Host queue rules. `R-31-09-31` through `R-31-09-34` own the composer behaviour.
@@ -602,20 +604,26 @@ MUST stay fixed so it becomes a rounded rectangle. On review of the multiline fi
 the owner approved Send at the bottom trailing corner with padding, and `+` aligned alongside it.
 On iOS, Send's curve and the field's corner MUST share a centre, with an even gap between their edges.
 The controls MUST NOT float at the vertical centre of a multiline field.
-The key row is gone as a permanent surface. The `+` opens the **key panel**, and the panel MUST
-open **above the bar, over the bottom of the grid, with the keyboard left exactly as it was**:
+The key row is gone as a permanent surface. The `+` opens the pager directly, without a menu.
+The owner amendment of 2026-09-23 supersedes the earlier same-day two-item menu.
+The panel MUST open **above the bar, over the bottom of the grid**.
+The keyboard MUST stay exactly as it was:
 up stays up, down stays down. The owner ruled out the alternative the same day, a panel that takes
 the keyboard's place the way the iOS Messages apps drawer does ("the extra keys being under the
 keyboard also seems like a terrible design layout"): a control chord needs a key from the panel and
 a letter from the keyboard in one motion, so the two MUST be on screen together, which is the
-layout every phone terminal (Termux, Termius, Blink) uses for its extra keys. One tap on `+` shows
-every key (the former bank one and bank two as one grid) and the control reads `×`; a tap on `×`
-or on the grid closes it; field focus and a modifier latch leave it open. On iOS the send control
+layout every phone terminal (Termux, Termius, Blink) uses for its extra keys.
+While the panel is open, the control reads `×` and closes it directly without a menu.
+Horizontal swipes change the page. No mode toggle appears inside the panel.
+A blocked agent opens the Answer page automatically, per `R-31-09-38`.
+`R-31-09-24` owns the panel control. `R-03-117` records the page decision.
+A tap on `×` or the grid closes it. Field focus and a modifier latch leave it open.
+On iOS the send control
 sits inside the field's trailing end and the row is the Messages height; on Android the send
 control is a filled round icon button outside the field and the row is `size.field`.
 `docs/31-mockups/09-key-row.md` owns the panel and the bar, `docs/32-design-language.md` section
-7.13 owns the values, and `R-31-09-01`'s "bank one is always visible" is retired by this rule: the
-keys are one tap away.
+7.13 owns the values, and `R-31-09-01`'s "bank one is always visible" is retired by this rule.
+The keys are available through the `+` control.
 
 **R-03-134**: A split MUST be offered **on the pane it splits**, in the pane action sheet behind
 the terminal's overflow control, and MUST NOT be offered in the create menu of the `Agents`

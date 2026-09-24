@@ -254,6 +254,7 @@ fn send_input_arms_reads_that_carry_the_echo_of_a_keystroke() {
     bridge
         .send_input(SendInput {
             defer: None,
+            bypass_line: None,
             line: None,
             pane_id: "w1:p1".to_string(),
             text: Some("a".to_string()),
@@ -317,6 +318,7 @@ fn input_with_unchanged_text_reads_but_sends_no_frame() {
     bridge
         .send_input(SendInput {
             defer: None,
+            bypass_line: None,
             line: None,
             pane_id: "w1:p1".to_string(),
             keys: Some(vec!["ctrl+c".to_string()]),
@@ -362,6 +364,7 @@ fn refused_input_arms_no_reads() {
 
     let refused = bridge.send_input(SendInput {
         defer: None,
+        bypass_line: None,
         line: None,
         pane_id: "w1:p2".to_string(), // not the watched pane
         text: Some("a".to_string()),

@@ -141,7 +141,8 @@ import '../services/terminal.dart'
 import '../services/tree.dart'
     show applyTreeUpdate, fetchTreeSnapshot, paneDisplayName;
 import '../widgets/composer.dart' show Composer, ComposerState;
-import '../widgets/key_row.dart' show KeyRow, KeyRowLinkState, KeyRowState;
+import '../widgets/key_row.dart'
+    show KeyPanelPage, KeyRow, KeyRowLinkState, KeyRowState;
 import '../widgets/status_bar.dart' show BarState, StatusBar;
 import '../widgets/status_strip.dart'
     show StatusStrip, StatusStripLinkWord, TerminalOverviewControl;
@@ -281,8 +282,28 @@ class _TerminalScreenState extends State<TerminalScreen>
   final FocusNode _composerFocus = FocusNode(debugLabel: 'Terminal composer');
   bool _keyPanelOpen = false;
 
+  /// The key panel's current page, reported by the row (R-31-09-40). The
+  /// composer is the answer field while the Answer page shows (2026-09-23).
+  KeyPanelPage _keyPanelPage = KeyPanelPage.keys;
+
+  /// A one-shot page request: a blocked agent opens the panel on the Answer
+  /// page. Cleared once the row reports that page.
+  KeyPanelPage? _keyPanelRequest;
+
   void _toggleKeyPanel() {
-    setState(() => _keyPanelOpen = !_keyPanelOpen);
+    setState(() {
+      _keyPanelOpen = !_keyPanelOpen;
+      // A close drops an unconsumed page request: the next open lands on
+      // the panel's own last page again.
+      if (!_keyPanelOpen) _keyPanelRequest = null;
+    });
+  }
+
+  void _onKeyPanelPage(KeyPanelPage page) {
+    setState(() {
+      _keyPanelPage = page;
+      if (_keyPanelRequest == page) _keyPanelRequest = null;
+    });
   }
 
   final GlobalKey<KeyRowState> _keyRowKey = GlobalKey<KeyRowState>();
@@ -400,6 +421,16 @@ class _TerminalScreenState extends State<TerminalScreen>
     return accepted;
   }
 
+  /// The Answer page's send (2026-09-23): one frame with the text, when any,
+  /// and `Enter` past the line shadow, so the held composer draft stays
+  /// untouched. The Composer clears its answer buffer on the ack.
+  Future<bool> _submitAnswer(String text) async {
+    _keyRowKey.currentState?.clearInputFailure();
+    final bool accepted = await _service.sendAnswerSubmit(widget.paneId, text);
+    if (mounted && !accepted) _keyRowKey.currentState?.reportInputFailure();
+    return accepted;
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -512,7 +543,12 @@ class _TerminalScreenState extends State<TerminalScreen>
   void _updateAgentStatus(String? status) {
     if (status == _agentStatus) return;
     _agentStatus = status;
-    if (status == 'blocked') _keyPanelOpen = true;
+    // A blocked agent is a question: open the panel on the Answer page
+    // directly, and the composer becomes the answer field.
+    if (status == 'blocked') {
+      _keyPanelOpen = true;
+      _keyPanelRequest = KeyPanelPage.answer;
+    }
   }
 
   /// R-32-510's live bar refreshes itself once, at the moment the last
@@ -803,7 +839,12 @@ class _TerminalScreenState extends State<TerminalScreen>
   }
 
   void _onGridTap() {
-    if (_keyPanelOpen) setState(() => _keyPanelOpen = false);
+    if (_keyPanelOpen) {
+      setState(() {
+        _keyPanelOpen = false;
+        _keyPanelRequest = null;
+      });
+    }
     _composerFocus.requestFocus();
   }
 
@@ -1187,11 +1228,17 @@ class _TerminalScreenState extends State<TerminalScreen>
       onForceRead: _onForceRead,
     );
 
+    // The one composer is the answer input while the panel shows the Answer
+    // page (2026-09-23): its Send then goes past the line shadow.
+    final bool answerInput =
+        _keyPanelOpen && _keyPanelPage == KeyPanelPage.answer;
     final Widget composer = Composer(
       key: _composerKey,
       focusNode: _composerFocus,
       panelOpen: _keyPanelOpen,
       onTogglePanel: _toggleKeyPanel,
+      answerInput: answerInput,
+      onSubmitAnswer: _submitAnswer,
       enabled: _phase == TerminalGridPhase.live,
       initialLine: _initialLine,
       onLine: (String line) => _service.sendComposerLine(widget.paneId, line),
@@ -1239,7 +1286,8 @@ class _TerminalScreenState extends State<TerminalScreen>
       paneId: widget.paneId,
       send: _service.send,
       sendInputAcks: _ackController.stream,
-      answerMode: _agentStatus == 'blocked',
+      requestedPage: _keyPanelRequest,
+      onPageChanged: _onKeyPanelPage,
       onInputAccepted: (input) =>
           _composerKey.currentState?.applyAcceptedInput(input),
       linkState: _keyRowLinkState,

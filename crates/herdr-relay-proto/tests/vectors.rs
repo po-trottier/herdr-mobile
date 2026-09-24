@@ -42,6 +42,22 @@ fn mark_seen_round_trips_with_exact_payload() {
     assert_eq!(frame.message().unwrap(), message);
 }
 
+#[test]
+fn send_input_bypass_round_trips_and_defaults_to_absent() {
+    use herdr_relay_proto::messages::SendInput;
+    for bypass in [None, Some(false), Some(true)] {
+        let mut payload = serde_json::json!({
+            "pane_id": "w3:p2", "text": "other answer", "keys": ["Enter"],
+        });
+        if let Some(value) = bypass {
+            payload["bypass_line"] = value.into();
+        }
+        let input: SendInput = serde_json::from_value(payload.clone()).unwrap();
+        assert_eq!(input.bypass_line, bypass);
+        assert_eq!(serde_json::to_value(input).unwrap(), payload);
+    }
+}
+
 fn vectors_json_path() -> String {
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/vectors.json").to_owned()
 }

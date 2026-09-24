@@ -4676,6 +4676,8 @@ change went through `WP-12-a` on request).
       went with it.
 - [x] Keep bank one reachable in one gesture, keep the row scrollable, and never wrap it or let it
       scroll off when the keyboard rises, in `app/lib/widgets/key_row.dart` (R-31-09-01).
+      Historical behavior only. R-03-117 and R-31-09-40 replace inner scroll with pages as of
+      2026-09-23. R-03-133 retired the permanent row.
 - [x] Use the named key path for every key that has a name, and the six raw CSI sequences for the
       six that do not, sent as one `send_input` frame per send, from
       `app/lib/widgets/key_row.dart` (R-21-019, R-21-019a, R-31-09-03, R-11-054).
@@ -4703,6 +4705,8 @@ change went through `WP-12-a` on request).
 - [x] At the text-scale clamp of 2.0 scroll a fixed row of minimum-size targets while keeping its
       named essential subset visible, never shrinking a target or clipping a label, in
       `app/lib/widgets/key_row.dart` (R-30-519, R-30-741, R-30-703, R-30-701).
+      Historical behavior only. R-31-09-40 now requires additional pages, with `esc` on each page,
+      instead of the inner scroll region (owner amendment, 2026-09-23).
 - [x] Keep a per-pane draft of the input field text across a route change, in
       `app/lib/services/draft_store.dart` (R-31-09-07).
 - [x] Add the send failed and offline states to `app/lib/widgets/key_row.dart` (R-90-011,
@@ -7001,6 +7005,10 @@ Regression test: `key_row_test.dart` "a backspace the keyboard delivers as a key
 format 330 files, 0 changed; analyze 0; `flutter test` 1331/1331, exit 0; markdownlint 0; lychee
 offline 0 errors. Build installed; live on Main's own throwaway pane `bs-final`: `abc` then the
 soft keyboard's backspace read `ab` in the pane, and the grid showed the three rows above.
+
+The layout and pinned-column description below records the 2026-09-10 implementation only.
+The owner amendment of 2026-09-23 in R-03-117 replaces it with the pages of R-31-09-40.
+No column remains pinned outside those pages. Overflow creates more pages, not an inner scroll.
 
 **Native controls round, dated 2026-09-10.** Five owner findings, recorded as `R-03-117`
 (amended) and `R-03-118` to `R-03-121` in `docs/03-product-decisions.md`, built by three owners in

@@ -96,6 +96,158 @@ void main() {
         debugDefaultTargetPlatformOverride = null;
       },
     );
+    testWidgets('+ toggles the panel directly and opens no menu on $platform', (
+      WidgetTester tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final FocusNode focus = FocusNode();
+      addTearDown(focus.dispose);
+      int toggles = 0;
+      int submissions = 0;
+      bool panelOpen = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (BuildContext context, StateSetter setState) => Composer(
+                focusNode: focus,
+                panelOpen: panelOpen,
+                onTogglePanel: () => setState(() {
+                  toggles++;
+                  panelOpen = !panelOpen;
+                }),
+                onLine: (_) {},
+                onSubmit: (String line, {bool whenIdle = false}) async {
+                  submissions++;
+                  return true;
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      final Finder more = find.byKey(const ValueKey<String>('composerMore'));
+      // Panel closed: a tap opens the panel itself — no menu, no send.
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(toggles, 1);
+      expect(find.text('Answer a question'), findsNothing);
+      expect(find.text('Extra keys'), findsNothing);
+      expect(submissions, 0);
+
+      // Panel open: a tap closes it directly, and still no menu.
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(toggles, 2);
+      expect(find.text('Answer a question'), findsNothing);
+      expect(submissions, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets(
+      'answer mode stashes the draft, sends one answer on the ack, and '
+      'restores the draft on $platform',
+      (WidgetTester tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final FocusNode focus = FocusNode();
+        addTearDown(focus.dispose);
+        final List<String> lines = <String>[];
+        final List<String> answers = <String>[];
+        final List<String> submits = <String>[];
+        final Completer<bool> answerAck = Completer<bool>();
+        bool answerInput = false;
+        late StateSetter rebuild;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (BuildContext context, StateSetter setState) {
+                  rebuild = setState;
+                  return Composer(
+                    focusNode: focus,
+                    answerInput: answerInput,
+                    onSubmitAnswer: (String text) {
+                      answers.add(text);
+                      return answerAck.future;
+                    },
+                    onLine: lines.add,
+                    onSubmit: (String line, {bool whenIdle = false}) async {
+                      submits.add(line);
+                      return true;
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        final Finder field = find.byKey(
+          const ValueKey<String>('composerField'),
+        );
+        String text() => tester
+            .widget<EditableText>(
+              find.descendant(of: field, matching: find.byType(EditableText)),
+            )
+            .controller
+            .text;
+        TextSelection selection() => tester
+            .widget<EditableText>(
+              find.descendant(of: field, matching: find.byType(EditableText)),
+            )
+            .controller
+            .selection;
+
+        // The main draft syncs as usual.
+        await tester.enterText(field, 'keep draft');
+        await tester.pump();
+        expect(lines, <String>['keep draft']);
+
+        // Switching to the Answer page empties the field to the answer
+        // placeholder and the spoken Send, and sends no frame.
+        rebuild(() => answerInput = true);
+        await tester.pump();
+        expect(text(), isEmpty);
+        expect(find.text('Type an answer'), findsOneWidget);
+        expect(find.bySemanticsLabel('Send answer'), findsOneWidget);
+        expect(lines, hasLength(1));
+        expect(answers, isEmpty);
+        expect(submits, isEmpty);
+
+        // Typing the answer sends no line frame.
+        await tester.enterText(field, 'other answer');
+        await tester.pump();
+        expect(lines, hasLength(1));
+        expect(answers, isEmpty);
+
+        // Send hands the text over; the field holds it until the ack.
+        await tester.tap(find.byKey(const ValueKey<String>('composerSend')));
+        await tester.pump();
+        expect(answers, <String>['other answer']);
+        expect(submits, isEmpty);
+        expect(text(), 'other answer');
+
+        // The ack clears the answer buffer.
+        answerAck.complete(true);
+        await tester.pump();
+        expect(text(), isEmpty);
+
+        // Leaving the page restores the draft exactly, with no frame.
+        rebuild(() => answerInput = false);
+        await tester.pump();
+        expect(text(), 'keep draft');
+        expect(selection().baseOffset, 'keep draft'.length);
+        expect(find.text('Type here'), findsOneWidget);
+        expect(lines, hasLength(1));
+        expect(answers, hasLength(1));
+        expect(submits, isEmpty);
+        await tester.pumpWidget(const SizedBox.shrink());
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+
     testWidgets('send choices and queued cancellation on $platform', (
       WidgetTester tester,
     ) async {

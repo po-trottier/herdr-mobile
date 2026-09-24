@@ -140,6 +140,7 @@ fn send_input_naming_an_unwatched_pane_is_refused() {
     let (mut bridge, send_input_calls) = watching_bridge();
     let result = bridge.send_input(SendInput {
         defer: None,
+        bypass_line: None,
         line: None,
         pane_id: "w1:p2".to_string(), // not the watched pane
         text: Some("a".to_string()),
@@ -169,6 +170,7 @@ fn send_input_with_no_pane_watched_at_all_is_refused() {
     let mut bridge = Bridge::new(herdr, identity, RelayConfig::default());
     let result = bridge.send_input(SendInput {
         defer: None,
+        bypass_line: None,
         line: None,
         pane_id: "w1:p1".to_string(),
         text: Some("a".to_string()),
@@ -186,6 +188,7 @@ fn send_input_to_the_actually_watched_pane_succeeds() {
     let (mut bridge, send_input_calls) = watching_bridge();
     let result = bridge.send_input(SendInput {
         defer: None,
+        bypass_line: None,
         line: None,
         pane_id: "w1:p1".to_string(),
         text: Some("a".to_string()),

@@ -66,6 +66,7 @@ import 'package:flutter/widgets.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:xterm2/xterm.dart'
     show
+        CellAnchor,
         CellOffset,
         Terminal,
         TerminalController,
@@ -543,17 +544,15 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   ({int first, int last})? _reportedWindow;
   bool _windowReportScheduled = false;
 
-  // R-30-301: xterm2's own internal long-press recognizer for
-  // select-a-word uses the Flutter SDK default (500 ms), which this rule
-  // forbids. This ancestor recognizer wins the gesture arena first, at
-  // the correct 400 ms, so xterm2's own (slower) internal one never
-  // fires — then drives xterm2's own public `RenderTerminal.selectWord`
-  // through `_terminalViewKey`, reusing its real word-boundary and
-  // selection logic rather than reimplementing it.
+  // The 400 ms recognizer uses xterm's public word boundaries and cell anchors.
   final GlobalKey<TerminalViewState> _terminalViewKey =
       GlobalKey<TerminalViewState>();
   LongPressGestureRecognizer? _longPressRecognizer;
-  Offset? _lastLongPressStart;
+  CellAnchor? _selectionStart;
+  CellAnchor? _selectionEnd;
+  Offset? _selectionPointer;
+  Timer? _selectionScrollTimer;
+  int _selectionBufferRows = 0;
 
   @override
   void initState() {
@@ -574,6 +573,13 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
         oldWidget.historyGeneration != widget.historyGeneration) {
       _truncatedDismissed = false;
       _historyViewportPending = widget.historyVisible;
+      if (_hasSelection && widget.historyVisible) {
+        _historyViewportPending = false;
+        final rows = widget.terminal!.buffer.lines.length;
+        _viewportTopRows += rows - _selectionBufferRows;
+        _selectionBufferRows = rows;
+        _historyRequested = false;
+      }
       if (widget.historyVisible) {
         _verticalOffsetFromBottom = _max(
           _verticalOffsetFromBottom,
@@ -612,6 +618,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   @override
   void dispose() {
     _firstPaintTimer?.cancel();
+    _endSelectionDrag();
     widget.terminal?.removeListener(_onTerminalContentChanged);
     _twoFingerScroll?.cancel();
     _verticalScroll
@@ -757,6 +764,8 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   }
 
   void _onControllerChanged() {
+    _selectionBufferRows = widget.terminal?.buffer.lines.length ?? 0;
+    if (!_hasSelection) _endSelectionDrag();
     setState(() {});
     widget.onSelectionLiveChanged?.call(_hasSelection);
   }
@@ -936,6 +945,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     _pinchPointers[event.pointer] = event.position;
     if (_pinchPointers.length >= 2) _pinchRecognizer.claim();
     if (_pinchPointers.length == 2) {
+      _endSelectionDrag();
       final points = _pinchPointers.values.toList();
       _pinchStartPoints = points;
       _twoFingerScrollCenter = (points[0] + points[1]) / 2;
@@ -1037,6 +1047,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
       ))
       ..onLongPressStart = _onLongPressStart
       ..onLongPressMoveUpdate = _onLongPressMoveUpdate
+      ..onLongPressEnd = ((_) => _endSelectionDrag())
       ..addPointer(event);
   }
 
@@ -1045,23 +1056,101 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
   /// file never reimplements word-boundary detection.
   void _onLongPressStart(LongPressStartDetails details) {
     if (_pinchPointers.length >= 2) return;
-    _lastLongPressStart = details.localPosition;
-    _terminalViewKey.currentState?.renderTerminal.selectWord(
-      details.localPosition,
+    _endSelectionDrag();
+    _forceReadPointer = null;
+    final render = _terminalViewKey.currentState?.renderTerminal;
+    final terminal = widget.terminal;
+    if (render == null || terminal == null) return;
+    render.selectWord(render.globalToLocal(details.globalPosition));
+    final range = _controller.selectionFor(terminal.buffer);
+    if (range == null) return;
+    _selectionStart = terminal.buffer.createAnchorFromOffset(range.begin);
+    _selectionEnd = terminal.buffer.createAnchorFromOffset(range.end);
+    _selectionBufferRows = terminal.buffer.lines.length;
+    _selectionPointer = details.globalPosition;
+    _historyRequested = false;
+  }
+
+  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+    if (_pinchPointers.length >= 2) return;
+    _selectionPointer = details.globalPosition;
+    _extendSelection();
+    _selectionScrollTimer ??= Timer.periodic(
+      ChromeGestureTiming.selectionAutoscrollStep,
+      (_) => _scrollSelection(),
     );
   }
 
-  /// Extends the same selection as the press moves, matching `xterm2`'s
-  /// own long-press-then-drag behaviour (`docs/30-ux-spec.md`'s gesture
-  /// table, "Start a free selection").
-  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
-    if (_pinchPointers.length >= 2) return;
-    final start = _lastLongPressStart;
-    if (start == null) return;
-    _terminalViewKey.currentState?.renderTerminal.selectWord(
-      start,
-      details.localPosition,
+  void _endSelectionDrag() {
+    _selectionScrollTimer?.cancel();
+    _selectionScrollTimer = null;
+    _selectionPointer = null;
+    _selectionStart?.dispose();
+    _selectionEnd?.dispose();
+    _selectionStart = null;
+    _selectionEnd = null;
+  }
+
+  void _extendSelection() {
+    final render = _terminalViewKey.currentState?.renderTerminal;
+    final terminal = widget.terminal;
+    final pointer = _selectionPointer;
+    final start = _selectionStart;
+    final end = _selectionEnd;
+    if (render == null ||
+        terminal == null ||
+        pointer == null ||
+        start == null ||
+        end == null ||
+        !start.attached ||
+        !end.attached) {
+      return;
+    }
+    final cell = render.getCellOffset(render.globalToLocal(pointer));
+    final word = terminal.buffer.getWordBoundary(cell);
+    if (word == null) return;
+    final first = word.begin.isBefore(start.offset) ? word.begin : start.offset;
+    final last = word.end.isAfter(end.offset) ? word.end : end.offset;
+    _controller.setSelection(
+      terminal.buffer.createAnchorFromOffset(first),
+      terminal.buffer.createAnchorFromOffset(last),
     );
+  }
+
+  void _scrollSelection() {
+    final pointer = _selectionPointer;
+    final box = context.findRenderObject() as RenderBox?;
+    if (pointer == null ||
+        box == null ||
+        !_verticalScroll.hasClients ||
+        _terminalContentDirty) {
+      return;
+    }
+    final local = box.globalToLocal(pointer);
+    final inset = _cutoutSafeInset(context);
+    final top = inset.top;
+    final bottom = box.size.height - inset.bottom;
+    final direction = local.dy < top + AppSize.targetMin
+        ? -1
+        : local.dy > bottom - AppSize.targetMin
+        ? 1
+        : 0;
+    if (direction == 0) return;
+    final position = _verticalScroll.position;
+    final target = (position.pixels + direction * _cellHeight).clamp(
+      0.0,
+      position.maxScrollExtent,
+    );
+    if (target != position.pixels) _verticalScroll.jumpTo(target);
+    if (direction < 0 &&
+        target <= position.viewportDimension &&
+        widget.maxScrollOffsetFromBottom > 0 &&
+        (!widget.historyVisible || widget.historyCanLoadMore) &&
+        !_historyRequested) {
+      _historyRequested = true;
+      widget.onRequestScrollback?.call();
+    }
+    _extendSelection();
   }
 
   /// R-30-730: under reduced motion every `motion.duration.*` becomes 0 ms
@@ -1096,7 +1185,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     if (range == null) return;
     final text = terminal.buffer.getText(range);
     await Clipboard.setData(ClipboardData(text: text));
-    _controller.clearSelection();
+    if (mounted) _controller.clearSelection();
   }
 
   void _selectVisibleScreen() {
@@ -1115,7 +1204,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
         1;
     final base = terminal.buffer.createAnchorFromOffset(CellOffset(0, top));
     final extent = terminal.buffer.createAnchorFromOffset(
-      CellOffset(terminal.viewWidth - 1, bottom),
+      CellOffset(terminal.viewWidth, bottom),
     );
     _controller.setSelection(base, extent);
   }
@@ -1213,14 +1302,14 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
                 Positioned.fill(child: _buildGridArea(context, color)),
                 if (widget.phase == TerminalGridPhase.live && _isScrolledBack)
                   _buildJumpToBottomPill(color),
-                if (_hasSelection && widget.terminal != null)
-                  _buildSelectionToolbar(context, color),
                 if (widget.truncatedAtTop ||
                     (widget.historyVisible &&
                         widget.historyTruncated &&
                         _viewportTopRows <= 0.01 &&
                         !_truncatedDismissed))
                   _buildTruncatedStrip(color),
+                if (_hasSelection && widget.terminal != null)
+                  _buildSelectionToolbar(context, color),
               ],
             ),
           ),
@@ -1492,7 +1581,6 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
                       _userScrollInProgress &&
                       !_adjustingViewport &&
                       interactive &&
-                      !_hasSelection &&
                       widget.phase == TerminalGridPhase.live &&
                       widget.maxScrollOffsetFromBottom > 0 &&
                       (!widget.historyVisible || widget.historyCanLoadMore) &&
@@ -1579,6 +1667,7 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
           ? (event) {
               _onPinchPointerEnd(event.pointer);
               _onForceReadPointerEnd(event.pointer);
+              _endSelectionDrag();
             }
           : null,
       child: Semantics(
@@ -1677,20 +1766,26 @@ class _TerminalViewWidgetState extends State<TerminalViewWidget> {
     );
   }
 
-  /// The selection's top-left cell, in pixels, above the grid's own
-  /// transform. ponytail: a single fixed anchor above the selection start,
-  /// not a full above-or-below-keyboard placement search; upgrade if a
-  /// selection near the top edge is found to clip off screen.
+  /// Keep the native toolbar inside the viewport when the selection extends offscreen.
   Offset _selectionAnchor(BuildContext context) {
     final terminal = widget.terminal;
+    final render = _terminalViewKey.currentState?.renderTerminal;
+    final box = context.findRenderObject() as RenderBox?;
     final range = terminal == null
         ? null
         : _controller.selectionFor(terminal.buffer);
-    final row = range?.begin.y ?? 0;
-    final col = range?.begin.x ?? 0;
+    final scroll = _verticalScroll.hasClients ? _verticalScroll.offset : 0.0;
+    final global = render?.localToGlobal(
+      Offset(
+        (range?.begin.x ?? 0) * _cellWidth,
+        (range?.begin.y ?? 0) * _cellHeight - scroll,
+      ),
+    );
+    if (box == null || global == null) return Offset.zero;
+    final local = box.globalToLocal(global);
     return Offset(
-      (col - _horizontalOffsetColumns) * _cellWidth,
-      row * _cellHeight,
+      local.dx.clamp(0.0, box.size.width),
+      local.dy.clamp(AppSize.targetMin, box.size.height),
     );
   }
 

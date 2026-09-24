@@ -794,21 +794,24 @@ resolvable family for a codepoint, the final `monospace` fallback renders a tofu
 
 ## 6. Input Path
 
-### 6.1 On-screen key row
+### 6.1 On-screen key panel
 
-**R-21-015.** The Device MUST show a key row above the system keyboard with these buttons:
+**R-21-015.** The Device MUST provide the key panel of R-03-117 above the input bar.
+The `+` control opens it without changing keyboard visibility, per R-03-133.
+R-31-09-21 owns its two default pages, navigation keys, labels, and function keys.
+R-31-09-40 owns page state and overflow. These named keys use the paths below.
 
 | Button | Label | Maps to |
 |---|---|---|
-| ESC | `Esc` | `pane_input` relay message with `keys: ["Esc"]` (`docs/11-relay-protocol.md`) |
-| TAB | `TAB` | `pane_input` relay message with `keys: ["Tab"]` |
-| CTRL | `CTRL` | Modifier toggle. When active, the next character key is sent as a Control chord. |
-| ALT | `ALT` | Modifier toggle. When active, the next character key is sent as an Alt chord. |
+| ESC | `esc` | `pane_input` relay message with `keys: ["Esc"]` (`docs/11-relay-protocol.md`) |
+| TAB | `tab` | `pane_input` relay message with `keys: ["Tab"]` |
+| CTRL | `ctrl` | Modifier toggle. The next character or Tab sends a Control chord. |
+| ALT | `alt` | Modifier toggle. The next character or Tab sends an Alt chord. |
 | ← | `←` | `pane_input` relay message with `keys: ["Left"]` |
 | → | `→` | `pane_input` relay message with `keys: ["Right"]` |
 | ↑ | `↑` | `pane_input` relay message with `keys: ["Up"]` |
 | ↓ | `↓` | `pane_input` relay message with `keys: ["Down"]` |
-| F1–F12 | `F1`–`F12` | `pane_input` relay message with `keys: ["F1"]`–`["F12"]` |
+| F1–F12 | `f1`–`f12` | `pane_input` relay message with `keys: ["F1"]`–`["F12"]`; modifier states stay unchanged |
 
 ### 6.2 Control and Alt chords
 
@@ -912,13 +915,12 @@ names are in `ExtraKeysConstants.java` (lines 21–49): `ESC`, `TAB`, `CTRL`, `A
 `UIInputView` that shows ESC, TAB, CTRL, arrow keys, F1–F10, and special characters (~, |, /, -).
 The CTRL button toggles `controlModifier`. Arrow keys auto-repeat. Source: lines 75–96 and 128–214.
 
-**R-21-020.** The Device MUST build a custom key row in Flutter. Neither Termux `ExtraKeysView` nor
-SwiftTerm `TerminalAccessory` is a Dart/Flutter widget. The `xterm2` package does not include a key
-toolbar. The custom key row MUST be a Flutter `Row` or `Wrap` widget placed above the system
-keyboard, using `TextInputType` and `SystemChannels.textInput` to manage the soft keyboard. The key
-row MUST follow the touch-target rule (48 × 48 logical pixels minimum, R-30-290), colour tokens,
-spacing tokens (4 base scale per the spacing table in docs/30-ux-spec.md), and type-scale tokens
-from `docs/30-ux-spec.md`.
+**R-21-020.** The Device MUST compose the key panel from Flutter's native controls.
+Neither Termux `ExtraKeysView` nor SwiftTerm `TerminalAccessory` is a Dart/Flutter widget.
+The `xterm2` package does not include a key toolbar. R-33-081 owns the SDK pager on both platforms.
+R-32-535 owns native key caps. R-31-09-40 governs overflow, without an inner horizontal scroll.
+The panel MUST preserve keyboard state and the 48 by 48 logical pixel target floor of R-30-290.
+Amended 2026-09-23 by the product owner, per R-03-117.
 
 ## 7. Performance Budget
 

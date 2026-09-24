@@ -1089,7 +1089,7 @@ Sorted by document, then by rule id. `Cat.` is the evidence category (A/B/C/D/E)
 | `R-31-08-22` | B | docs/90-implementation-plan.md:2881-2884 (checked checkbox) |
 | `R-31-08-23` | E | UNRESOLVED — no test citation, no recorded Verified: checkbox, no sibling test file, no matched gate |
 
-### `docs/31-mockups/09-key-row.md` (22 rules — A=10, B=8, E=3)
+### `docs/31-mockups/09-key-row.md` (historical coverage, pager amendment 2026-09-23)
 
 | Rule | Cat. | Proof |
 | --- | --- | --- |
@@ -1108,8 +1108,8 @@ Sorted by document, then by rule id. `Cat.` is the evidence category (A/B/C/D/E)
 | `R-31-09-13` | B | docs/90-implementation-plan.md:2954-2955 (checked checkbox) |
 | `R-31-09-14` | E | UNRESOLVED — no test citation, no recorded Verified: checkbox, no sibling test file, no matched gate |
 | `R-31-09-15` | E | UNRESOLVED — no test citation, no recorded Verified: checkbox, no sibling test file, no matched gate |
-| `R-31-09-16` | A | app/test/a11y/touch_target_test.dart, group `KeyRow grid scrolling (R-31-09-16, R-31-09-21, R-03-117)`: `six columns fit 360 px, so the grid has nothing to scroll` and `the middle four columns scroll as one unit while esc, ins, del, the toggle and → stay fixed (R-31-09-16, R-31-09-21)`; app/test/widgets/key_row_test.dart, group `KeyRow geometry (R-31-09-21, R-03-117)`: `no two keys overlap, and the pinned columns sit clear of the scroll region` and `every column carries one meaning down the three rows (R-03-117)`. Amended 2026-09-10 per `R-03-117` as amended and Main's pinned-columns decision |
-| `R-31-09-17` | A | app/test/widgets/key_row_test.dart, group `KeyRow geometry (R-31-09-21, R-03-117)`: `bank one fills six columns at 390 px with nothing to scroll` and `every column carries one meaning down the three rows (R-03-117)`; app/test/a11y/touch_target_test.dart, `the middle four columns scroll as one unit while esc, ins, del, the toggle and → stay fixed (R-31-09-16, R-31-09-21)` proves the one region across three rows. Amended 2026-09-10 per `R-03-117` as amended |
+| `R-31-09-16` | E | The 2026-09-23 amendment supersedes the old inner-scroll and pinned-column tests. R-31-09-40 now governs pager and overflow coverage. |
+| `R-31-09-17` | E | The 2026-09-23 amendment supersedes the old single-grid geometry tests. R-31-09-40 now governs page geometry and overflow coverage. |
 | `R-31-09-18` | A | app/test/widgets/key_row_test.dart |
 | `R-31-09-19` | A | app/test/a11y/touch_target_test.dart:106; app/test/services/chord_latch_test.dart, group `ChordLatch latches ctrl and alt together (R-03-120)`: `a tap on the other modifier adds it and never replaces it`, `a third tap releases that modifier alone` and `the timeout releases the held modifiers and leaves a locked one` prove the added modifier and the per-modifier exits |
 | `R-31-09-20` | retired | Retired 2026-09-10 per `R-03-116` with the Shortcuts palette it laid out; no test proves a retired rule. The test that covered it, `app/test/a11y/touch_target_test.dart`, now covers bank two under `R-31-09-24` as `R-03-117` lays it out |

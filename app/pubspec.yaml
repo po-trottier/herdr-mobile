@@ -15,7 +15,7 @@ dependencies:
   material_ui: 1.1.0
   cupertino_ui: 1.0.1
   # Cupertino glyph font: the platform back button, search field and expansion tile draw it. R-20-044.
-  cupertino_icons: 1.0.9
+  cupertino_icons: 2.0.0
   xterm2: 5.2.0
 
   # State management and dependency injection.

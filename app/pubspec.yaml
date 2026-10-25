@@ -19,7 +19,7 @@ dependencies:
   xterm2: 5.2.0
 
   # State management and dependency injection.
-  flutter_riverpod: 3.4.2
+  flutter_riverpod: 3.4.3
 
   # Navigation and deep links.
   go_router: 18.0.0

@@ -38,7 +38,7 @@ dependencies:
   # Platform integration, one package per docs/22-platform-integration.md rule.
   flutter_secure_storage: 10.3.1
   local_auth: 3.0.2
-  flutter_local_notifications: 22.3.0
+  flutter_local_notifications: 22.3.1
   firebase_core: 4.15.0
   firebase_messaging: 16.7.0
   connectivity_plus: 7.3.1
